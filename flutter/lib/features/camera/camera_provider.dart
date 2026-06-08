@@ -7,13 +7,13 @@ import '../../core/models/drug_models.dart';
 class CameraProvider extends ChangeNotifier {
   List<DrugNameMatchResult> _matchResults = [];
   bool _isProcessing = false;
-  bool _isAddingToBox = false;
+  bool _isAdding = false;
   String? _error;
   int _addDoneCount = 0;
 
   List<DrugNameMatchResult> get matchResults => _matchResults;
   bool get isProcessing => _isProcessing;
-  bool get isAddingToBox => _isAddingToBox;
+  bool get isAdding => _isAdding;
   String? get error => _error;
   int get addDoneCount => _addDoneCount;
 
@@ -55,7 +55,7 @@ class CameraProvider extends ChangeNotifier {
   }
 
   Future<void> addDrugsToBox(List<String> drugIds) async {
-    _isAddingToBox = true;
+    _isAdding = true;
     _error = null;
     notifyListeners();
     final results = await Future.wait(
@@ -64,7 +64,7 @@ class CameraProvider extends ChangeNotifier {
           .then((_) => true)
           .catchError((_) => false)),
     );
-    _isAddingToBox = false;
+    _isAdding = false;
     _addDoneCount = results.where((ok) => ok).length;
     if (_addDoneCount == 0) {
       _error = '약 추가에 실패했습니다. 다시 시도해 주세요.';

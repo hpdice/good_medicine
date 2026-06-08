@@ -37,14 +37,23 @@ class _OcrResultScreenState extends State<OcrResultScreen> {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               if (_checked.isNotEmpty) ...[
                 FilledButton(
-                  onPressed: cam.isAddingToBox
+                  onPressed: cam.isAdding
                       ? null
                       : () => cam.addDrugsToBox(_checked.toList()),
-                  child: cam.isAddingToBox
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2))
+                  child: cam.isAdding
+                      ? const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white),
+                            ),
+                            SizedBox(width: 10),
+                            Text('추가 중...'),
+                          ],
+                        )
                       : Text('내 약에 추가 (${_checked.length}개)'),
                 ),
                 const SizedBox(height: 8),
