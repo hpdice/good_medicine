@@ -68,7 +68,21 @@ class _OcrResultScreenState extends State<OcrResultScreen> {
             ]),
           ),
         ),
-        body: _buildBody(context, cam),
+        body: Stack(children: [
+          _buildBody(context, cam),
+          if (cam.isAdding)
+            Container(
+              color: Colors.black54,
+              child: const Center(
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  CircularProgressIndicator(color: Colors.white),
+                  SizedBox(height: 16),
+                  Text('약품을 추가하는 중입니다...',
+                      style: TextStyle(color: Colors.white, fontSize: 16)),
+                ]),
+              ),
+            ),
+        ]),
       );
     });
   }
