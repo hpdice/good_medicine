@@ -95,9 +95,9 @@ class CameraProvider extends ChangeNotifier {
       }
     }
 
-    // 약품명 패턴: 剂型 바로 뒤 숫자, 또는 숫자+단위
+    // 약품명 패턴: 剂型+숫자 | 숫자+단위 | 剂型으로 끝나는 이름(낙센에프정 등)
     final drugPattern = RegExp(
-      r'(정|캡슐|주사|액|시럽|연고|크림)\d|\d+(mg|㎎|mcg|μg|g|ml|mL)\b',
+      r'(정|캡슐|주사|액|시럽|연고|크림)\d|\d+(mg|㎎|mcg|μg|g|ml|mL)\b|(정|캡슐|주사|액|시럽|연고|크림)$',
       caseSensitive: false,
     );
     return merged
