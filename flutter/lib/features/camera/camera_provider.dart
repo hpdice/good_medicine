@@ -78,6 +78,11 @@ class CameraProvider extends ChangeNotifier {
   }
 
   List<String> _extractCandidates(String text) {
+    // 약품명 패턴: '정/캡슐/주사/액' 바로 뒤 숫자, 또는 숫자+단위(mg/g 등)
+    final drugPattern = RegExp(
+      r'(정|캡슐|주사|액|시럽|연고|크림)\d|\d+(mg|㎎|mcg|μg|g|ml|mL)\b',
+      caseSensitive: false,
+    );
     return text
         .split('\n')
         .map((l) => l.trim())
@@ -85,7 +90,7 @@ class CameraProvider extends ChangeNotifier {
             l.length >= 2 &&
             l.length <= 50 &&
             RegExp(r'[가-힣]').hasMatch(l) &&
-            RegExp(r'[정캡슐주사액mg㎎]|\d+', caseSensitive: false).hasMatch(l))
+            drugPattern.hasMatch(l))
         .take(20)
         .toList();
   }
