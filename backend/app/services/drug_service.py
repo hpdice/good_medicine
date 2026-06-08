@@ -74,10 +74,14 @@ class DrugService:
             name_prefix = _re.split(r'\d', normalized_key)[0]
             rows = []
             if len(name_prefix) >= 2:
+                order_expr = case(
+                    (Drug.drug_key == normalized_key, 0),
+                    else_=1,
+                )
                 rows = list((await self.db.execute(
                     select(Drug)
                     .where(Drug.drug_key.startswith(name_prefix))
-                    .order_by(Drug.drug_key)
+                    .order_by(order_expr, Drug.drug_key)
                     .limit(5)
                 )).scalars().all())
 
