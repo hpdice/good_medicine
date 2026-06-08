@@ -78,14 +78,29 @@ class CameraProvider extends ChangeNotifier {
   }
 
   List<String> _extractCandidates(String text) {
-    // 약품명 패턴: '정/캡슐/주사/액' 바로 뒤 숫자, 또는 숫자+단위(mg/g 등)
+    final lines = text.split('\n').map((l) => l.trim()).toList();
+
+    // 약품명(정/캡슐 등으로 끝) + 다음 줄이 순수 용량(20mg)이면 합친다
+    final drugFormEnd = RegExp(r'(정|캡슐|주사|액|시럽|연고|크림)$');
+    final dosageOnly = RegExp(r'^\d+(\.\d+)?(mg|㎎|mcg|μg|g|ml|mL)$', caseSensitive: false);
+    final merged = <String>[];
+    for (int i = 0; i < lines.length; i++) {
+      if (drugFormEnd.hasMatch(lines[i]) &&
+          i + 1 < lines.length &&
+          dosageOnly.hasMatch(lines[i + 1])) {
+        merged.add(lines[i] + lines[i + 1]);
+        i++;
+      } else {
+        merged.add(lines[i]);
+      }
+    }
+
+    // 약품명 패턴: 剂型 바로 뒤 숫자, 또는 숫자+단위
     final drugPattern = RegExp(
       r'(정|캡슐|주사|액|시럽|연고|크림)\d|\d+(mg|㎎|mcg|μg|g|ml|mL)\b',
       caseSensitive: false,
     );
-    return text
-        .split('\n')
-        .map((l) => l.trim())
+    return merged
         .where((l) =>
             l.length >= 2 &&
             l.length <= 50 &&
