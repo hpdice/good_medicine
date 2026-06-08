@@ -588,8 +588,11 @@ def _make_simple_name(item_name: str) -> str:
 def _make_drug_key(name: str) -> str:
     s = str(name)
     s = re.sub(r'\([^)]*\)', '', s)
+    s = re.sub(r'밀리그램', 'mg', s)
     s = re.sub(r'밀리그람', 'mg', s)
+    s = re.sub(r'마이크로그램', 'mcg', s)
     s = re.sub(r'마이크로그람', 'mcg', s)
+    s = re.sub(r'그램', 'g', s)
     s = re.sub(r'그람', 'g', s)
     s = s.replace(' ', '')
     s = re.sub(r'[^\w]', '', s, flags=re.UNICODE)

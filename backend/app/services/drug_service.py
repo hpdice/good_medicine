@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import NotFoundError
 from app.models.drug import Drug
 from app.models.drug_interaction import DrugInteraction
+from app.services.public_data_service import _make_drug_key
 
 
 class DrugService:
@@ -62,28 +63,50 @@ class DrugService:
         return list(result.scalars().all())
 
     async def match_names(self, names: list[str]) -> list[dict]:
-        """약품명 리스트 각각을 simple_name/item_name ILIKE 검색, 정확도 우선 정렬."""
+        """약품명 리스트 각각을 drug_key → ILIKE 순으로 검색, 정확도 우선 정렬."""
         results = []
         for name in names:
-            order_expr = case(
-                (Drug.simple_name.ilike(name), 0),
-                (Drug.item_name.ilike(name), 1),
-                (Drug.simple_name.ilike(f"{name}%"), 2),
-                (Drug.item_name.ilike(f"{name}%"), 3),
-                else_=4,
-            )
-            stmt = (
+            normalized_key = _make_drug_key(name)
+
+            # 1순위: drug_key 정규화 매칭 (mg ↔ 밀리그램 등 단위 차이 흡수)
+            key_stmt = (
                 select(Drug)
-                .where(
-                    or_(
-                        Drug.item_name.ilike(f"%{name}%"),
-                        Drug.simple_name.ilike(f"%{name}%"),
-                    )
-                )
-                .order_by(order_expr)
+                .where(Drug.drug_key == normalized_key)
                 .limit(5)
             )
-            rows = list((await self.db.execute(stmt)).scalars().all())
+            rows = list((await self.db.execute(key_stmt)).scalars().all())
+
+            # 2순위: drug_key prefix 매칭
+            if not rows:
+                prefix_stmt = (
+                    select(Drug)
+                    .where(Drug.drug_key.startswith(normalized_key))
+                    .limit(5)
+                )
+                rows = list((await self.db.execute(prefix_stmt)).scalars().all())
+
+            # 3순위: item_name / simple_name ILIKE 폴백
+            if not rows:
+                order_expr = case(
+                    (Drug.simple_name.ilike(name), 0),
+                    (Drug.item_name.ilike(name), 1),
+                    (Drug.simple_name.ilike(f"{name}%"), 2),
+                    (Drug.item_name.ilike(f"{name}%"), 3),
+                    else_=4,
+                )
+                stmt = (
+                    select(Drug)
+                    .where(
+                        or_(
+                            Drug.item_name.ilike(f"%{name}%"),
+                            Drug.simple_name.ilike(f"%{name}%"),
+                        )
+                    )
+                    .order_by(order_expr)
+                    .limit(5)
+                )
+                rows = list((await self.db.execute(stmt)).scalars().all())
+
             matched = rows[0] if rows else None
             alternatives = rows[1:] if len(rows) > 1 else []
             results.append({
