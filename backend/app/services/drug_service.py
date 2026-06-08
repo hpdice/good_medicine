@@ -63,27 +63,28 @@ class DrugService:
         return list(result.scalars().all())
 
     async def match_names(self, names: list[str]) -> list[dict]:
-        """약품명 리스트 각각을 drug_key → ILIKE 순으로 검색, 정확도 우선 정렬."""
+        """약품명 리스트 각각을 drug_key → 용량 제거 prefix → ILIKE 순으로 검색."""
         results = []
         for name in names:
             normalized_key = _make_drug_key(name)
 
             # 1순위: drug_key 정규화 매칭 (mg ↔ 밀리그램 등 단위 차이 흡수)
-            key_stmt = (
-                select(Drug)
-                .where(Drug.drug_key == normalized_key)
-                .limit(5)
-            )
-            rows = list((await self.db.execute(key_stmt)).scalars().all())
+            rows = list((await self.db.execute(
+                select(Drug).where(Drug.drug_key == normalized_key).limit(5)
+            )).scalars().all())
 
-            # 2순위: drug_key prefix 매칭
+            # 2순위: 용량 제거 — 첫 숫자 앞까지 잘라서 prefix 검색
+            # 예: '가스핀정5mg' → '가스핀정' 으로 'drug_key LIKE 가스핀정%'
             if not rows:
-                prefix_stmt = (
-                    select(Drug)
-                    .where(Drug.drug_key.startswith(normalized_key))
-                    .limit(5)
-                )
-                rows = list((await self.db.execute(prefix_stmt)).scalars().all())
+                import re as _re
+                name_prefix = _re.split(r'\d', normalized_key)[0]
+                if len(name_prefix) >= 2:
+                    rows = list((await self.db.execute(
+                        select(Drug)
+                        .where(Drug.drug_key.startswith(name_prefix))
+                        .order_by(Drug.drug_key)
+                        .limit(5)
+                    )).scalars().all())
 
             # 3순위: item_name / simple_name ILIKE 폴백
             if not rows:
@@ -94,18 +95,15 @@ class DrugService:
                     (Drug.item_name.ilike(f"{name}%"), 3),
                     else_=4,
                 )
-                stmt = (
+                rows = list((await self.db.execute(
                     select(Drug)
-                    .where(
-                        or_(
-                            Drug.item_name.ilike(f"%{name}%"),
-                            Drug.simple_name.ilike(f"%{name}%"),
-                        )
-                    )
+                    .where(or_(
+                        Drug.item_name.ilike(f"%{name}%"),
+                        Drug.simple_name.ilike(f"%{name}%"),
+                    ))
                     .order_by(order_expr)
                     .limit(5)
-                )
-                rows = list((await self.db.execute(stmt)).scalars().all())
+                )).scalars().all())
 
             matched = rows[0] if rows else None
             alternatives = rows[1:] if len(rows) > 1 else []
