@@ -58,18 +58,17 @@ class CameraProvider extends ChangeNotifier {
     _isAddingToBox = true;
     _error = null;
     notifyListeners();
-    int count = 0;
-    for (final id in drugIds) {
-      try {
-        await ApiClient.dio.post('medicine-box', data: {'drug_id': id});
-        count++;
-      } catch (_) {}
-    }
+    final results = await Future.wait(
+      drugIds.map((id) => ApiClient.dio
+          .post('medicine-box', data: {'drug_id': id})
+          .then((_) => true)
+          .catchError((_) => false)),
+    );
     _isAddingToBox = false;
-    if (count == 0) {
+    _addDoneCount = results.where((ok) => ok).length;
+    if (_addDoneCount == 0) {
       _error = '약 추가에 실패했습니다. 다시 시도해 주세요.';
     }
-    _addDoneCount = count;
     notifyListeners();
   }
 
