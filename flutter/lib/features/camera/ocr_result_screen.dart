@@ -31,25 +31,34 @@ class _OcrResultScreenState extends State<OcrResultScreen> {
             onPressed: () => context.pop(),
           ),
         ),
-        bottomNavigationBar: _checked.isNotEmpty
-            ? SafeArea(
-                child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: FilledButton(
-                    onPressed: cam.isAddingToBox
-                        ? null
-                        : () => cam.addDrugsToBox(_checked.toList()),
-                    child: cam.isAddingToBox
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : Text('내 약에 추가 (${_checked.length}개)'),
-                  ),
+        bottomNavigationBar: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              if (_checked.isNotEmpty) ...[
+                FilledButton(
+                  onPressed: cam.isAddingToBox
+                      ? null
+                      : () => cam.addDrugsToBox(_checked.toList()),
+                  child: cam.isAddingToBox
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : Text('내 약에 추가 (${_checked.length}개)'),
                 ),
-              )
-            : null,
+                const SizedBox(height: 8),
+              ],
+              OutlinedButton.icon(
+                onPressed: () => context.go('/search'),
+                icon: const Icon(Icons.search, size: 18),
+                label: const Text('인식 안 된 약은 직접 검색으로 추가'),
+                style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(44)),
+              ),
+            ]),
+          ),
+        ),
         body: _buildBody(context, cam),
       );
     });
@@ -59,20 +68,29 @@ class _OcrResultScreenState extends State<OcrResultScreen> {
     if (cam.isProcessing) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (cam.error != null && cam.matchResults.isEmpty) {
+    if (cam.isProcessing == false && cam.matchResults.isEmpty) {
       return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(cam.error!),
-          const SizedBox(height: 16),
-          FilledButton(
-            onPressed: () => context.go('/'),
-            child: const Text('검색으로 이동'),
-          ),
-        ]),
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.search_off, size: 48, color: Colors.grey),
+            const SizedBox(height: 16),
+            const Text('약품명을 자동으로 인식하지 못했습니다.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 16)),
+            const SizedBox(height: 8),
+            Text('사진 각도나 조명을 바꿔 다시 시도하거나\n아래 버튼으로 직접 검색해 주세요.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: () => context.go('/search'),
+              icon: const Icon(Icons.search),
+              label: const Text('직접 검색으로 추가'),
+            ),
+          ]),
+        ),
       );
-    }
-    if (cam.matchResults.isEmpty) {
-      return const Center(child: Text('추출된 약품명이 없습니다.'));
     }
     return ListView.separated(
       padding: const EdgeInsets.all(16),
