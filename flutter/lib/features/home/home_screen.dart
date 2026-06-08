@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/models/analysis_models.dart';
 import '../../core/models/medicine_box_models.dart';
+import '../camera/camera_provider.dart';
 import 'home_provider.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -23,10 +24,37 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<HomeProvider>(builder: (context, home, _) {
+    return Consumer2<HomeProvider, CameraProvider>(
+        builder: (context, home, cam, _) {
+      if (cam.addDoneCount > 0) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          cam.resetAddDone();
+          home.loadEntries();
+        });
+      }
       return Scaffold(
         appBar: AppBar(title: const Text('내 약 목록')),
-        body: _buildBody(context, home),
+        body: Column(children: [
+          if (cam.isAdding)
+            Container(
+              width: double.infinity,
+              color: Colors.orange.shade50,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(children: [
+                const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 10),
+                Text('약품을 추가하는 중입니다...',
+                    style: TextStyle(
+                        fontSize: 13, color: Colors.orange.shade800)),
+              ]),
+            ),
+          Expanded(child: _buildBody(context, home)),
+        ]),
       );
     });
   }

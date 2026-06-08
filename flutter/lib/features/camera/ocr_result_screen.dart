@@ -17,12 +17,6 @@ class _OcrResultScreenState extends State<OcrResultScreen> {
   @override
   Widget build(BuildContext context) {
     return Consumer<CameraProvider>(builder: (context, cam, _) {
-      if (cam.addDoneCount > 0) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          cam.resetAddDone();
-          context.go('/');
-        });
-      }
       return Scaffold(
         appBar: AppBar(
           title: const Text('OCR 결과'),
@@ -37,24 +31,12 @@ class _OcrResultScreenState extends State<OcrResultScreen> {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               if (_checked.isNotEmpty) ...[
                 FilledButton(
-                  onPressed: cam.isAdding
-                      ? null
-                      : () => cam.addDrugsToBox(_checked.toList()),
-                  child: cam.isAdding
-                      ? const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white),
-                            ),
-                            SizedBox(width: 10),
-                            Text('추가 중...'),
-                          ],
-                        )
-                      : Text('내 약에 추가 (${_checked.length}개)'),
+                  onPressed: () {
+                    final ids = _checked.toList();
+                    context.go('/');
+                    cam.addDrugsToBox(ids);
+                  },
+                  child: Text('내 약에 추가 (${_checked.length}개)'),
                 ),
                 const SizedBox(height: 8),
               ],
@@ -68,21 +50,7 @@ class _OcrResultScreenState extends State<OcrResultScreen> {
             ]),
           ),
         ),
-        body: Stack(children: [
-          _buildBody(context, cam),
-          if (cam.isAdding)
-            Container(
-              color: Colors.black54,
-              child: const Center(
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  CircularProgressIndicator(color: Colors.white),
-                  SizedBox(height: 16),
-                  Text('약품을 추가하는 중입니다...',
-                      style: TextStyle(color: Colors.white, fontSize: 16)),
-                ]),
-              ),
-            ),
-        ]),
+        body: _buildBody(context, cam),
       );
     });
   }
