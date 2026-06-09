@@ -1,3 +1,4 @@
+import re
 import uuid
 
 from sqlalchemy import case, or_, select
@@ -70,8 +71,7 @@ class DrugService:
 
             # 1순위: 용량 제거 — 첫 숫자 앞까지 잘라서 prefix 검색
             # 예: '가스핀정5mg' → '가스핀정', '이미그란정50mg' → '이미그란정'
-            import re as _re
-            name_prefix = _re.split(r'\d', normalized_key)[0]
+            name_prefix = re.split(r'\d', normalized_key)[0]
             rows = []
             if len(name_prefix) >= 2:
                 order_expr = case(

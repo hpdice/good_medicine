@@ -9,6 +9,7 @@ class SearchProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _error;
   bool _addSuccess = false;
+  CancelToken? _cancelToken;
 
   String get query => _query;
   List<DrugSearchResult> get results => _results;
@@ -22,23 +23,24 @@ class SearchProvider extends ChangeNotifier {
   }
 
   Future<void> search(String q) async {
+    _cancelToken?.cancel();
     if (q.trim().isEmpty) {
       _results = [];
       notifyListeners();
       return;
     }
+    _cancelToken = CancelToken();
     _isLoading = true;
     _error = null;
     notifyListeners();
     try {
-      final res = await ApiClient.dio.get('drugs', queryParameters: {
-        'q': q,
-        'page': 1,
-        'limit': 20,
-      });
+      final res = await ApiClient.dio.get('drugs',
+          queryParameters: {'q': q, 'page': 1, 'limit': 20},
+          cancelToken: _cancelToken);
       _results =
           (res.data as List).map((e) => DrugSearchResult.fromJson(e)).toList();
     } on DioException catch (e) {
+      if (CancelToken.isCancel(e)) return;
       _error = '검색 실패 (${e.response?.statusCode ?? '네트워크 오류'})';
     } finally {
       _isLoading = false;

@@ -67,7 +67,11 @@ class HomeProvider extends ChangeNotifier {
       );
       _checkResult = QuickCheckResponse.fromJson(res.data);
       _buildRiskMap();
-    } catch (_) {}
+    } on DioException {
+      // quick-check 실패는 비-차단 — 목록은 유지하고 상호작용 배너만 숨김
+      _checkResult = null;
+      _riskMap = {};
+    }
   }
 
   void _buildRiskMap() {
@@ -75,8 +79,10 @@ class HomeProvider extends ChangeNotifier {
     if (result == null) return;
     _riskMap = {for (final e in _entries) e.drug.id: DrugRisk.safe};
     for (final f in result.findings) {
-      _riskMap[f.drug1Id] = DrugRisk.contraindicated;
-      _riskMap[f.drug2Id] = DrugRisk.contraindicated;
+      if (f.interactionType == 'contraindicated') {
+        _riskMap[f.drug1Id] = DrugRisk.contraindicated;
+        _riskMap[f.drug2Id] = DrugRisk.contraindicated;
+      }
     }
   }
 }

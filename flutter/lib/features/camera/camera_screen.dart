@@ -17,6 +17,7 @@ class _CameraScreenState extends State<CameraScreen> {
   CameraController? _controller;
   bool _hasPermission = false;
   bool _capturing = false;
+  String? _initError;
 
   @override
   void initState() {
@@ -25,18 +26,26 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _initCamera() async {
-    final status = await Permission.camera.request();
-    if (!mounted) return;
-    if (!status.isGranted) {
-      setState(() => _hasPermission = false);
-      return;
+    try {
+      final status = await Permission.camera.request();
+      if (!mounted) return;
+      if (!status.isGranted) {
+        setState(() => _hasPermission = false);
+        return;
+      }
+      setState(() => _hasPermission = true);
+      final cameras = await availableCameras();
+      if (!mounted) return;
+      if (cameras.isEmpty) {
+        setState(() => _initError = '사용 가능한 카메라가 없습니다.');
+        return;
+      }
+      _controller = CameraController(cameras.first, ResolutionPreset.high);
+      await _controller!.initialize();
+      if (mounted) setState(() {});
+    } catch (e) {
+      if (mounted) setState(() => _initError = '카메라 초기화 실패: $e');
     }
-    setState(() => _hasPermission = true);
-    final cameras = await availableCameras();
-    if (cameras.isEmpty) return;
-    _controller = CameraController(cameras.first, ResolutionPreset.high);
-    await _controller!.initialize();
-    if (mounted) setState(() {});
   }
 
   @override
@@ -51,10 +60,9 @@ class _CameraScreenState extends State<CameraScreen> {
     try {
       final file = await _controller!.takePicture();
       final inputImage = InputImage.fromFilePath(file.path);
-      if (mounted) {
-        await context.read<CameraProvider>().processImage(inputImage);
-        context.push('/ocr-result');
-      }
+      if (!mounted) return;
+      await context.read<CameraProvider>().processImage(inputImage);
+      if (mounted) context.push('/ocr-result');
     } finally {
       if (mounted) setState(() => _capturing = false);
     }
@@ -62,6 +70,23 @@ class _CameraScreenState extends State<CameraScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_initError != null) {
+      return Scaffold(
+        appBar: AppBar(),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Text(_initError!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              const SizedBox(height: 16),
+              FilledButton(onPressed: _initCamera, child: const Text('다시 시도')),
+            ]),
+          ),
+        ),
+      );
+    }
     if (!_hasPermission) {
       return Scaffold(
         appBar: AppBar(),

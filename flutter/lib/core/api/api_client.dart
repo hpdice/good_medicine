@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:dio/dio.dart';
 import '../storage/token_storage.dart';
 
@@ -10,6 +11,9 @@ class ApiClient {
   );
 
   static final Dio dio = _build();
+
+  // 동시 401 처리: 첫 번째 refresh 완료를 기다렸다가 두 번째 요청도 재시도
+  static Completer<String?>? _refreshCompleter;
 
   static Dio _build() {
     final dio = Dio(BaseOptions(
@@ -30,28 +34,66 @@ class ApiClient {
         final isUnauth = error.response?.statusCode == 401;
         final alreadyRetried =
             error.requestOptions.headers['X-Retry-After-Refresh'] != null;
-        if (isUnauth && !alreadyRetried) {
-          final refresh = await TokenStorage.getRefreshToken();
-          if (refresh != null) {
-            try {
-              final res = await Dio().post(
-                '${baseUrl}auth/refresh',
-                data: {'refresh_token': refresh},
-              );
-              final newToken = res.data['access_token'] as String;
-              final newRefresh = res.data['refresh_token'] as String;
-              await TokenStorage.saveTokens(newToken, newRefresh);
-              final opts = error.requestOptions
-                ..headers['Authorization'] = 'Bearer $newToken'
-                ..headers['X-Retry-After-Refresh'] = 'true';
-              final retried = await dio.fetch(opts);
-              return handler.resolve(retried);
-            } catch (_) {
-              await TokenStorage.clearTokens();
-            }
-          }
+
+        if (!isUnauth || alreadyRetried) {
+          handler.next(error);
+          return;
         }
-        handler.next(error);
+
+        // 이미 refresh 중이면 완료될 때까지 대기
+        if (_refreshCompleter != null) {
+          final newToken = await _refreshCompleter!.future;
+          if (newToken != null) {
+            final opts = error.requestOptions
+              ..headers['Authorization'] = 'Bearer $newToken'
+              ..headers['X-Retry-After-Refresh'] = 'true';
+            try {
+              handler.resolve(await dio.fetch(opts));
+            } catch (_) {
+              handler.next(error);
+            }
+          } else {
+            handler.next(error);
+          }
+          return;
+        }
+
+        final refresh = await TokenStorage.getRefreshToken();
+        if (refresh == null) {
+          await TokenStorage.clearTokens();
+          handler.next(error);
+          return;
+        }
+
+        _refreshCompleter = Completer();
+        String? newToken;
+        try {
+          final res = await Dio().post(
+            '${baseUrl}auth/refresh',
+            data: {'refresh_token': refresh},
+          );
+          newToken = res.data['access_token'] as String;
+          final newRefresh = res.data['refresh_token'] as String;
+          await TokenStorage.saveTokens(newToken, newRefresh);
+        } catch (_) {
+          await TokenStorage.clearTokens();
+        } finally {
+          _refreshCompleter!.complete(newToken);
+          _refreshCompleter = null;
+        }
+
+        if (newToken != null) {
+          final opts = error.requestOptions
+            ..headers['Authorization'] = 'Bearer $newToken'
+            ..headers['X-Retry-After-Refresh'] = 'true';
+          try {
+            handler.resolve(await dio.fetch(opts));
+          } catch (_) {
+            handler.next(error);
+          }
+        } else {
+          handler.next(error);
+        }
       },
     ));
 

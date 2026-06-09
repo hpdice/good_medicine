@@ -14,6 +14,7 @@ import 'features/search/search_provider.dart';
 import 'features/search/search_screen.dart';
 
 final _router = GoRouter(
+  refreshListenable: TokenStorage.authNotifier,
   redirect: (context, state) async {
     final token = await TokenStorage.getAccessToken();
     final isLoggedIn = token != null;
@@ -63,23 +64,19 @@ class App extends StatelessWidget {
   }
 }
 
-class _MainShell extends StatefulWidget {
+class _MainShell extends StatelessWidget {
   final Widget child;
   const _MainShell({required this.child});
 
   @override
-  State<_MainShell> createState() => _MainShellState();
-}
-
-class _MainShellState extends State<_MainShell> {
-  int _selectedIndex = 0;
-
-  @override
   Widget build(BuildContext context) {
+    final loc = GoRouterState.of(context).matchedLocation;
+    final selectedIndex = loc == '/search' ? 1 : 0;
+
     return Scaffold(
-      body: widget.child,
+      body: child,
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
+        selectedIndex: selectedIndex,
         onDestinationSelected: (i) {
           switch (i) {
             case 0:

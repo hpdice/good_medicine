@@ -1,7 +1,3 @@
-import 'package:flutter_test/flutter_test.dart';
-
 void main() {
-  test('placeholder', () {
-    expect(true, isTrue);
-  });
+  // 통합 테스트는 별도 integration_test/ 디렉토리에서 작성
 }

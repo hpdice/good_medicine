@@ -63,6 +63,17 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Widget _buildResults(BuildContext context, SearchProvider search) {
     if (search.isLoading) return const Center(child: CircularProgressIndicator());
+    if (search.error != null) {
+      return Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(search.error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          const SizedBox(height: 8),
+          TextButton(
+              onPressed: search.clearError, child: const Text('닫기')),
+        ]),
+      );
+    }
     if (search.results.isEmpty && search.query.isNotEmpty) {
       return const Center(child: Text('검색 결과가 없습니다.'));
     }

@@ -2,6 +2,7 @@ class FindingItem {
   final String drug1Id, drug1Name, drug2Id, drug2Name, interactionType;
   final String? mechanism;
 
+
   FindingItem.fromJson(Map<String, dynamic> j)
       : drug1Id = j['drug1_id'],
         drug1Name = j['drug1_name'],
