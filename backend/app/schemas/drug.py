@@ -1,0 +1,65 @@
+import uuid
+from datetime import date, datetime
+
+from pydantic import BaseModel
+
+
+class DrugResponse(BaseModel):
+    id: uuid.UUID
+    item_seq: str
+    item_name: str
+    entp_name: str | None
+    item_permit_date: date | None
+    main_item_ingr: str | None
+    ingr_name: list | None
+    efcy_qesitm: str | None
+    use_method_qesitm: str | None
+    atpn_warn_qesitm: str | None
+    atpn_qesitm: str | None
+    se_qesitm: str | None
+    drug_shape: str | None
+    color_class1: str | None
+    print_front: str | None
+    print_back: str | None
+    item_image: str | None
+    class_name: str | None
+    etc_otc_name: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DrugSearchResult(BaseModel):
+    id: uuid.UUID
+    item_seq: str
+    item_name: str
+    simple_name: str | None
+    entp_name: str | None
+    class_name: str | None
+    etc_otc_name: str | None
+    efcy_qesitm: str | None
+    item_image: str | None
+
+    model_config = {"from_attributes": True}
+
+
+class DrugNameMatchRequest(BaseModel):
+    names: list[str]
+
+
+class DrugNameMatchResult(BaseModel):
+    queried_name: str
+    matched: DrugSearchResult | None
+    alternatives: list[DrugSearchResult]
+
+    model_config = {"from_attributes": True}
+
+
+class DrugInteractionResponse(BaseModel):
+    id: uuid.UUID
+    drug1_id: uuid.UUID
+    drug2_id: uuid.UUID
+    interaction_type: str
+    mechanism: str | None
+
+    model_config = {"from_attributes": True}

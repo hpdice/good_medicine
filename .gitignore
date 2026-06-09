@@ -1,0 +1,92 @@
+# =====================
+# Flutter / Dart
+# =====================
+flutter/.dart_tool/
+flutter/.flutter-plugins-dependencies
+flutter/.pub-cache/
+flutter/.pub/
+flutter/build/
+flutter/coverage/
+flutter/**/.dart_tool/
+flutter/**/build/
+*.iml
+.gradle/
+
+# =====================
+# 환경 변수 (절대 커밋 금지)
+# =====================
+.env
+.env.local
+.env.*.local
+backend/.env
+
+# =====================
+# Python
+# =====================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+pip-log.txt
+pip-delete-this-directory.txt
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+coverage.xml
+*.cover
+
+# =====================
+# Poetry
+# =====================
+poetry.lock
+
+# =====================
+# Alembic
+# =====================
+backend/alembic/versions/*.py
+!backend/alembic/versions/.gitkeep
+
+# =====================
+# Docker 로그
+# =====================
+*.log
+
+# =====================
+# Claude Code
+# =====================
+.claude/
+**/.claude/
+
+# =====================
+# IDE
+# =====================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# =====================
+# 업로드 / 미디어
+# =====================
+uploads/
+media/
+
+# =====================
+# 보안 인증서
+# =====================
+*.pem
+*.crt
+secrets/
