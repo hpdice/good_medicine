@@ -5,8 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
+from app.core.logging import logger
 from app.models.medicine_box import MedicineBoxEntry
+from app.models.user import User
 from app.schemas.medicine_box import MedicineBoxAddManual, MedicineBoxUpdate
+from app.services import fcm_service
+from app.services.drug_service import DrugService
 
 
 class MedicineBoxService:
@@ -50,7 +54,68 @@ class MedicineBoxService:
         await self.db.commit()
         await self.db.refresh(entry)
         await self.db.refresh(entry, ["drug"])
+
+        try:
+            await self._notify_if_contraindicated(user_id, entry)
+        except Exception:
+            # 푸시 발송은 부가 기능 — 실패해도 이미 커밋된 약품 추가 자체는 성공으로 유지한다.
+            logger.exception("병용금기 푸시 알림 발송 중 오류 (약품 추가는 정상 처리됨)")
         return entry
+
+    async def _notify_if_contraindicated(self, user_id: uuid.UUID, new_entry: MedicineBoxEntry) -> None:
+        """새로 추가된 약품이 기존 복약 목록과 병용금기이면 FCM 푸시를 발송한다.
+
+        OCR로 백그라운드에서 약을 추가하는 흐름에서는 사용자가 화면을 보고 있지
+        않을 수 있어, 클라이언트 quick-check와 별개로 서버에서도 즉시 알린다.
+        """
+        if not fcm_service.is_configured():
+            return
+
+        user = await self.db.get(User, user_id)
+        if not user or not user.fcm_token:
+            return
+
+        current_entries = await self.list_entries(user_id, current_only=True)
+        box_drug_ids = [e.drug_id for e in current_entries]
+
+        drug_svc = DrugService(self.db)
+        interactions = await drug_svc.get_interactions_for_drug_list(box_drug_ids)
+        contraindicated = [
+            i
+            for i in interactions
+            if i.interaction_type == "contraindicated"
+            and new_entry.drug_id in (i.drug1_id, i.drug2_id)
+        ]
+        if not contraindicated:
+            return
+
+        other_id = next(
+            d
+            for d in (contraindicated[0].drug1_id, contraindicated[0].drug2_id)
+            if d != new_entry.drug_id
+        )
+        drugs = await drug_svc.get_drugs_by_ids([new_entry.drug_id, other_id])
+        new_drug = drugs.get(new_entry.drug_id)
+        other_drug = drugs.get(other_id)
+        if not new_drug or not other_drug:
+            return
+
+        result = await fcm_service.send_push(
+            token=user.fcm_token,
+            title="병용금기 약물이 감지되었습니다",
+            body=(
+                f"{new_drug.simple_name or new_drug.item_name} · "
+                f"{other_drug.simple_name or other_drug.item_name} 병용금기 — 앱에서 확인하세요."
+            ),
+            data={
+                "type": "contraindication",
+                "drug1_id": str(new_entry.drug_id),
+                "drug2_id": str(other_id),
+            },
+        )
+        if result is False:
+            user.fcm_token = None
+            await self.db.commit()
 
     async def update_entry(
         self, user_id: uuid.UUID, entry_id: uuid.UUID, data: MedicineBoxUpdate

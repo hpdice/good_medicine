@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
 from app.models.drug import Drug
+from app.models.drug_effect_group import DrugEffectGroup
 from app.models.drug_interaction import DrugInteraction
 from app.services.public_data_service import _make_drug_key
 
@@ -118,6 +119,16 @@ class DrugService:
                 "alternatives": alternatives,
             })
         return results
+
+    async def get_effect_groups_for_drug_list(self, drug_ids: list[uuid.UUID]) -> list[DrugEffectGroup]:
+        """주어진 약품들이 속한 DUR 효능군(dur_seq) 멤버십을 조회한다.
+
+        같은 dur_seq에 2개 이상의 약품이 속하면 효능군중복주의 대상이다
+        (병용금기와 달리 절대 금기가 아닌 '주의' 등급).
+        """
+        stmt = select(DrugEffectGroup).where(DrugEffectGroup.drug_id.in_(drug_ids))
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
 
     async def get_interactions_for_pair(
         self, drug1_id: uuid.UUID, drug2_id: uuid.UUID

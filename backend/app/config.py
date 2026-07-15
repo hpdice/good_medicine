@@ -32,5 +32,8 @@ class Settings(BaseSettings):
     LOGIN_RATE_LIMIT: str = "5/15minutes"
     DEFAULT_RATE_LIMIT: str = "60/minute"
 
+    # FCM 푸시 알림 — Firebase 서비스 계정 키 JSON 경로 (미설정 시 푸시 기능 비활성화)
+    FIREBASE_CREDENTIALS_JSON: str = ""
+
 
 settings = Settings()

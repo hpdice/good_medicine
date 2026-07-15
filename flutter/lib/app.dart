@@ -80,10 +80,8 @@ class _MainShell extends StatelessWidget {
         onDestinationSelected: (i) {
           switch (i) {
             case 0:
-              setState(() => _selectedIndex = 0);
               context.go('/');
             case 1:
-              setState(() => _selectedIndex = 1);
               context.go('/search');
             case 2:
               context.push('/camera');

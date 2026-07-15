@@ -11,12 +11,13 @@ from datetime import date
 from typing import Any
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.logging import logger
 from app.models.drug import Drug
+from app.models.drug_effect_group import DrugEffectGroup
 from app.models.drug_interaction import DrugInteraction
 
 
@@ -55,14 +56,16 @@ class PublicDataService:
         return None
 
     async def sync_all(self) -> dict:
-        """4개 공공데이터 소스를 순서대로 동기화한다."""
+        """5개 공공데이터 소스를 순서대로 동기화한다."""
         overview_count = await self._sync_drug_overview()
         dur_pairs_count = await self._sync_dur_contraindications()
+        efcy_dplct_count = await self._sync_efcy_dplct()
         dur_ingr_count = await self._sync_dur_ingredients()
         identify_count = await self._sync_drug_identification()
         return {
             "drug_overview": overview_count,
             "dur_contraindications": dur_pairs_count,
+            "efcy_dplct": efcy_dplct_count,
             "dur_ingredients": dur_ingr_count,
             "drug_identification": identify_count,
         }
@@ -278,10 +281,16 @@ class PublicDataService:
             etc_otc_name=_clean(item.get("MIXTURE_ETC_OTC_NAME")),
         )
 
+        # 방향 무관 조회이므로 (A,B)·(B,A) 둘 중 하나만 저장하면 충분하다.
+        # 모든 조회 쪽(get_interactions_for_pair의 OR, get_interactions_for_drug_list의
+        # in() 교집합)이 이미 방향을 가리지 않으므로 양방향을 모두 저장하면
+        # quick-check 결과에 동일 쌍이 두 번 나타나는 중복이 발생한다.
         existing = await self.db.scalar(
             select(DrugInteraction).where(
-                DrugInteraction.drug1_id == drug_a.id,
-                DrugInteraction.drug2_id == drug_b.id,
+                or_(
+                    (DrugInteraction.drug1_id == drug_a.id) & (DrugInteraction.drug2_id == drug_b.id),
+                    (DrugInteraction.drug1_id == drug_b.id) & (DrugInteraction.drug2_id == drug_a.id),
+                ),
                 DrugInteraction.interaction_type == "contraindicated",
             )
         )
@@ -296,14 +305,70 @@ class PublicDataService:
         )
         self.db.add(interaction)
 
-        # 역방향도 추가
-        reverse = DrugInteraction(
-            drug1_id=drug_b.id,
-            drug2_id=drug_a.id,
-            interaction_type="contraindicated",
-            mechanism=mechanism,
+    # ------------------------------------------------------------------ #
+    # DUR 품목정보 — 효능군중복주의 (병용금기가 아닌 '주의' 등급)              #
+    # ------------------------------------------------------------------ #
+
+    async def _sync_efcy_dplct(self) -> int:
+        url = f"{settings.DUR_PRODUCT_API_URL}/getEfcyDplctInfoList03"
+        count = 0
+        page = 1
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            while True:
+                params = {"serviceKey": self._api_key, "pageNo": page, "numOfRows": self.PAGE_SIZE, "type": "json"}
+                data = await self._fetch_page(client, url, params)
+                if data is None:
+                    page += 1
+                    continue
+
+                items = data.get("body", {}).get("items", [])
+                if not items:
+                    break
+
+                for item in items:
+                    await self._upsert_efcy_dplct(item)
+                    count += 1
+
+                await self.db.commit()
+                total = data.get("body", {}).get("totalCount", 0)
+                logger.info(f"Synced 효능군중복 page {page} ({count}/{total})")
+                await self._emit(source="efcy_dplct", page=page, count=count, total=total)
+
+                if len(items) < self.PAGE_SIZE:
+                    break
+                page += 1
+                await asyncio.sleep(0.5)
+
+        return count
+
+    async def _upsert_efcy_dplct(self, item: dict) -> None:
+        seq = _clean(item.get("ITEM_SEQ"))
+        name = _clean(item.get("ITEM_NAME"))
+        dur_seq = _clean(item.get("DUR_SEQ"))
+        effect_name = _clean(item.get("EFFECT_NAME"))
+        if not name or not dur_seq or not effect_name:
+            return
+
+        drug = await self._find_or_create_drug_from_dur(
+            seq=seq, name=name,
+            entp=_clean(item.get("ENTP_NAME")),
+            main_ingr=_clean(item.get("MAIN_INGR")),
+            permit_date_str=_clean(item.get("ITEM_PERMIT_DATE")),
+            class_name=_clean(item.get("CLASS_NAME")),
+            etc_otc_name=_clean(item.get("ETC_OTC_NAME")),
         )
-        self.db.add(reverse)
+
+        existing = await self.db.scalar(
+            select(DrugEffectGroup).where(
+                DrugEffectGroup.drug_id == drug.id,
+                DrugEffectGroup.dur_seq == dur_seq,
+            )
+        )
+        if existing:
+            return
+
+        self.db.add(DrugEffectGroup(drug_id=drug.id, dur_seq=dur_seq, effect_name=effect_name))
 
     # ------------------------------------------------------------------ #
     # DUR 성분정보 — ingr_name JSONB dur_code 보강                          #

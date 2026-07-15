@@ -52,6 +52,11 @@ coverage.xml
 poetry.lock
 
 # =====================
+# ML 모델 산출물 (재현 가능, 대용량 바이너리)
+# =====================
+backend/ml/artifacts/
+
+# =====================
 # Alembic
 # =====================
 backend/alembic/versions/*.py
@@ -90,3 +95,10 @@ media/
 *.pem
 *.crt
 secrets/
+
+# =====================
+# Firebase (FCM)
+# =====================
+backend/firebase-service-account*.json
+flutter/android/app/google-services.json
+flutter/ios/Runner/GoogleService-Info.plist

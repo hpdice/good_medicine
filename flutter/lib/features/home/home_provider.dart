@@ -4,7 +4,13 @@ import '../../core/api/api_client.dart';
 import '../../core/models/analysis_models.dart';
 import '../../core/models/medicine_box_models.dart';
 
-enum DrugRisk { none, safe, contraindicated }
+enum DrugRisk { none, safe, caution, contraindicated }
+
+int _riskSeverity(DrugRisk r) => switch (r) {
+      DrugRisk.contraindicated => 2,
+      DrugRisk.caution => 1,
+      _ => 0,
+    };
 
 class HomeProvider extends ChangeNotifier {
   List<MedicineBoxEntry> _entries = [];
@@ -79,9 +85,17 @@ class HomeProvider extends ChangeNotifier {
     if (result == null) return;
     _riskMap = {for (final e in _entries) e.drug.id: DrugRisk.safe};
     for (final f in result.findings) {
-      if (f.interactionType == 'contraindicated') {
-        _riskMap[f.drug1Id] = DrugRisk.contraindicated;
-        _riskMap[f.drug2Id] = DrugRisk.contraindicated;
+      final risk = switch (f.interactionType) {
+        'contraindicated' => DrugRisk.contraindicated,
+        'duplicate_effect_group' => DrugRisk.caution,
+        _ => null,
+      };
+      if (risk == null) continue;
+      for (final id in [f.drug1Id, f.drug2Id]) {
+        final current = _riskMap[id] ?? DrugRisk.safe;
+        if (_riskSeverity(risk) > _riskSeverity(current)) {
+          _riskMap[id] = risk;
+        }
       }
     }
   }

@@ -12,6 +12,7 @@ from app.api.v1.router import api_router
 from app.config import settings
 from app.core.logging import logger, setup_logging
 from app.db.session import engine
+from app.services import fcm_service
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -20,6 +21,7 @@ limiter = Limiter(key_func=get_remote_address)
 async def lifespan(app: FastAPI):
     setup_logging()
     logger.info(f"Starting drugtest backend (debug={settings.DEBUG})")
+    logger.info(f"FCM push notifications: {'enabled' if fcm_service.is_configured() else 'disabled'}")
     yield
     await engine.dispose()
     logger.info("Backend shutdown complete")

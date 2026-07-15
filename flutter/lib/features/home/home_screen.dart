@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/models/analysis_models.dart';
 import '../../core/models/medicine_box_models.dart';
+import '../../core/notifications/fcm_service.dart';
 import '../camera/camera_provider.dart';
 import 'home_provider.dart';
 
@@ -20,6 +21,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback(
         (_) => context.read<HomeProvider>().loadEntries());
+    FcmService.initializeAndRegister();
   }
 
   @override
@@ -134,16 +136,29 @@ class _InteractionBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isCritical = result.riskLevel == 'critical';
-    final bgColor =
-        isCritical ? const Color(0xFFB71C1C) : const Color(0xFF4CAF50);
-    final label = isCritical
-        ? '병용금기 ${result.contraindicatedCount}건'
-        : '안전 — 상호작용 없음';
-    final icon = isCritical ? Icons.warning_amber_rounded : Icons.check_circle;
+    final level = result.riskLevel;
+    final isSafe = level == 'safe';
+
+    final Color bgColor;
+    final String label;
+    final IconData icon;
+    switch (level) {
+      case 'critical':
+        bgColor = const Color(0xFFB71C1C);
+        label = '병용금기 ${result.contraindicatedCount}건';
+        icon = Icons.warning_amber_rounded;
+      case 'caution':
+        bgColor = const Color(0xFFEF6C00);
+        label = '효능군 중복 ${result.duplicateEffectGroupCount}건';
+        icon = Icons.info_outline;
+      default:
+        bgColor = const Color(0xFF4CAF50);
+        label = '안전 — 상호작용 없음';
+        icon = Icons.check_circle;
+    }
 
     return GestureDetector(
-      onTap: isCritical ? () => _showFindings(context, result) : null,
+      onTap: isSafe ? null : () => _showFindings(context, result),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration:
@@ -155,7 +170,7 @@ class _InteractionBanner extends StatelessWidget {
               child: Text(label,
                   style: const TextStyle(
                       color: Colors.white, fontWeight: FontWeight.w600))),
-          if (isCritical)
+          if (!isSafe)
             const Icon(Icons.chevron_right, color: Colors.white),
         ]),
       ),
@@ -175,7 +190,7 @@ class _InteractionBanner extends StatelessWidget {
           controller: ctrl,
           padding: const EdgeInsets.all(16),
           children: [
-            Text('병용금기 ${result.contraindicatedCount}건',
+            Text('상호작용 상세',
                 style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 12),
             ...result.findings.map((f) => _FindingCard(finding: f)),
@@ -192,6 +207,19 @@ class _FindingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final (badgeColor, badgeLabel, reasonLabel) = switch (finding.interactionType) {
+      'duplicate_effect_group' => (
+          const Color(0xFFEF6C00),
+          '효능군 중복',
+          '중복 사유:',
+        ),
+      _ => (
+          const Color(0xFFF44336),
+          '병용 금기',
+          '금기 사유:',
+        ),
+    };
+
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: Padding(
@@ -206,15 +234,15 @@ class _FindingCard extends StatelessWidget {
               padding:
                   const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                  color: const Color(0xFFF44336),
+                  color: badgeColor,
                   borderRadius: BorderRadius.circular(4)),
-              child: const Text('병용 금기',
-                  style: TextStyle(color: Colors.white, fontSize: 12)),
+              child: Text(badgeLabel,
+                  style: const TextStyle(color: Colors.white, fontSize: 12)),
             ),
           ]),
           if (finding.mechanism != null) ...[
             const SizedBox(height: 6),
-            Text('금기 사유:',
+            Text(reasonLabel,
                 style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -317,6 +345,8 @@ class _RiskIcon extends StatelessWidget {
     return switch (risk) {
       DrugRisk.contraindicated => const Icon(Icons.warning_amber_rounded,
           color: Color(0xFFF44336), size: 24),
+      DrugRisk.caution =>
+        const Icon(Icons.info_outline, color: Color(0xFFEF6C00), size: 24),
       DrugRisk.safe =>
         const Icon(Icons.check_circle, color: Color(0xFF4CAF50), size: 24),
       DrugRisk.none => const SizedBox(width: 24, height: 24),

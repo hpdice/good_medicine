@@ -21,13 +21,14 @@ class QuickCheckFinding(BaseModel):
     drug1_name: str
     drug2_id: uuid.UUID
     drug2_name: str
-    interaction_type: str
+    interaction_type: str  # contraindicated(확정,금기) / duplicate_effect_group(확정,주의)
     mechanism: str | None
 
 
 class QuickCheckResponse(BaseModel):
     total_drugs: int
     has_contraindication: bool
-    risk_level: str  # safe / critical
+    risk_level: str  # safe / caution / critical
     contraindicated_count: int
+    duplicate_effect_group_count: int = 0
     findings: list[QuickCheckFinding]
