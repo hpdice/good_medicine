@@ -15,8 +15,8 @@
 | 데이터 적재 | 100% | ✅ 완료 + 품질 검증 통과 |
 | Flutter 앱 프론트엔드 | 100% | ✅ 완료 (Phase 1~4 + 버그 수정) |
 | 백엔드 E2E 테스트 | 핵심 플로우 완료 | ✅ 18개 테스트 통과 |
-| FCM 푸시 알림 | 인프라 완료, 미연동 | 🟡 Firebase 프로젝트 필요 (아래 참고) |
-| 배포 | 0% | ⬜ 미시작 |
+| FCM 푸시 알림 | 완료 | ✅ Firebase 프로젝트(`good-medicine-app`) 연동, 디버그 APK 빌드 검증 완료 |
+| 배포 | 완료 (임시) | ✅ Cloudflare Tunnel로 로컬 PC 노출 — 아래 참고 |
 
 ---
 
@@ -162,12 +162,42 @@ flutter/lib/
 
 ---
 
+## FCM (완료, 2026-07-15)
+
+- Firebase 프로젝트: `good-medicine-app`
+- Android 패키지명: `com.goodmedicine.good_medicine` (기존 `com.example.drugtest`에서 변경 — Play Store 등록 불가한 이름이라 Firebase 등록값에 맞춰 통일)
+- `backend/firebase-service-account.json`, `flutter/android/app/google-services.json` 배치 완료 (둘 다 gitignore 대상)
+- `flutter/android/`에 누락되어 있던 네이티브 파일(AndroidManifest.xml, MainActivity, 루트 Gradle 설정)을 `flutter create --platforms=android .`로 복구 — 카메라/인터넷 권한 재설정 포함
+- `flutter build apk --debug` 빌드 성공 확인
+
+## 배포 (임시, 2026-07-15)
+
+**로컬 PC를 Cloudflare Tunnel로 외부에 노출하는 방식.** 별도 서버/클라우드 계정 없이 지금 떠 있는 `docker compose` 그대로 인터넷에 연결한다.
+
+```
+공개 주소: cloudflared 실행 시 콘솔에 출력되는 https://xxxx.trycloudflare.com
+```
+
+**중요한 제약:**
+- 이 PC가 꺼지거나 절전모드로 들어가면 서비스가 중단된다
+- Quick Tunnel(무료, 계정 불필요) 방식이라 `cloudflared` 프로세스를 재시작하면 주소가 바뀐다 — 프로세스를 계속 띄워두는 동안에만 주소가 유지됨
+- `DEBUG=false`로 전환 완료 — `/api/docs` Swagger 문서는 공개되지 않음
+
+**재시작 방법:**
+```cmd
+docker compose up -d
+cloudflared tunnel --url http://localhost:8000
+```
+콘솔에 뜨는 새 `https://xxxx.trycloudflare.com` 주소를 Flutter `--dart-define=BASE_URL=`에 반영해야 한다 (주소가 바뀌므로).
+
+**향후 안정적인 배포로 전환하려면**: Cloudflare 무료 계정 + Named Tunnel(주소 고정) 또는 Oracle Cloud 영구 무료 VM으로 이전 검토.
+
 ## 남은 작업
 
 | 작업 | 우선순위 | 비고 |
 |---|---|---|
-| FCM 푸시 알림 — Firebase 프로젝트 연동 | 중 | 인프라는 완료. Firebase 콘솔에서 프로젝트 생성 → 서비스 계정 키를 `backend/firebase-service-account.json`으로, Android는 `google-services.json`을 `flutter/android/app/`에 저장 후 Gradle 플러그인 연동(현재 의도적으로 미적용 — json 없이 적용 시 빌드 깨짐) |
-| 배포 환경 구성 | 낮음 | 호스팅/도메인 결정 필요 |
+| 배포 안정화 (고정 주소) | 중 | 현재 Quick Tunnel은 주소가 바뀜 — Named Tunnel/도메인 또는 VM 이전 검토 |
+| Windows 시작 시 자동 실행 설정 | 낮음 | PC 재부팅 시 docker compose + cloudflared 수동 재시작 필요 |
 | 특정연령대금기·노인주의 등 4개 API 적재 | 낮음 | 사용자 연령 수집 스키마·동의 흐름 설계 선행 필요 |
 | 복합제 기반 안전 성분쌍(341개) 활용 | 낮음 | 규모가 작아 실질 효과 낮음, 향후 검토 |
 
