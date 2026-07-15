@@ -13,7 +13,7 @@
 | DB 마이그레이션 | 100% | ✅ 완료 |
 | 데이터 적재 | 100% | ✅ 완료 + 품질 검증 통과 |
 | Flutter 앱 프론트엔드 | 100% | ✅ 완료 (Phase 1~4 + 버그 수정) |
-| 백엔드 E2E 테스트 | 0% | ⬜ 미시작 |
+| 백엔드 E2E 테스트 | 핵심 플로우 완료 | ✅ 18개 테스트 (인증·약품검색·복약함·quick-check) — 아래 참고 |
 | 배포 | 0% | ⬜ 미시작 |
 
 ---
@@ -191,6 +191,24 @@ flutter/lib/
 
 **검증**: 크레스토정20mg×10mg(같은 성분, 다른 용량) → `duplicate_effect_group`/`caution` 정상 감지. `ddi_ml_service.is_available()` 컨테이너 재빌드 후 정상 로드 확인. OpenAPI 스키마 생성(`/openapi.json` 200) 및 `flutter analyze` 클린 확인.
 
+### 백엔드 E2E 테스트 신설 (2026-07-15)
+
+`backend/tests/` — pytest + pytest-asyncio + httpx(ASGITransport). 운영 DB(`drugtest_db`)는 절대 건드리지 않고, 같은 Postgres 인스턴스 안에 별도 `drugtest_test_db`를 만들어 테스트 함수마다 스키마를 새로 만들고 정리한다(엔진을 세션 스코프로 공유하면 asyncpg 커넥션이 pytest-asyncio의 테스트별 이벤트 루프와 어긋나는 문제가 있어 함수 스코프로 설계).
+
+**커버리지 (18개, 전체 통과)**: 회원가입/중복이메일/동의누락, 로그인/오류/보호된 엔드포인트 인증, **리프레시 토큰 단일사용**, 약품 검색/상세조회/404, 복약함 추가/중복거부/목록/삭제, **quick-check 3단계 전부**(병용금기→critical, 효능군중복→caution, 무관계→safe, 최소 2개 미만 검증).
+
+**테스트로 실제 버그 발견 및 수정**: `create_refresh_token`이 `{sub, exp, type}`만으로 JWT를 만들었는데, HS256은 결정적 서명이라 같은 사용자가 같은 초(second)에 로그인 직후 토큰 갱신을 하면 완전히 동일한 토큰 문자열이 나와 `refresh_tokens.token_hash` UNIQUE 제약을 위반하고 500 에러가 났다. `jti`(랜덤 UUID) 클레임 추가로 수정 (`app/core/security.py`).
+
+**실행 방법**: 테스트 의존성(pytest/pytest-asyncio/httpx)은 dev 그룹이라 프로덕션 이미지엔 없음.
+```cmd
+# 로컬: poetry install (dev 그룹 기본 포함)
+poetry run pytest tests/ -v
+
+# 컨테이너에서 (ephemeral 설치, 이미지엔 반영 안 됨)
+docker exec -u root drugtest-backend-1 pip install pytest pytest-asyncio pytest-cov httpx
+docker exec -e PYTHONPATH=/app -w /app drugtest-backend-1 python -m pytest tests/ -v
+```
+
 ### FCM 구현 메모 (2026-07-15)
 
 - 작업 시작 전 `flutter analyze`에서 컴파일 에러 발견: 직전 커밋(2e8b4a7)이 `app.dart`의 `_MainShell`을 StatefulWidget→StatelessWidget으로 리팩터링하면서 이제 존재하지 않는 `_selectedIndex`/`setState`를 호출하는 코드가 남아 앱이 빌드되지 않는 상태였음. FCM 작업 전 우선 수정함 (죽은 `setState` 호출 2곳 제거).
@@ -213,6 +231,10 @@ docker exec drugtest-backend-1 python sync.py status
 
 # DB 품질 검증
 docker exec drugtest-backend-1 python validate_db.py
+
+# E2E 테스트 (별도 drugtest_test_db 사용, 운영 DB 무관)
+docker exec -u root drugtest-backend-1 pip install pytest pytest-asyncio pytest-cov httpx
+docker exec -e PYTHONPATH=/app -w /app drugtest-backend-1 python -m pytest tests/ -v
 
 # 마이그레이션
 docker exec -it drugtest-backend-1 alembic upgrade head

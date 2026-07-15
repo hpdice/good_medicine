@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -16,13 +17,18 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(subject: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    payload = {"sub": subject, "exp": expire, "type": "access"}
+    payload = {"sub": subject, "exp": expire, "type": "access", "jti": str(uuid.uuid4())}
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
 def create_refresh_token(subject: str) -> str:
+    """jti(랜덤 UUID)가 없으면 같은 사용자가 같은 초(second)에 로그인/갱신을
+    두 번 하는 경우 exp까지 완전히 동일한 토큰이 발급되어(HS256은 결정적
+    서명이라 입력이 같으면 출력도 같음) token_hash UNIQUE 제약을 위반해
+    500 에러가 난다 — jti로 토큰마다 고유성을 보장한다.
+    """
     expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    payload = {"sub": subject, "exp": expire, "type": "refresh"}
+    payload = {"sub": subject, "exp": expire, "type": "refresh", "jti": str(uuid.uuid4())}
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
