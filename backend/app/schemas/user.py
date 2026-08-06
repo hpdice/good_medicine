@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class UserRegister(BaseModel):
@@ -10,6 +10,14 @@ class UserRegister(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     privacy_consent: bool = Field(description="개인정보 수집 동의 (필수)")
     health_data_consent: bool = Field(description="건강정보 수집 동의 (필수)")
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_byte_length(cls, v: str) -> str:
+        # bcrypt는 UTF-8 72바이트 초과 시 ValueError를 던진다 (한글은 음절당 3바이트).
+        if len(v.encode("utf-8")) > 72:
+            raise ValueError("비밀번호는 72바이트(한글 약 24자)를 초과할 수 없습니다.")
+        return v
 
 
 class UserLogin(BaseModel):

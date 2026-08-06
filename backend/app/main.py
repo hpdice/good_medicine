@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -13,8 +14,25 @@ from app.config import settings
 from app.core.logging import logger, setup_logging
 from app.db.session import engine
 from app.services import fcm_service
+from app.services.ollama_client import OllamaClient
 
 limiter = Limiter(key_func=get_remote_address)
+
+
+async def _ollama_keepalive_loop() -> None:
+    """AI 가이드용 로컬 LLM이 GPU에서 내려가지 않게 주기적으로 핑을 보낸다.
+
+    콜드스타트(모델을 GPU에 새로 올림, 실측 87~153초)가 실제 사용자 요청에서
+    발생하는 걸 최소화하기 위함 — 위험도 판정에는 영향 없음(그쪽은 로컬 LLM과
+    무관하게 규칙 기반으로 동작).
+    """
+    client = OllamaClient()
+    while True:
+        try:
+            await client.keep_warm()
+        except Exception:
+            logger.warning("Ollama 워밍업 루프 중 예외 (다음 주기에 재시도)", exc_info=True)
+        await asyncio.sleep(settings.OLLAMA_KEEPALIVE_INTERVAL_SECONDS)
 
 
 @asynccontextmanager
@@ -22,7 +40,9 @@ async def lifespan(app: FastAPI):
     setup_logging()
     logger.info(f"Starting drugtest backend (debug={settings.DEBUG})")
     logger.info(f"FCM push notifications: {'enabled' if fcm_service.is_configured() else 'disabled'}")
+    keepalive_task = asyncio.create_task(_ollama_keepalive_loop())
     yield
+    keepalive_task.cancel()
     await engine.dispose()
     logger.info("Backend shutdown complete")
 

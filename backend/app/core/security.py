@@ -12,7 +12,12 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+    encoded = plain.encode("utf-8")
+    if len(encoded) > 72:
+        # bcrypt는 72바이트 초과 입력에 ValueError를 던진다 — 로그인 스키마는
+        # 길이 제한이 없으므로 여기서도 방어해 500 대신 인증 실패로 처리한다.
+        return False
+    return bcrypt.checkpw(encoded, hashed.encode("utf-8"))
 
 
 def create_access_token(subject: str) -> str:

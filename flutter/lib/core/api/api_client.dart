@@ -58,14 +58,22 @@ class ApiClient {
           return;
         }
 
+        // check-and-set을 원자적으로 만들기 위해 await 없이 즉시 설정한다.
+        // (아래 getRefreshToken()의 await 지점에서 이벤트 루프에 제어권이
+        // 넘어가면 동시에 들어온 두 번째 401이 이 값을 null로 보고 중복
+        // refresh를 시작할 수 있다.)
+        final completer = Completer<String?>();
+        _refreshCompleter = completer;
+
         final refresh = await TokenStorage.getRefreshToken();
         if (refresh == null) {
           await TokenStorage.clearTokens();
+          _refreshCompleter = null;
+          completer.complete(null);
           handler.next(error);
           return;
         }
 
-        _refreshCompleter = Completer();
         String? newToken;
         try {
           final res = await Dio().post(
@@ -78,8 +86,8 @@ class ApiClient {
         } catch (_) {
           await TokenStorage.clearTokens();
         } finally {
-          _refreshCompleter!.complete(newToken);
           _refreshCompleter = null;
+          completer.complete(newToken);
         }
 
         if (newToken != null) {

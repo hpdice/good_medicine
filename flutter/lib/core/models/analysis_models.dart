@@ -29,3 +29,16 @@ class QuickCheckResponse {
             .map((e) => FindingItem.fromJson(e))
             .toList();
 }
+
+class AnalysisGuideResponse {
+  final String riskLevel;
+  final String guideText;
+  final bool isAiGenerated;
+  final String disclaimer;
+
+  AnalysisGuideResponse.fromJson(Map<String, dynamic> j)
+      : riskLevel = j['risk_level'],
+        guideText = j['guide_text'],
+        isAiGenerated = j['is_ai_generated'] ?? true,
+        disclaimer = j['disclaimer'] ?? '';
+}

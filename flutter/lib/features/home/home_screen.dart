@@ -1,5 +1,7 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/api/api_client.dart';
 import '../../core/models/analysis_models.dart';
 import '../../core/models/medicine_box_models.dart';
 import '../../core/notifications/fcm_service.dart';
@@ -37,6 +39,27 @@ class _HomeScreenState extends State<HomeScreen> {
       return Scaffold(
         appBar: AppBar(title: const Text('내 약 목록')),
         body: Column(children: [
+          if (cam.error != null)
+            Container(
+              width: double.infinity,
+              color: Theme.of(context).colorScheme.errorContainer,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(children: [
+                Icon(Icons.error_outline,
+                    size: 16,
+                    color: Theme.of(context).colorScheme.onErrorContainer),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(cam.error!,
+                      style: TextStyle(
+                          fontSize: 13,
+                          color: Theme.of(context).colorScheme.onErrorContainer)),
+                ),
+                TextButton(
+                    onPressed: cam.clearError, child: const Text('닫기')),
+              ]),
+            ),
           if (cam.isAdding)
             Container(
               width: double.infinity,
@@ -194,6 +217,8 @@ class _InteractionBanner extends StatelessWidget {
                 style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 12),
             ...result.findings.map((f) => _FindingCard(finding: f)),
+            const SizedBox(height: 8),
+            _AiGuideSection(findings: result.findings),
           ],
         ),
       ),
@@ -254,6 +279,110 @@ class _FindingCard extends StatelessWidget {
         ]),
       ),
     );
+  }
+}
+
+enum _GuideState { idle, loading, loaded, error }
+
+class _AiGuideSection extends StatefulWidget {
+  final List<FindingItem> findings;
+  const _AiGuideSection({required this.findings});
+
+  @override
+  State<_AiGuideSection> createState() => _AiGuideSectionState();
+}
+
+class _AiGuideSectionState extends State<_AiGuideSection> {
+  _GuideState _state = _GuideState.idle;
+  AnalysisGuideResponse? _guide;
+  String? _error;
+
+  Set<String> get _drugIds => {
+        for (final f in widget.findings) ...[f.drug1Id, f.drug2Id],
+      };
+
+  Future<void> _fetchGuide() async {
+    setState(() => _state = _GuideState.loading);
+    try {
+      // 로컬 LLM 콜드스타트(모델을 GPU에 새로 올림)는 실측 87~153초 걸림 — 백엔드
+      // OLLAMA_TIMEOUT_SECONDS(200초)보다 짧게 잡으면 백엔드가 성공하기 전에
+      // 여기서 먼저 끊겨버리므로, 항상 그보다 여유있게 잡는다.
+      final res = await ApiClient.dio.post(
+        'analysis/guide',
+        data: {'drug_ids': _drugIds.toList()},
+        options: Options(receiveTimeout: const Duration(seconds: 220)),
+      );
+      setState(() {
+        _guide = AnalysisGuideResponse.fromJson(res.data);
+        _state = _GuideState.loaded;
+      });
+    } on DioException catch (e) {
+      setState(() {
+        _error = 'AI 설명을 불러오지 못했습니다 (${e.response?.statusCode ?? '연결 오류'})';
+        _state = _GuideState.error;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    switch (_state) {
+      case _GuideState.idle:
+        return OutlinedButton.icon(
+          onPressed: _fetchGuide,
+          icon: const Icon(Icons.auto_awesome, size: 18),
+          label: const Text('AI 설명 보기'),
+        );
+      case _GuideState.loading:
+        return const Padding(
+          padding: EdgeInsets.symmetric(vertical: 12),
+          child: Row(children: [
+            SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2)),
+            SizedBox(width: 10),
+            Expanded(
+                child: Text(
+                    'AI가 설명을 생성하는 중입니다... (보통 10~20초, 서버를 처음 깨우는 경우 최대 2~3분까지 걸릴 수 있어요)')),
+          ]),
+        );
+      case _GuideState.error:
+        return Row(children: [
+          Expanded(
+              child: Text(_error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error))),
+          TextButton(onPressed: _fetchGuide, child: const Text('다시 시도')),
+        ]);
+      case _GuideState.loaded:
+        final guide = _guide!;
+        return Card(
+          color: Colors.blue.shade50,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                const Icon(Icons.auto_awesome, size: 16, color: Colors.blueGrey),
+                const SizedBox(width: 6),
+                Text(guide.isAiGenerated ? 'AI 참고용 설명' : '안내',
+                    style:
+                        const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+              ]),
+              const SizedBox(height: 8),
+              Text(guide.guideText, style: const TextStyle(fontSize: 13, height: 1.4)),
+              if (guide.disclaimer.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(guide.disclaimer,
+                    style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey.shade600,
+                        fontStyle: FontStyle.italic)),
+              ],
+            ]),
+          ),
+        );
+    }
   }
 }
 

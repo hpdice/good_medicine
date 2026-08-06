@@ -1,7 +1,7 @@
 import re
 import uuid
 
-from sqlalchemy import case, or_, select
+from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
@@ -10,6 +10,54 @@ from app.models.drug_effect_group import DrugEffectGroup
 from app.models.drug_interaction import DrugInteraction
 from app.services.public_data_service import _make_drug_key
 
+# 정/캡슐 등 제형 접미사 뒤에 성분명이 오는 입력('와파린정', '메트포르민정500mg')을
+# 처리하기 위해 제거할 제형 표현. 복합 표현이 먼저 매칭되도록 길이 내림차순으로 정렬한다.
+_DOSAGE_FORM_SUFFIXES = sorted(
+    [
+        "이알서방정", "서방정", "장용정", "구강붕해정", "츄어블정", "발포정", "필름코팅정",
+        "정제", "정", "캡슐", "산제", "산", "시럽", "현탁액", "액", "주사", "주",
+        "크림", "연고", "겔", "패치", "좌제", "점안액", "점이액", "흡입액", "분말", "과립",
+    ],
+    key=len,
+    reverse=True,
+)
+_TRAILING_DOSE_RE = re.compile(r'\d+\.?\d*(mg|mcg|g|iu|%)?$')
+
+
+def _extract_ingredient_stem(name: str) -> str:
+    """'와파린정', '메트포르민정500mg' 같은 입력에서 제형·용량을 제거해
+    성분명 후보('와파린', '메트포르민')를 추출한다. 브랜드명이 성분명을
+    괄호 안에 숨기는 경우(_make_drug_key가 괄호를 제거) drug_key/ILIKE
+    매칭이 실패하므로, ingr_name 기반 매칭의 입력으로 사용한다.
+    """
+    s = _make_drug_key(name)
+    s = _TRAILING_DOSE_RE.sub('', s)
+    for suf in _DOSAGE_FORM_SUFFIXES:
+        if len(s) > len(suf) and s.endswith(suf):
+            s = s[: -len(suf)]
+            break
+    return s
+
+
+def _ingredient_match_clause(stem: str):
+    """브랜드명이 성분명을 괄호 안에 감춰서(예: '쿠파린정(와파린나트륨)') drug_key나
+    전체 검색어 ILIKE가 실패하는 '성분명+제형' 입력을 위한 성분 기반 폴백.
+
+    ingr_name JSONB는 전체 약품의 21%(7,628/35,324)에만 채워져 있어 그것만으로는
+    커버리지가 낮다. item_name 자체에 성분명이 괄호로 표기되는 경우가 훨씬 많으므로
+    (ingr_name 유무와 무관하게) item_name/simple_name에 대한 stem ILIKE를 함께 건다.
+    """
+    ingr_jsonb_exists = text(
+        "EXISTS (SELECT 1 FROM jsonb_array_elements(drugs.ingr_name) elem "
+        "WHERE elem->>'kor' ILIKE :ingr_stem_pattern)"
+    ).bindparams(ingr_stem_pattern=f"%{stem}%")
+    pattern = f"%{stem}%"
+    return or_(
+        ingr_jsonb_exists,
+        Drug.item_name.ilike(pattern),
+        Drug.simple_name.ilike(pattern),
+    )
+
 
 class DrugService:
     def __init__(self, db: AsyncSession) -> None:
@@ -17,18 +65,29 @@ class DrugService:
 
     async def search(self, query: str, page: int = 1, limit: int = 20) -> list[Drug]:
         offset = (page - 1) * limit
-        stmt = (
-            select(Drug)
-            .where(
-                or_(
-                    Drug.item_name.ilike(f"%{query}%"),
-                    Drug.simple_name.ilike(f"%{query}%"),
-                )
-            )
-            .order_by(Drug.item_name)
-            .offset(offset)
-            .limit(limit)
+        direct_match = or_(
+            Drug.item_name.ilike(f"%{query}%"),
+            Drug.simple_name.ilike(f"%{query}%"),
         )
+        conditions = [direct_match]
+
+        # 브랜드명이 성분명을 괄호 안에 숨겨('쿠파린정(와파린나트륨)') 위 ILIKE로
+        # 잡히지 않는 성분명+제형 검색어('와파린정')를 위한 성분 기반 폴백.
+        # 정확 매칭보다 뒤로 정렬해 더 넓은 폴백이 정확한 결과를 밀어내지 않게 한다.
+        stem = _extract_ingredient_stem(query)
+        has_ingredient_fallback = len(stem) >= 2 and stem != query
+        if has_ingredient_fallback:
+            conditions.append(_ingredient_match_clause(stem))
+
+        order_expr = case((direct_match, 0), else_=1) if has_ingredient_fallback else None
+
+        stmt = select(Drug).where(or_(*conditions))
+        if order_expr is not None:
+            stmt = stmt.order_by(order_expr, Drug.item_name)
+        else:
+            stmt = stmt.order_by(Drug.item_name)
+        stmt = stmt.offset(offset).limit(limit)
+
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
@@ -65,7 +124,7 @@ class DrugService:
         return list(result.scalars().all())
 
     async def match_names(self, names: list[str]) -> list[dict]:
-        """약품명 리스트 각각을 drug_key → 용량 제거 prefix → ILIKE 순으로 검색."""
+        """약품명 리스트 각각을 drug_key → 용량 제거 prefix → ILIKE → 성분명 순으로 검색."""
         results = []
         for name in names:
             normalized_key = _make_drug_key(name)
@@ -92,7 +151,7 @@ class DrugService:
                     select(Drug).where(Drug.drug_key == normalized_key).limit(5)
                 )).scalars().all())
 
-            # 3순위: item_name / simple_name ILIKE 폴백
+            # 3순위: item_name / simple_name ILIKE 폴백 (원본 검색어 그대로 — 정밀 매칭)
             if not rows:
                 order_expr = case(
                     (Drug.simple_name.ilike(name), 0),
@@ -110,6 +169,23 @@ class DrugService:
                     .order_by(order_expr)
                     .limit(5)
                 )).scalars().all())
+
+            # 4순위(최후 폴백): 성분명 기반 매칭 — 브랜드명이 성분명을 괄호 안에 숨겨서
+            # ('쿠파린정(와파린나트륨)') 위 3단계가 모두 실패하는 '성분명+제형' 입력 대응
+            # 예: '와파린정' → 성분 '와파린나트륨'을 포함하는 제품.
+            # 앞선 정밀 매칭이 하나도 없을 때만 시도하는 최후 수단이라 순서를 가장 뒤에 둔다.
+            if not rows:
+                stem = _extract_ingredient_stem(name)
+                if len(stem) >= 2:
+                    # 짧은 이름일수록 복합제보다 단일 성분 일반의약품일 가능성이 높아 우선한다
+                    # (예: '메트포르민' 검색 시 콤보약 '가드메트정100/1000밀리그램(아나글립틴,메트포르민)'
+                    # 보다 '유한메트포르민서방정500mg'을 먼저 보여줌).
+                    rows = list((await self.db.execute(
+                        select(Drug)
+                        .where(_ingredient_match_clause(stem))
+                        .order_by(func.length(Drug.item_name), Drug.item_name)
+                        .limit(5)
+                    )).scalars().all())
 
             matched = rows[0] if rows else None
             alternatives = rows[1:] if len(rows) > 1 else []

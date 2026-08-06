@@ -77,6 +77,11 @@ class CameraProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void clearError() {
+    _error = null;
+    notifyListeners();
+  }
+
   List<String> _extractCandidates(String text) {
     final lines = text.split('\n').map((l) => l.trim()).toList();
 

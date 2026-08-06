@@ -32,3 +32,17 @@ class QuickCheckResponse(BaseModel):
     contraindicated_count: int
     duplicate_effect_group_count: int = 0
     findings: list[QuickCheckFinding]
+
+
+class AnalysisGuideRequest(QuickCheckRequest):
+    """quick_check와 동일한 drug_ids 검증(최소 2개, 최대 50개)을 그대로 재사용."""
+
+
+class AnalysisGuideResponse(BaseModel):
+    risk_level: str  # safe / caution / critical — quick_check가 확정한 값 그대로, AI가 바꾸지 않음
+    guide_text: str
+    is_ai_generated: bool = True
+    disclaimer: str = (
+        "이 설명은 AI가 생성한 참고용 안내이며 의학적 진단이 아닙니다. "
+        "위급하거나 확신이 서지 않으면 반드시 의사·약사와 상담하세요."
+    )

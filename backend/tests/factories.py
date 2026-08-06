@@ -34,6 +34,7 @@ async def make_drug(
     item_name: str,
     class_name: str | None = None,
     item_seq: str | None = None,
+    ingr_name: list[dict] | None = None,
 ) -> Drug:
     drug = Drug(
         item_seq=item_seq or f"TEST_{uuid.uuid4().hex[:12]}",
@@ -41,6 +42,7 @@ async def make_drug(
         simple_name=item_name,
         drug_key=item_name.lower(),
         class_name=class_name,
+        ingr_name=ingr_name,
     )
     session.add(drug)
     await session.commit()
