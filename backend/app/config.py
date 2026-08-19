@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     # 않게 하려는 목적. 백엔드가 떠 있는 동안만 유효(재시작 직후엔 첫 워밍업 전까지
     # 여전히 콜드스타트가 발생할 수 있음).
     OLLAMA_KEEPALIVE_INTERVAL_SECONDS: float = 600.0
+    # 백엔드 재시작 직후 첫 워밍업 호출 전용 타임아웃 — 이때는 Ollama 컨테이너도
+    # 막 같이 뜬 완전 콜드 상태라 OLLAMA_TIMEOUT_SECONDS(200초)로도 부족한 경우가
+    # 실측으로 확인됨 (백엔드 시작 후 3분20초경 반복적으로 abort → 클라이언트가
+    # 연결을 끊으면 Ollama가 로딩 중이던 모델 메모리를 회수하지 못하고 컨테이너가
+    # 재시작 전까지 계속 들고 있는 문제로 이어짐). 사용자 요청을 막는 게 아니라
+    # 백그라운드 루프에서만 쓰이므로 여유있게 잡아도 비용이 없다.
+    OLLAMA_WARMUP_TIMEOUT_SECONDS: float = 500.0
 
 
 settings = Settings()

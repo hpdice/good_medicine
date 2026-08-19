@@ -41,6 +41,12 @@ class OllamaClient:
         연산 비용을 최소화한다. 백그라운드 주기 태스크에서 호출하는 용도라
         실패해도 예외를 던지지 않고 조용히 로그만 남긴다 — 실제 요청이 들어왔을
         때 재시도/폴백은 generate()가 책임진다.
+
+        사용자 요청을 막지 않으므로 generate()보다 여유있는 전용 타임아웃
+        (OLLAMA_WARMUP_TIMEOUT_SECONDS)을 쓴다 — 백엔드 재시작 직후의 첫 호출은
+        Ollama 컨테이너도 같이 막 뜬 완전 콜드 상태라 일반 타임아웃(200초)으로
+        종종 부족했고, 그때마다 클라이언트가 연결을 끊으면서 Ollama가 로딩 중이던
+        메모리를 회수 못 하고 누적되는 문제가 있었다.
         """
         payload = {
             "model": self._model,
@@ -50,12 +56,12 @@ class OllamaClient:
             "options": {"num_predict": 1},
         }
         try:
-            await self._request(payload)
+            await self._request(payload, timeout=settings.OLLAMA_WARMUP_TIMEOUT_SECONDS)
         except OllamaUnavailableError as e:
             logger.warning(f"Ollama 워밍업 실패 (다음 주기에 재시도): {e}")
 
-    async def _request(self, payload: dict) -> str:
-        async with httpx.AsyncClient(base_url=self._base_url, timeout=self._timeout) as client:
+    async def _request(self, payload: dict, timeout: float | None = None) -> str:
+        async with httpx.AsyncClient(base_url=self._base_url, timeout=timeout or self._timeout) as client:
             for attempt in range(2):
                 try:
                     resp = await client.post("/api/generate", json=payload)
