@@ -12,31 +12,29 @@ const _channel = AndroidNotificationChannel(
   importance: Importance.high,
 );
 
-/// 백그라운드(앱 종료/최소화)에서 FCM 메시지를 수신하는 top-level 핸들러.
-/// Firebase는 이 함수를 별도 isolate에서 실행하므로 자체적으로 초기화가 필요하다.
+/// 앱이 종료/최소화된 상태에서 FCM 메시지를 받는 핸들러. Firebase가 이걸
+/// 별도 isolate에서 돌리기 때문에 여기서 다시 초기화를 해줘야 한다.
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
 }
 
-/// FCM 초기화 및 토큰을 백엔드(`fcm_token`)에 등록한다.
+/// FCM 초기화하고 토큰을 백엔드(`fcm_token`)에 등록.
 ///
-/// Firebase 네이티브 설정(google-services.json 등)이 아직 연동되지 않은
-/// 환경에서도 앱 전체가 정상 동작해야 하므로, 모든 단계는 실패 시
-/// 예외를 앱 밖으로 전파하지 않고 조용히 건너뛴다.
+/// google-services.json 같은 Firebase 네이티브 설정이 아직 안 붙어 있어도
+/// 앱 자체는 돌아가야 해서, 실패해도 예외를 밖으로 던지지 않고 그냥 넘어간다.
 class FcmService {
   static bool _initialized = false;
   static String? _lastRegisteredToken;
   static StreamSubscription<String>? _refreshSub;
   static final _localNotifications = FlutterLocalNotificationsPlugin();
 
-  /// 홈 화면 진입마다 호출된다 (탭 전환으로 재마운트될 때도 포함).
-  /// 이미 등록된 토큰과 동일하면 서버 재등록을 건너뛴다.
+  /// 홈 화면 들어갈 때마다 호출됨(탭 전환으로 재마운트되는 경우도 포함).
+  /// 토큰이 이전에 등록한 것과 같으면 서버에 다시 보내지 않는다.
   static Future<void> initializeAndRegister() async {
     if (!_initialized) {
       try {
-        // main()에서 이미 초기화했을 수 있으므로 중복 초기화(duplicate-app
-        // 예외)를 피한다.
+        // main()에서 이미 초기화됐을 수 있어서 중복 초기화 예외(duplicate-app) 방지
         if (Firebase.apps.isEmpty) {
           await Firebase.initializeApp();
         }
@@ -74,8 +72,8 @@ class FcmService {
         ?.createNotificationChannel(_channel);
   }
 
-  /// 앱이 포그라운드일 때는 FCM이 notification payload를 자동 표시하지
-  /// 않으므로, 로컬 알림으로 직접 띄운다.
+  /// 포그라운드에서는 FCM이 notification payload를 알아서 띄워주지
+  /// 않아서 로컬 알림으로 직접 표시해야 한다.
   static void _showForegroundNotification(RemoteMessage message) {
     final notification = message.notification;
     if (notification == null) return;

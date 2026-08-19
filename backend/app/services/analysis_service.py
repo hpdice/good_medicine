@@ -12,14 +12,13 @@ class AnalysisService:
         self.db = db
 
     async def quick_check(self, drug_ids: list[uuid.UUID]) -> QuickCheckResponse:
-        """DB만 사용하는 즉시 확인 — 병용금기·효능군중복 모두 식약처가 확정한
-        공식 데이터를 직접 조회한다 (Anthropic API·ML 추정 불필요).
+        """DB만 보고 바로 판정 — 병용금기·효능군중복 둘 다 식약처가 확정한
+        공식 데이터라 AI·ML 추정 없이 조회만 하면 된다.
 
-        ML 기반 미커버 쌍 추정은 시도했으나(archive/ml/README.md), 완전히
-        새로운 계열 조합에 대해서는 AUROC 0.48(무작위 수준)이고, 신뢰도
-        0.85 이상으로 잡히는 쌍조차 전부 이미 class_pair_density > 0인
-        (=SQL로 이미 알 수 있는) 부분집합이라 실질적으로 추가 가치가
-        없어 서빙에서 제외했다.
+        원래 ML로 DUR 미커버 쌍도 추정해보려 했는데(archive/ml/README.md
+        참고), 새로운 계열 조합에 대해선 AUROC이 0.48로 사실상 랜덤이었고
+        신뢰도 0.85 이상 나온 쌍들도 까보면 전부 class_pair_density > 0
+        (SQL로 이미 구할 수 있는 값)이라 추가할 실익이 없어서 뺐다.
         """
         drug_svc = DrugService(self.db)
         drugs = await drug_svc.get_drugs_by_ids(drug_ids)

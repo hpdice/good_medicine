@@ -32,10 +32,8 @@ def is_configured() -> bool:
 async def send_push(token: str, title: str, body: str, data: dict[str, str] | None = None) -> bool | None:
     """단일 기기로 푸시 알림을 발송한다.
 
-    Returns:
-        True: 발송 성공
-        False: 토큰이 더 이상 유효하지 않음 — 호출자가 fcm_token을 정리해야 함
-        None: 미설정이거나 일시적 오류 — 토큰은 그대로 유지
+    반환값이 세 갈래다 — True면 발송 성공, False면 토큰이 만료된 거라 호출자가
+    fcm_token을 지워야 하고, None이면 미설정이거나 일시적 오류라 토큰은 그대로 둔다.
     """
     app = _get_app()
     if app is None:
