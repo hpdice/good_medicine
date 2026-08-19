@@ -15,7 +15,7 @@ class AnalysisService:
         """DB만 사용하는 즉시 확인 — 병용금기·효능군중복 모두 식약처가 확정한
         공식 데이터를 직접 조회한다 (Anthropic API·ML 추정 불필요).
 
-        ML 기반 미커버 쌍 추정은 시도했으나(backend/ml/README.md), 완전히
+        ML 기반 미커버 쌍 추정은 시도했으나(archive/ml/README.md), 완전히
         새로운 계열 조합에 대해서는 AUROC 0.48(무작위 수준)이고, 신뢰도
         0.85 이상으로 잡히는 쌍조차 전부 이미 class_pair_density > 0인
         (=SQL로 이미 알 수 있는) 부분집합이라 실질적으로 추가 가치가

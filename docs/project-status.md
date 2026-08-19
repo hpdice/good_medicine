@@ -212,7 +212,7 @@ flutter/lib/
 | DUR 효능군중복주의 (duplicate_effect_group → caution) | ✅ 탐지 | drug_effect_groups 7,040건, DB 직접조회 100% 정확 |
 | DUR 병용주의(caution 등급의 별도 API) | ❌ 미탐지 | 공공데이터 API 미제공 |
 | 특정연령대금기·노인주의·용량주의·투여기간주의 | ❌ 미탐지 | API는 존재 확인(아래 참고)했으나 미적재 — 사용자 연령 데이터 스키마 설계 필요 |
-| DUR 미커버 조합의 AI 추정 위험 | ❌ 의도적 미제공 | ML 실험 결과 신뢰도 있는 예측 불가능함을 실측 확인, 서빙에서 제외 (`backend/ml/README.md`) |
+| DUR 미커버 조합의 AI 추정 위험 | ❌ 의도적 미제공 | ML 실험 결과 신뢰도 있는 예측 불가능함을 실측 확인, 서빙에서 제외 (`archive/ml/README.md`) |
 
 > **주요 사실:** 와파린은 한국 DUR 병용금기 DB에 등록된 상호작용이 0건이다.
 > 타이레놀(아세트아미노펜) × 와파린은 DUR 병용주의에도 없는 조합이며,
@@ -279,7 +279,7 @@ cloudflared tunnel --url http://localhost:8000
 
 | 작업 | 우선순위 | 비고 |
 |---|---|---|
-| 배포 안정화 (고정 주소) | 중 | 현재 Quick Tunnel은 주소가 바뀜 — Named Tunnel/도메인 또는 VM 이전 검토 |
+| 배포 안정화 (고정 주소) | 높음 | 현재 Quick Tunnel은 주소가 바뀜 — Named Tunnel/도메인 검토. **AI 대응 가이드가 이 PC의 GPU(RTX 4070)에 의존적이라, GPU 없는 VM(예: Oracle Cloud 무료 티어)으로 이전하면 AI 가이드 기능과 충돌함 — 배포 아키텍처를 먼저 결정해야 함** (계속 이 PC에서 서빙 / GPU 클라우드로 이전 / AI 가이드만 분리) |
 | Windows 시작 시 자동 실행 설정 | 낮음 | PC 재부팅 시 docker compose + cloudflared 수동 재시작 필요 |
 | 특정연령대금기·노인주의 등 4개 API 적재 | 낮음 | 사용자 연령 수집 스키마·동의 흐름 설계 선행 필요 |
 | 복합제 기반 안전 성분쌍(341개) 활용 | 낮음 | 규모가 작아 실질 효과 낮음, 향후 검토 |
@@ -330,4 +330,4 @@ poetry run python ml/train_ddi_model.py
 
 - 레포지토리: https://github.com/hpdice/good_medicine
 - 브랜치: main
-- 제외 항목: `.env`, `CLAUDE.md`, `.claude/`, `backend/ml/artifacts/`, `poetry.lock`
+- 제외 항목: `.env`, `CLAUDE.md`, `.claude/`, `archive/ml/artifacts/`, `poetry.lock`
