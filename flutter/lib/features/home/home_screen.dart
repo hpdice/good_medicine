@@ -104,7 +104,7 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           if (home.checkResult != null)
-            _InteractionBanner(result: home.checkResult!),
+            _InteractionBanner(result: home.checkResult!, entries: home.entries),
           if (home.checkResult != null) const SizedBox(height: 8),
           ...home.entries.map((entry) {
             final risk = home.riskMap[entry.drug.id] ?? DrugRisk.none;
@@ -155,7 +155,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
 class _InteractionBanner extends StatelessWidget {
   final QuickCheckResponse result;
-  const _InteractionBanner({required this.result});
+  final List<MedicineBoxEntry> entries;
+  const _InteractionBanner({required this.result, required this.entries});
 
   @override
   Widget build(BuildContext context) {
@@ -181,7 +182,7 @@ class _InteractionBanner extends StatelessWidget {
     }
 
     return GestureDetector(
-      onTap: isSafe ? null : () => _showFindings(context, result),
+      onTap: isSafe ? null : () => _showFindings(context, result, entries),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration:
@@ -200,7 +201,9 @@ class _InteractionBanner extends StatelessWidget {
     );
   }
 
-  void _showFindings(BuildContext context, QuickCheckResponse result) {
+  void _showFindings(
+      BuildContext context, QuickCheckResponse result, List<MedicineBoxEntry> entries) {
+    final drugsById = {for (final e in entries) e.drug.id: e.drug};
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -216,7 +219,8 @@ class _InteractionBanner extends StatelessWidget {
             Text('상호작용 상세',
                 style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 12),
-            ...result.findings.map((f) => _FindingCard(finding: f)),
+            ...result.findings
+                .map((f) => _FindingCard(finding: f, drugsById: drugsById)),
             const SizedBox(height: 8),
             _AiGuideSection(findings: result.findings),
           ],
@@ -228,7 +232,8 @@ class _InteractionBanner extends StatelessWidget {
 
 class _FindingCard extends StatelessWidget {
   final FindingItem finding;
-  const _FindingCard({required this.finding});
+  final Map<String, MedicineBoxDrug> drugsById;
+  const _FindingCard({required this.finding, required this.drugsById});
 
   @override
   Widget build(BuildContext context) {
@@ -244,6 +249,9 @@ class _FindingCard extends StatelessWidget {
           '금기 사유:',
         ),
     };
+
+    final drug1 = drugsById[finding.drug1Id];
+    final drug2 = drugsById[finding.drug2Id];
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -265,6 +273,14 @@ class _FindingCard extends StatelessWidget {
                   style: const TextStyle(color: Colors.white, fontSize: 12)),
             ),
           ]),
+          if (drug1?.efcyQesitm != null) ...[
+            const SizedBox(height: 6),
+            _DrugEfcyLine(name: finding.drug1Name, efcy: drug1!.efcyQesitm!),
+          ],
+          if (drug2?.efcyQesitm != null) ...[
+            const SizedBox(height: 4),
+            _DrugEfcyLine(name: finding.drug2Name, efcy: drug2!.efcyQesitm!),
+          ],
           if (finding.mechanism != null) ...[
             const SizedBox(height: 6),
             Text(reasonLabel,
@@ -277,6 +293,27 @@ class _FindingCard extends StatelessWidget {
                     TextStyle(fontSize: 12, color: Colors.grey.shade700)),
           ],
         ]),
+      ),
+    );
+  }
+}
+
+class _DrugEfcyLine extends StatelessWidget {
+  final String name;
+  final String efcy;
+  const _DrugEfcyLine({required this.name, required this.efcy});
+
+  @override
+  Widget build(BuildContext context) {
+    return RichText(
+      text: TextSpan(
+        style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+        children: [
+          TextSpan(
+              text: '$name: ',
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+          TextSpan(text: efcy),
+        ],
       ),
     );
   }
@@ -424,6 +461,15 @@ class _MedicineCard extends StatelessWidget {
                         Text(drug.className!,
                             style: TextStyle(
                                 fontSize: 12, color: Colors.grey.shade600)),
+                      if (drug.efcyQesitm != null && !isExpanded)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(drug.efcyQesitm!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  fontSize: 12, color: Colors.grey.shade700)),
+                        ),
                     ]),
               ),
               if (drug.etcOtcName != null)
