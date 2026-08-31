@@ -1,6 +1,6 @@
 # 프로젝트 전체 현황
 
-> 기준일: 2026-08-06 (21회차 반영)
+> 기준일: 2026-08-31 (전체 스택 실측 테스트·버그 수정·배포 전환 반영)
 > 상세 작업 서사(계획/문제/결론)는 [개발일지.md](./개발일지.md) 16~20회차 참고 — 이 문서는 "지금 상태" 스냅샷만 관리한다.
 
 ---
@@ -10,14 +10,15 @@
 | 영역 | 진행률 | 상태 |
 |---|---|---|
 | 백엔드 코드 | 100% | ✅ 완료 |
-| 인프라 (Docker) | 100% | ✅ 완료 (postgres·backend·ollama 3개 컨테이너) |
+| 인프라 (Docker) | 100% | ✅ 완료 (postgres·backend·ollama 3개 컨테이너, backend는 호스트 8001) |
 | DB 마이그레이션 | 100% | ✅ 완료 (0001~0004) |
 | 데이터 적재 | 100% | ✅ 완료 + 품질 검증 통과 |
 | Flutter 앱 프론트엔드 | 100% | ✅ 완료 (Phase 1~4 + 버그 수정) |
 | 백엔드 E2E 테스트 | 핵심 플로우 완료 | ✅ 27개 테스트 통과 (21회차에서 +5) |
 | AI 대응 가이드 (로컬 LLM) | 완료 | ✅ Ollama + Qwen2.5 14B, 실제 GPU 추론 검증 완료 — 아래 참고 |
 | FCM 푸시 알림 | 완료 | ✅ Firebase 프로젝트(`good-medicine-app`) 연동, 디버그 APK 빌드 검증 완료 |
-| 배포 | 완료 (임시) | ✅ Cloudflare Tunnel로 로컬 PC 노출 — 아래 참고 |
+| 배포 | 완료 (고정 주소) | ✅ DuckDNS+Caddy로 로컬 PC 노출, `goodmedicine.duckdns.org` — 아래 참고 |
+| APK 배포 채널 | 완료 | ✅ GitHub Releases(`v0.1.0-test`)로 사이드로드 배포 중 — Play 미등록 상태라 설치 시 Play 프로텍트 경고는 정상 |
 
 ---
 
@@ -197,8 +198,15 @@ flutter/lib/
 | 4순위 (최후수단) | 성분명 기반 매칭 | 제형·용량을 제거한 성분명 후보로 `ingr_name` JSONB + `item_name` 재검색. 브랜드명이 성분명을 괄호 안에 숨겨 1~3순위가 실패하는 '성분명+제형' 입력(예: '와파린정') 대응 |
 
 ### 백엔드 연결
-- 에뮬레이터: `http://10.0.2.2:8000`
-- 실제 기기: `http://192.168.X.X:8000` (PC IP)
+- 에뮬레이터: `http://10.0.2.2:8001/api/v1/`
+- 실제 기기(같은 네트워크): `http://192.168.X.X:8001/api/v1/` (PC IP)
+- 실제 기기(어디서든): `https://goodmedicine.duckdns.org/api/v1/` (고정 배포 주소, 릴리스 APK가 이 값으로 빌드됨)
+- `BASE_URL`은 반드시 `/api/v1/` 접두사 + 끝 슬래시 포함해야 함 — 상세는 CLAUDE.md 참고 (실측으로 발견한 버그)
+
+### 약품 설명 표시 (2026-08-31 추가)
+- 복약함 목록 카드: 접힌 상태에서도 효능(`efcy_qesitm`) 한 줄 요약이 항상 보임
+- 상호작용 상세(AI 설명 진입 화면): 각 약품 이름 아래 효능 설명 표시 — 기존엔 약품명·상호작용 사유만 보이고 그 약이 뭔지 안 보이던 문제
+- 추가 API 호출 없이 이미 로드된 복약함 데이터(`medicine-box` 응답의 `efcy_qesitm`)를 재사용
 
 ---
 
@@ -249,38 +257,42 @@ flutter/lib/
 
 ## 알려진 이슈
 
-| 이슈 | 영향 | 비고 |
+(2026-08-31 실측 점검에서 아래 3건 발견·수정 완료 — 상세는 CLAUDE.md 및 git log 참고)
+
+| 이슈 | 원인 | 조치 |
 |---|---|---|
-| 로컬 Docker 호스트 포트 8000 충돌 | `docker compose up -d`로 drugtest-backend 정식 기동 불가 | 이 PC에 떠 있는 다른 프로젝트 컨테이너(`health-api`)가 8000을 선점 중. `drugtest-backend-1`이 이 때문에 계속 `Exited` 상태. 정식 기동하려면 `health-api`를 내릴지 결정 필요 — 코드 검증만 필요하면 `docker compose run --rm -d --name <임시이름> backend ...`로 호스트 포트 노출 없이 우회 가능 |
+| ~~로컬 Docker 호스트 포트 8000 충돌~~ (해결됨) | `health-api`(다른 프로젝트)가 호스트 8000을 상시 점유 | drugtest backend를 8001로 이전(`docker-compose.yml`). 두 프로젝트 동시 기동 가능해짐 |
+| DB가 8/19 이후 빈 상태였음 (해결됨) | `docker-compose.yml`의 `postgres_data`가 실제로는 `D:\drugTest\postgres_data` bind mount가 아니라 빈 named volume이었음 (문서와 실제 설정 불일치) | D: 드라이브의 기존 데이터(약품 35,324건 등)를 bind mount로 재연결해 복구 |
+| Flutter BASE_URL 문서 오류 (해결됨) | CLAUDE.md에 문서화된 실행 명령이 `ApiClient`가 요구하는 `/api/v1/` 접두사+끝 슬래시를 빠뜨려 모든 API 호출이 깨진 URL로 나감 | CLAUDE.md 실행 명령 수정 |
 
-## 배포 (임시, 2026-07-15)
+## 배포 (2026-08-31, 고정 주소로 전환)
 
-**로컬 PC를 Cloudflare Tunnel로 외부에 노출하는 방식.** 별도 서버/클라우드 계정 없이 지금 떠 있는 `docker compose` 그대로 인터넷에 연결한다.
+**로컬 PC를 DuckDNS + Caddy로 외부에 노출하는 방식.** 별도 서버/클라우드 계정 없이 지금 떠 있는
+`docker compose` 그대로 인터넷에 연결하되, 매번 주소가 바뀌던 Cloudflare Quick Tunnel에서
+**고정 주소**로 전환했다. AI 대응 가이드가 이 PC의 GPU(RTX 4070)에 의존적이므로, 배포 아키텍처는
+"계속 이 PC에서 서빙"으로 확정 — GPU 클라우드 이전은 비용 대비 실익이 낮아 보류.
 
 ```
-공개 주소: cloudflared 실행 시 콘솔에 출력되는 https://xxxx.trycloudflare.com
+공개 주소: https://goodmedicine.duckdns.org  (고정, 재시작해도 안 바뀜)
 ```
 
-**중요한 제약:**
+- DuckDNS 서브도메인/Caddy 설정은 `C:\Dev\Health` 저장소가 관리(기존 `health-coach`와 같은
+  DuckDNS 계정·Caddy 컨테이너 공유). drugtest 쪽 설정은 `C:\Dev\drugTest\docker-compose.yml`에서
+  backend를 호스트 8001로 노출하는 것뿐 — Caddy가 `host.docker.internal:8001`로 리버스 프록시.
+- 공유기에서 외부 80/443 → 이 PC LAN IP로 포트포워딩 필요(최초 1회, health-coach 때 이미 설정됨)
+- Caddy가 Let's Encrypt로 자동 HTTPS 인증서 발급·갱신
+- PC가 꺼지거나 절전모드면 서비스 중단되는 건 기존과 동일
 - 이 PC가 꺼지거나 절전모드로 들어가면 서비스가 중단된다
-- Quick Tunnel(무료, 계정 불필요) 방식이라 `cloudflared` 프로세스를 재시작하면 주소가 바뀐다 — 프로세스를 계속 띄워두는 동안에만 주소가 유지됨
-- `DEBUG=false`로 전환 완료 — `/api/docs` Swagger 문서는 공개되지 않음
-
-**재시작 방법:**
-```cmd
-docker compose up -d
-cloudflared tunnel --url http://localhost:8000
-```
-콘솔에 뜨는 새 `https://xxxx.trycloudflare.com` 주소를 Flutter `--dart-define=BASE_URL=`에 반영해야 한다 (주소가 바뀌므로).
-
-**향후 안정적인 배포로 전환하려면**: Cloudflare 무료 계정 + Named Tunnel(주소 고정) 또는 Oracle Cloud 영구 무료 VM으로 이전 검토.
+- `DEBUG=false` — `/api/docs` Swagger 문서는 공개되지 않음
+- Cloudflare Quick Tunnel(`cloudflared tunnel --url http://localhost:8001`)은 도메인 없이 즉석
+  테스트할 때 폴백으로 여전히 사용 가능
 
 ## 남은 작업
 
 | 작업 | 우선순위 | 비고 |
 |---|---|---|
-| 배포 안정화 (고정 주소) | 높음 | 현재 Quick Tunnel은 주소가 바뀜 — Named Tunnel/도메인 검토. **AI 대응 가이드가 이 PC의 GPU(RTX 4070)에 의존적이라, GPU 없는 VM(예: Oracle Cloud 무료 티어)으로 이전하면 AI 가이드 기능과 충돌함 — 배포 아키텍처를 먼저 결정해야 함** (계속 이 PC에서 서빙 / GPU 클라우드로 이전 / AI 가이드만 분리) |
-| Windows 시작 시 자동 실행 설정 | 낮음 | PC 재부팅 시 docker compose + cloudflared 수동 재시작 필요 |
+| 재부팅 후 자동 복구 실제 검증 | 중간 | 스케줄 작업(`drugTest-autostart`)·Docker Desktop 자동시작·`restart: always` 조합은 설정상 맞으나, 실제 재부팅으로 end-to-end 검증은 아직 안 함 |
+| `gh` CLI 인증 | 낮음 | GitHub Release로 APK 배포 중인데 `gh auth login` 미완료 — 매번 웹에서 수동 업로드 중. 인증하면 자동화 가능 |
 | 특정연령대금기·노인주의 등 4개 API 적재 | 낮음 | 사용자 연령 수집 스키마·동의 흐름 설계 선행 필요 |
 | 복합제 기반 안전 성분쌍(341개) 활용 | 낮음 | 규모가 작아 실질 효과 낮음, 향후 검토 |
 
