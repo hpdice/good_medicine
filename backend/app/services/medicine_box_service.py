@@ -11,7 +11,6 @@ from app.models.user import User
 from app.schemas.medicine_box import MedicineBoxAddManual, MedicineBoxUpdate
 from app.services import fcm_service
 from app.services.analysis_service import AnalysisService
-from app.services.drug_service import DrugService
 
 
 class MedicineBoxService:
@@ -82,35 +81,28 @@ class MedicineBoxService:
             return
 
         # quick_check와 동일한 판정(성분 경로 + 잔여 폴백)을 재사용한다.
+        # finding에 약품명이 이미 들어있으므로 별도 조회는 하지 않는다.
         check = await AnalysisService(self.db).quick_check(box_drug_ids)
-        contraindicated = [
-            f
-            for f in check.findings
-            if f.interaction_type == "contraindicated"
-            and new_entry.drug_id in (f.drug1_id, f.drug2_id)
-        ]
-        if not contraindicated:
+        hit = next(
+            (
+                f for f in check.findings
+                if f.interaction_type == "contraindicated"
+                and new_entry.drug_id in (f.drug1_id, f.drug2_id)
+            ),
+            None,
+        )
+        if hit is None:
             return
 
-        other_id = next(
-            d
-            for d in (contraindicated[0].drug1_id, contraindicated[0].drug2_id)
-            if d != new_entry.drug_id
-        )
-        drug_svc = DrugService(self.db)
-        drugs = await drug_svc.get_drugs_by_ids([new_entry.drug_id, other_id])
-        new_drug = drugs.get(new_entry.drug_id)
-        other_drug = drugs.get(other_id)
-        if not new_drug or not other_drug:
-            return
+        if hit.drug1_id == new_entry.drug_id:
+            new_name, other_id, other_name = hit.drug1_name, hit.drug2_id, hit.drug2_name
+        else:
+            new_name, other_id, other_name = hit.drug2_name, hit.drug1_id, hit.drug1_name
 
         result = await fcm_service.send_push(
             token=user.fcm_token,
             title="병용금기 약물이 감지되었습니다",
-            body=(
-                f"{new_drug.simple_name or new_drug.item_name} · "
-                f"{other_drug.simple_name or other_drug.item_name} 병용금기 — 앱에서 확인하세요."
-            ),
+            body=f"{new_name} · {other_name} 병용금기 — 앱에서 확인하세요.",
             data={
                 "type": "contraindication",
                 "drug1_id": str(new_entry.drug_id),

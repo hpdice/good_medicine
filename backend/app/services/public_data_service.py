@@ -67,14 +67,7 @@ class PublicDataService:
         logger.error(f"API failed after {retries} attempts, skipping page {params.get('pageNo')}")
         return None
 
-    async def sync_all(self) -> dict:
-        """공공데이터 소스를 순서대로 동기화한다."""
-        return {
-            "drug_overview": await self._sync_drug_overview(),
-            "dur_contraindications": await self._sync_dur_contraindications(),
-            "efcy_dplct": await self._sync_efcy_dplct(),
-            "drug_identification": await self._sync_drug_identification(),
-        }
+    # 소스별 sync는 sync.py의 run_sync()가 개별 _sync_* 메서드를 직접 호출한다.
 
     # ------------------------------------------------------------------ #
     # e약은요 — drugs 테이블 기본 데이터                                    #
