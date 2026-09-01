@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.dependencies import get_current_user_id
 from app.schemas.drug import (
-    DrugInteractionResponse,
     DrugNameMatchRequest,
     DrugNameMatchResult,
     DrugResponse,
@@ -45,12 +44,3 @@ async def get_drug(
     _: uuid.UUID = Depends(get_current_user_id),
 ):
     return await DrugService(db).get_by_id(drug_id)
-
-
-@router.get("/{drug_id}/interactions", response_model=list[DrugInteractionResponse])
-async def get_drug_interactions(
-    drug_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    _: uuid.UUID = Depends(get_current_user_id),
-):
-    return await DrugService(db).get_interactions(drug_id)

@@ -53,13 +53,3 @@ class DrugNameMatchResult(BaseModel):
     alternatives: list[DrugSearchResult]
 
     model_config = {"from_attributes": True}
-
-
-class DrugInteractionResponse(BaseModel):
-    id: uuid.UUID
-    drug1_id: uuid.UUID
-    drug2_id: uuid.UUID
-    interaction_type: str
-    mechanism: str | None
-
-    model_config = {"from_attributes": True}

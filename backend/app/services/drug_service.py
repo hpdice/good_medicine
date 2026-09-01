@@ -104,16 +104,6 @@ class DrugService:
     async def get_by_item_seq(self, item_seq: str) -> Drug | None:
         return await self.db.scalar(select(Drug).where(Drug.item_seq == item_seq))
 
-    async def get_interactions(self, drug_id: uuid.UUID) -> list[ResidualInteraction]:
-        """한 약품이 낀 잔여 폴백 상호작용(residual_interactions). 대부분의 약은
-        성분 단위로 커버되므로 빈 리스트다 — 성분 경로 결과는 `/analysis/quick-check` 참고."""
-        stmt = select(ResidualInteraction).where(
-            or_(ResidualInteraction.drug1_id == drug_id, ResidualInteraction.drug2_id == drug_id),
-            ResidualInteraction.interaction_type == "contraindicated",
-        )
-        result = await self.db.execute(stmt)
-        return list(result.scalars().all())
-
     async def get_drugs_by_ids(self, drug_ids: list[uuid.UUID]) -> dict[uuid.UUID, Drug]:
         stmt = select(Drug).where(Drug.id.in_(drug_ids))
         result = await self.db.execute(stmt)
