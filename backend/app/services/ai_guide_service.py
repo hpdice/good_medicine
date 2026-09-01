@@ -85,6 +85,8 @@ class AiGuideService:
                 parts.append(f"효능: {drug.efcy_qesitm[:_MAX_FIELD_CHARS]}")
             if drug.atpn_qesitm:
                 parts.append(f"주의사항: {drug.atpn_qesitm[:_MAX_FIELD_CHARS]}")
+            if drug.intrc_qesitm:
+                parts.append(f"상호작용: {drug.intrc_qesitm[:_MAX_FIELD_CHARS]}")
             if drug.se_qesitm:
                 parts.append(f"부작용: {drug.se_qesitm[:_MAX_FIELD_CHARS]}")
             drug_lines.append(" / ".join(parts))
