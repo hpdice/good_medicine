@@ -102,3 +102,8 @@ secrets/
 backend/firebase-service-account*.json
 flutter/android/app/google-services.json
 flutter/ios/Runner/GoogleService-Info.plist
+
+# =====================
+# 학습용 문서 (개인 공부용, git 미추적)
+# =====================
+docs/study/
