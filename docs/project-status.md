@@ -220,7 +220,7 @@ flutter/lib/
 - 복약함 약품을 `drug_ingredients`로 DUR 성분코드(`INGR_CODE`)에 해소(역인덱스) →
   `dur_ingredient_contraindications`(357건) / `dur_ingredient_effect_groups`(259건) 조회.
 - **품목 테이블 폐기**: `drug_interactions`(331K행·227MB) / `drug_effect_groups`를
-  `analyze_ingr_coverage.py`로 전수검증 — 성분 경로가 그 탐지의 **100.0%**를 재현
+  폐기 전 DB 전수검증(일회성 스크립트) — 성분 경로가 그 탐지의 **100.0%**를 재현
   (rule gap 0). 성분코드 미해소 약(주로 외용제·희귀 품목)이 낀 **217쌍**만
   `residual_interactions`로 이관하고 두 테이블 DROP (마이그레이션 `0006`).
   **DB 311MB → 85MB.**
@@ -331,8 +331,9 @@ docker compose down
 docker exec drugtest-backend-1 python sync.py status
 docker exec drugtest-backend-1 python validate_db.py
 
-# 중복 쌍 정리 (재실행 안전 — 이미 정리된 상태면 0건)
-docker exec drugtest-backend-1 python sync.py dedupe_interactions
+# DB 완전 초기화 후 재구축 시: 잔여 폴백 복원 + 증상 태그 추출
+docker exec drugtest-backend-1 python sync.py build_residual
+docker exec drugtest-backend-1 python sync.py extract_risk_tags
 
 # E2E 테스트 (별도 drugtest_test_db 사용, 운영 DB 무관)
 docker exec -u root drugtest-backend-1 pip install pytest pytest-asyncio pytest-cov httpx
