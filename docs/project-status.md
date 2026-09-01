@@ -214,17 +214,39 @@ flutter/lib/
 
 ### quick-check가 탐지하는 범위
 
+**판정 축 전환 (2026-09-01)**: 품목(item) 단위 → **성분(ingredient) 단위**, 그리고
+품목 테이블 폐기까지 완료.
+
+- 복약함 약품을 `drug_ingredients`로 DUR 성분코드(`INGR_CODE`)에 해소(역인덱스) →
+  `dur_ingredient_contraindications`(357건) / `dur_ingredient_effect_groups`(259건) 조회.
+- **품목 테이블 폐기**: `drug_interactions`(331K행·227MB) / `drug_effect_groups`를
+  `analyze_ingr_coverage.py`로 전수검증 — 성분 경로가 그 탐지의 **100.0%**를 재현
+  (rule gap 0). 성분코드 미해소 약(주로 외용제·희귀 품목)이 낀 **217쌍**만
+  `residual_interactions`로 이관하고 두 테이블 DROP (마이그레이션 `0006`).
+  **DB 311MB → 85MB.**
+- `residual_interactions`는 성분 규칙이 없는 쌍만 담으므로 quick_check가 **항상**
+  함께 조회·병합한다(217행 인덱스 조회, 조건부 스킵은 미탐 위험이라 제거). finding에
+  `source`(`ingredient`|`residual`), 잔여 경로 탐지 시 `logger.warning`.
+- 성분코드는 별도 API가 아니라 `DURPrdlstInfoService03`
+  (`getUsjntTabooInfoList03`·`getEfcyDplctInfoList03`) 응답의 `INGR_CODE`/
+  `MIXTURE_INGR_CODE`에서 캡처(`DURIrdntInfoService`는 폐기 —
+  `NO_OPENAPI_SERVICE_ERROR`). 이 sweep은 이제 성분 테이블만 채운다.
+- 해소율 보강: `sync.py dur_extra_codes`(연령/노인/임부/용량/투여기간 엔드포인트의
+  `(ITEM_SEQ, INGR_CODE)` 매핑, 판정 미관여) + `sync.py build_drug_ingredients`
+  (`item_name` 괄호·`main_item_ingr` 이름 매칭). 현재 해소율 **61%**
+  (미해소 39%는 DUR 상호작용이 아예 없는 약이 대부분).
+
 | 구분 | 탐지 여부 | 근거 |
 |---|---|---|
-| DUR 병용금기 (contraindicated → critical) | ✅ 탐지 | drug_interactions 324,321건, DB 직접조회 100% 정확 |
-| DUR 효능군중복주의 (duplicate_effect_group → caution) | ✅ 탐지 | drug_effect_groups 7,040건, DB 직접조회 100% 정확 |
-| DUR 병용주의(caution 등급의 별도 API) | ❌ 미탐지 | 공공데이터 API 미제공 |
-| 특정연령대금기·노인주의·용량주의·투여기간주의 | ❌ 미탐지 | API는 존재 확인(아래 참고)했으나 미적재 — 사용자 연령 데이터 스키마 설계 필요 |
+| DUR 병용금기 (contraindicated → critical) | ✅ 탐지 | 성분쌍 `dur_ingredient_contraindications` (+ 미해소 약 residual 폴백) |
+| DUR 효능군중복주의 (duplicate_effect_group → caution) | ✅ 탐지 | 성분 `dur_ingredient_effect_groups`(dur_seq 묶음) (+ residual 폴백) |
+| DUR 병용주의(caution 등급) | ❌ 미탐지 | 품목 단위 공개 API 미제공, `DURIrdntInfoService`도 폐기 |
+| 특정연령대금기·노인주의·용량주의·투여기간주의 | ❌ 미탐지 | `DURPrdlstInfoService03`에 엔드포인트·`INGR_CODE` 있으나 미적재 — 연령 데이터·용량/기간 구조화 선행 필요 |
 | DUR 미커버 조합의 AI 추정 위험 | ❌ 의도적 미제공 | ML 실험 결과 신뢰도 있는 예측 불가능함을 실측 확인, 서빙에서 제외 (`archive/ml/README.md`) |
 
-> **주요 사실:** 와파린은 한국 DUR 병용금기 DB에 등록된 상호작용이 0건이다.
-> 타이레놀(아세트아미노펜) × 와파린은 DUR 병용주의에도 없는 조합이며,
-> 이는 시스템 오류가 아닌 공공데이터 커버리지의 한계다.
+> **주요 사실:** 와파린은 한국 DUR 병용금기 DB에 등록된 상호작용이 0건이다
+> (성분 단위로 바꿔도 0건). 타이레놀(아세트아미노펜) × 와파린은 DUR 병용주의에도
+> 없는 조합이며, 이는 시스템 오류가 아닌 공공데이터 커버리지의 한계다.
 
 ### 시연용 실제 탐지 조합
 

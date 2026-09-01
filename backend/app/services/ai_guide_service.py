@@ -72,7 +72,10 @@ class AiGuideService:
         findings_lines = []
         for f in findings:
             kind = "병용금기(절대 금기)" if f.interaction_type == "contraindicated" else "효능군중복(주의)"
-            findings_lines.append(f"- {f.drug1_name} + {f.drug2_name}: {kind} — {f.mechanism or '정보 없음'}")
+            tags = f" [주요 위험: {', '.join(f.risk_tags)}]" if f.risk_tags else ""
+            findings_lines.append(
+                f"- {f.drug1_name} + {f.drug2_name}: {kind} — {f.mechanism or '정보 없음'}{tags}"
+            )
 
         drug_lines = []
         for drug in drugs.values():

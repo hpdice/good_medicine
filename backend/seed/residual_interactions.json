@@ -1,0 +1,1304 @@
+[
+ {
+  "seq1": "199500043",
+  "seq2": "200201705",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "199500043",
+  "seq2": "201202208",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "199604999",
+  "seq2": "200201705",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "199604999",
+  "seq2": "201202208",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "199604999",
+  "seq2": "201801089",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "199700240",
+  "seq2": "200201705",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "199700240",
+  "seq2": "201202208",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "199701415",
+  "seq2": "200201705",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "199701415",
+  "seq2": "201202208",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "199701415",
+  "seq2": "201801089",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "200100710",
+  "seq2": "200201705",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "200100710",
+  "seq2": "201202208",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "200102265",
+  "seq2": "200201705",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "200201705",
+  "seq2": "201003391",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "200201705",
+  "seq2": "201100186",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "200202727",
+  "seq2": "200201705",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "200202727",
+  "seq2": "201202208",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "200301719",
+  "seq2": "200201705",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "200301719",
+  "seq2": "201202208",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "200302143",
+  "seq2": "200201705",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "200302143",
+  "seq2": "201202208",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "200302143",
+  "seq2": "201801089",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "200713001",
+  "seq2": "200201705",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "200713001",
+  "seq2": "201202208",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "200801933",
+  "seq2": "200201705",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "200801933",
+  "seq2": "201202208",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201101934",
+  "seq2": "200201705",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201101934",
+  "seq2": "201202208",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201102310",
+  "seq2": "200201705",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201201370",
+  "seq2": "200201705",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201201370",
+  "seq2": "201202208",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201202208",
+  "seq2": "200102265",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201202208",
+  "seq2": "201003391",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201202208",
+  "seq2": "201100186",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201202208",
+  "seq2": "201102310",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201202208",
+  "seq2": "201309291",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201309291",
+  "seq2": "200201705",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201402788",
+  "seq2": "200201705",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201402788",
+  "seq2": "201202208",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201403744",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "201403745",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "201500216",
+  "seq2": "200201705",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201500216",
+  "seq2": "201202208",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201700525",
+  "seq2": "200201705",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201700525",
+  "seq2": "201202208",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201701839",
+  "seq2": "201801089",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "197900070",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "197900145",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "198801192",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "199000548",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "199001013",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "199101496",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "199500043",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "199700240",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "199901596",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "199904137",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "200100710",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "200102265",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "200202727",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "200210229",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "200210230",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "200210231",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "200301719",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "200402413",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "200501179",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "200501453",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "200801933",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "201003391",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "201100186",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "201102310",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "201201370",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "201306447",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "201309291",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "201402788",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "201500216",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "201501405",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "201601003",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "201606074",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "201700525",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "201707099",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "201707100",
+  "type": "contraindicated",
+  "mechanism": "혈액학적 독성"
+ },
+ {
+  "seq1": "201801089",
+  "seq2": "201907574",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201907574",
+  "seq2": "200201705",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "201907574",
+  "seq2": "201202208",
+  "type": "contraindicated",
+  "mechanism": "중증의 위장관계 이상반응"
+ },
+ {
+  "seq1": "202101834",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202101835",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202101970",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102033",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102046",
+  "seq2": "202105730",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102046",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102076",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102077",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102080",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102081",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102089",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102090",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102097",
+  "seq2": "202105730",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102097",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102099",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102100",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102103",
+  "seq2": "202105730",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102103",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102104",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102107",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102108",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102109",
+  "seq2": "202105730",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102109",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102110",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102113",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102114",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102269",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102270",
+  "seq2": "202105730",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102270",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102282",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102283",
+  "seq2": "202105730",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102283",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102363",
+  "seq2": "202105730",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102363",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102364",
+  "seq2": "202105730",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102364",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102373",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102374",
+  "seq2": "202105730",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102374",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102580",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102824",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202102825",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202104995",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105424",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105444",
+  "seq2": "202105730",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105444",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105449",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105450",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105532",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105533",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105536",
+  "seq2": "202105730",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105536",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105537",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105545",
+  "seq2": "202105730",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105545",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105546",
+  "seq2": "202105730",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105546",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105609",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105610",
+  "seq2": "202105730",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105610",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105611",
+  "seq2": "202105730",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105611",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105612",
+  "seq2": "202105730",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105612",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105613",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105614",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105615",
+  "seq2": "202105730",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105615",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105616",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "201403744",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "201403745",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202101834",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202101835",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202101970",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202101971",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102033",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102045",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102076",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102077",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102080",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102081",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102089",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102090",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102099",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102100",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102104",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102107",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102108",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102110",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102113",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102114",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102269",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102282",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102373",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102580",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102824",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202102825",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202104995",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202105424",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202105425",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202105449",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202105450",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202105532",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202105533",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202105537",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202105607",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202105609",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202105613",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202105614",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202105616",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202105848",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202105849",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202105907",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202105908",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202106162",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202106163",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202501913",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105730",
+  "seq2": "202601734",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105731",
+  "seq2": "202101971",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105731",
+  "seq2": "202102045",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105731",
+  "seq2": "202105425",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105731",
+  "seq2": "202105607",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105848",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105849",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105907",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202105908",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202106162",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202106163",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202501913",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202601734",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202601735",
+  "seq2": "202105730",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ },
+ {
+  "seq1": "202601735",
+  "seq2": "202105731",
+  "type": "duplicate_effect_group",
+  "mechanism": "효능군 중복: 당뇨병용제"
+ }
+]

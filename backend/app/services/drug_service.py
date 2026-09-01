@@ -6,8 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
 from app.models.drug import Drug
-from app.models.drug_effect_group import DrugEffectGroup
-from app.models.drug_interaction import DrugInteraction
+from app.models.drug_ingredient import DrugIngredient
+from app.models.dur_ingredient_rule import (
+    DurIngredientContraindication,
+    DurIngredientEffectGroup,
+)
+from app.models.residual_interaction import ResidualInteraction
 from app.services.public_data_service import _make_drug_key
 
 # 정/캡슐 등 제형 접미사 뒤에 성분명이 오는 입력('와파린정', '메트포르민정500mg')을
@@ -100,9 +104,12 @@ class DrugService:
     async def get_by_item_seq(self, item_seq: str) -> Drug | None:
         return await self.db.scalar(select(Drug).where(Drug.item_seq == item_seq))
 
-    async def get_interactions(self, drug_id: uuid.UUID) -> list[DrugInteraction]:
-        stmt = select(DrugInteraction).where(
-            or_(DrugInteraction.drug1_id == drug_id, DrugInteraction.drug2_id == drug_id)
+    async def get_interactions(self, drug_id: uuid.UUID) -> list[ResidualInteraction]:
+        """한 약품이 낀 잔여 폴백 상호작용(residual_interactions). 대부분의 약은
+        성분 단위로 커버되므로 빈 리스트다 — 성분 경로 결과는 `/analysis/quick-check` 참고."""
+        stmt = select(ResidualInteraction).where(
+            or_(ResidualInteraction.drug1_id == drug_id, ResidualInteraction.drug2_id == drug_id),
+            ResidualInteraction.interaction_type == "contraindicated",
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
@@ -112,13 +119,14 @@ class DrugService:
         result = await self.db.execute(stmt)
         return {d.id: d for d in result.scalars().all()}
 
-    async def get_interactions_for_drug_list(
+    async def get_residual_for_drug_list(
         self, drug_ids: list[uuid.UUID]
-    ) -> list[DrugInteraction]:
-        """주어진 약품 ID 목록 내 모든 쌍의 상호작용을 단일 쿼리로 조회."""
-        stmt = select(DrugInteraction).where(
-            DrugInteraction.drug1_id.in_(drug_ids),
-            DrugInteraction.drug2_id.in_(drug_ids),
+    ) -> list[ResidualInteraction]:
+        """주어진 약품 ID 목록 내 모든 쌍의 잔여 폴백 상호작용(병용금기 + 효능군중복)을
+        단일 쿼리로 조회. 성분코드 미해소 약이 낀 quick_check 호출에서만 쓰인다."""
+        stmt = select(ResidualInteraction).where(
+            ResidualInteraction.drug1_id.in_(drug_ids),
+            ResidualInteraction.drug2_id.in_(drug_ids),
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
@@ -196,24 +204,45 @@ class DrugService:
             })
         return results
 
-    async def get_effect_groups_for_drug_list(self, drug_ids: list[uuid.UUID]) -> list[DrugEffectGroup]:
-        """주어진 약품들이 속한 DUR 효능군(dur_seq) 멤버십을 조회한다.
+    # ------------------------------------------------------------------ #
+    # 성분(ingredient) 단위 DUR 조회 — quick_check 정식 경로                 #
+    # ------------------------------------------------------------------ #
 
-        같은 dur_seq에 2개 이상의 약품이 속하면 효능군중복주의 대상이다
-        (병용금기와 달리 절대 금기가 아닌 '주의' 등급).
-        """
-        stmt = select(DrugEffectGroup).where(DrugEffectGroup.drug_id.in_(drug_ids))
+    async def get_ingredient_codes_for_drug_list(
+        self, drug_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, set[str]]:
+        """약품 ID → 그 약품에 매핑된 DUR 성분코드(INGR_CODE) 집합."""
+        stmt = select(DrugIngredient.drug_id, DrugIngredient.ingr_code).where(
+            DrugIngredient.drug_id.in_(drug_ids),
+            DrugIngredient.ingr_code.isnot(None),
+        )
+        result = await self.db.execute(stmt)
+        mapping: dict[uuid.UUID, set[str]] = {}
+        for drug_id, ingr_code in result.all():
+            mapping.setdefault(drug_id, set()).add(ingr_code)
+        return mapping
+
+    async def get_ingr_contraindications_for_codes(
+        self, codes: set[str]
+    ) -> list[DurIngredientContraindication]:
+        """주어진 성분코드 집합 안에서 양쪽이 모두 매칭되는 병용금기 규칙."""
+        if not codes:
+            return []
+        stmt = select(DurIngredientContraindication).where(
+            DurIngredientContraindication.ingr_code_a.in_(codes),
+            DurIngredientContraindication.ingr_code_b.in_(codes),
+        )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_interactions_for_pair(
-        self, drug1_id: uuid.UUID, drug2_id: uuid.UUID
-    ) -> list[DrugInteraction]:
-        stmt = select(DrugInteraction).where(
-            or_(
-                (DrugInteraction.drug1_id == drug1_id) & (DrugInteraction.drug2_id == drug2_id),
-                (DrugInteraction.drug1_id == drug2_id) & (DrugInteraction.drug2_id == drug1_id),
-            )
+    async def get_ingr_effect_groups_for_codes(
+        self, codes: set[str]
+    ) -> list[DurIngredientEffectGroup]:
+        """주어진 성분코드가 속한 DUR 효능군(dur_seq) 멤버십."""
+        if not codes:
+            return []
+        stmt = select(DurIngredientEffectGroup).where(
+            DurIngredientEffectGroup.ingr_code.in_(codes)
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())

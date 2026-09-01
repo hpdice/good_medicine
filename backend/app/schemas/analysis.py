@@ -23,6 +23,8 @@ class QuickCheckFinding(BaseModel):
     drug2_name: str
     interaction_type: str  # contraindicated(확정,금기) / duplicate_effect_group(확정,주의)
     mechanism: str | None
+    risk_tags: list[str] = []  # mechanism 문장에서 뽑은 위험/증상 태그 (예: ["출혈위험", "신독성"])
+    source: str = "ingredient"  # ingredient(성분 단위 정식 판정) / residual(성분코드 미해소 약 폴백)
 
 
 class QuickCheckResponse(BaseModel):

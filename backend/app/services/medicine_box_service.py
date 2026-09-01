@@ -10,6 +10,7 @@ from app.models.medicine_box import MedicineBoxEntry
 from app.models.user import User
 from app.schemas.medicine_box import MedicineBoxAddManual, MedicineBoxUpdate
 from app.services import fcm_service
+from app.services.analysis_service import AnalysisService
 from app.services.drug_service import DrugService
 
 
@@ -77,14 +78,16 @@ class MedicineBoxService:
 
         current_entries = await self.list_entries(user_id, current_only=True)
         box_drug_ids = [e.drug_id for e in current_entries]
+        if len(box_drug_ids) < 2:
+            return
 
-        drug_svc = DrugService(self.db)
-        interactions = await drug_svc.get_interactions_for_drug_list(box_drug_ids)
+        # quick_check와 동일한 판정(성분 경로 + 잔여 폴백)을 재사용한다.
+        check = await AnalysisService(self.db).quick_check(box_drug_ids)
         contraindicated = [
-            i
-            for i in interactions
-            if i.interaction_type == "contraindicated"
-            and new_entry.drug_id in (i.drug1_id, i.drug2_id)
+            f
+            for f in check.findings
+            if f.interaction_type == "contraindicated"
+            and new_entry.drug_id in (f.drug1_id, f.drug2_id)
         ]
         if not contraindicated:
             return
@@ -94,6 +97,7 @@ class MedicineBoxService:
             for d in (contraindicated[0].drug1_id, contraindicated[0].drug2_id)
             if d != new_entry.drug_id
         )
+        drug_svc = DrugService(self.db)
         drugs = await drug_svc.get_drugs_by_ids([new_entry.drug_id, other_id])
         new_drug = drugs.get(new_entry.drug_id)
         other_drug = drugs.get(other_id)

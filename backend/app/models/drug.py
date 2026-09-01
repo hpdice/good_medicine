@@ -3,7 +3,7 @@ from datetime import date, datetime
 
 from sqlalchemy import Date, DateTime, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 
@@ -52,14 +52,6 @@ class Drug(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
-
-    # Relationships
-    interactions_as_drug1: Mapped[list["DrugInteraction"]] = relationship(  # noqa: F821
-        foreign_keys="DrugInteraction.drug1_id", back_populates="drug1"
-    )
-    interactions_as_drug2: Mapped[list["DrugInteraction"]] = relationship(  # noqa: F821
-        foreign_keys="DrugInteraction.drug2_id", back_populates="drug2"
     )
 
     __table_args__ = (
