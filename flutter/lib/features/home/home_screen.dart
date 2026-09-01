@@ -281,6 +281,28 @@ class _FindingCard extends StatelessWidget {
             const SizedBox(height: 4),
             _DrugEfcyLine(name: finding.drug2Name, efcy: drug2!.efcyQesitm!),
           ],
+          if (finding.riskTags.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              children: finding.riskTags
+                  .map((t) => Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: badgeColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(t,
+                            style: TextStyle(
+                                fontSize: 11,
+                                color: badgeColor,
+                                fontWeight: FontWeight.w500)),
+                      ))
+                  .toList(),
+            ),
+          ],
           if (finding.mechanism != null) ...[
             const SizedBox(height: 6),
             Text(reasonLabel,
@@ -291,6 +313,12 @@ class _FindingCard extends StatelessWidget {
             Text(finding.mechanism!,
                 style:
                     TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+          ],
+          if (finding.source == 'residual') ...[
+            const SizedBox(height: 4),
+            Text('※ 품목 단위 참고 데이터',
+                style: TextStyle(
+                    fontSize: 10, color: Colors.grey.shade500)),
           ],
         ]),
       ),

@@ -1,6 +1,8 @@
 class FindingItem {
   final String drug1Id, drug1Name, drug2Id, drug2Name, interactionType;
   final String? mechanism;
+  final List<String> riskTags; // mechanism 문장에서 뽑은 위험/증상 태그
+  final String source; // ingredient(성분 단위 판정) / residual(성분코드 미해소 약 폴백)
 
   FindingItem.fromJson(Map<String, dynamic> j)
       : drug1Id = j['drug1_id'],
@@ -8,7 +10,9 @@ class FindingItem {
         drug2Id = j['drug2_id'],
         drug2Name = j['drug2_name'],
         interactionType = j['interaction_type'],
-        mechanism = j['mechanism'];
+        mechanism = j['mechanism'],
+        riskTags = (j['risk_tags'] as List? ?? []).map((e) => e.toString()).toList(),
+        source = j['source'] ?? 'ingredient';
 }
 
 class QuickCheckResponse {
