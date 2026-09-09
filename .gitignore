@@ -1,4 +1,10 @@
 # =====================
+# Vercel (프론트 배포 — 로컬 linkage/creds)
+# =====================
+.vercel/
+flutter/.vercel/
+
+# =====================
 # Flutter / Dart
 # =====================
 flutter/.dart_tool/

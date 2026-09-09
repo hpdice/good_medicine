@@ -1,0 +1,59 @@
+# Flutter 웹 → Vercel 자동 배포.
+# 프론트만 Vercel(정적 호스트)에서 돌고, API 는 국내 PC 백엔드(Tailscale Funnel)를 호출한다.
+# 개인정보는 프론트에 없으므로 Vercel(해외) 호스팅은 PIPA 무관.
+#
+# 최초 1회 세팅: docs/deploy-web-vercel.md
+# 필요한 GitHub Secrets: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID, WEB_API_BASE_URL
+name: deploy web (Vercel)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "flutter/**"
+      - ".github/workflows/deploy-web.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-web
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: flutter build web
+        working-directory: flutter
+        run: |
+          flutter pub get
+          flutter build web --release --pwa-strategy=none \
+            --dart-define=BASE_URL="${{ secrets.WEB_API_BASE_URL }}"
+
+      - name: assemble Vercel prebuilt output
+        run: |
+          mkdir -p .vercel/output/static
+          cp -r flutter/build/web/. .vercel/output/static/
+          cat > .vercel/output/config.json <<'JSON'
+          {
+            "version": 3,
+            "routes": [
+              { "handle": "filesystem" },
+              { "src": "/.*", "dest": "/index.html" }
+            ]
+          }
+          JSON
+
+      - name: deploy to Vercel
+        run: |
+          npm i -g vercel@latest
+          vercel deploy --prebuilt --prod --yes --token="${{ secrets.VERCEL_TOKEN }}"

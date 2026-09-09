@@ -25,7 +25,12 @@ class Settings(BaseSettings):
 
     # App
     DEBUG: bool = False
+    # 백엔드가 웹 번들을 같은 오리진에서 서빙하면 CORS 불필요. 프론트를 Vercel 등 별도
+    # 호스트에 올리면 그 오리진을 CORS_ORIGINS(정확 목록, .env 에 JSON 배열)에 추가하고,
+    # 매번 서브도메인이 바뀌는 프리뷰 배포는 CORS_ORIGIN_REGEX 로 허용한다
+    # (예: CORS_ORIGIN_REGEX=https://.*\.vercel\.app).
     CORS_ORIGINS: list[str] = ["http://localhost:8081", "exp://localhost:8081"]
+    CORS_ORIGIN_REGEX: str = ""
 
     # Rate Limiting
     LOGIN_RATE_LIMIT: str = "5/15minutes"
