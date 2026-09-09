@@ -14,7 +14,6 @@ front_app
 # --- 문서·부산물 ---
 docs
 archive
-deploy
 scripts
 infrastructure
 *.md

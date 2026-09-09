@@ -25,7 +25,7 @@ services:
       TS_SERVE_CONFIG: /config/serve.json
     volumes:
       - tailscale_state:/var/lib/tailscale
-      - ./deploy/tailscale/serve.json:/config/serve.json:ro
+      - ./infrastructure/tailscale/serve.json:/config/serve.json:ro
     depends_on:
       - backend
     restart: unless-stopped

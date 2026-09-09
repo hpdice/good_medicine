@@ -1,7 +1,10 @@
 # 프로젝트 전체 현황
 
-> 기준일: 2026-09-09 (서버 OCR 전환 · 코드 정리 · 프론트 리디자인 · 로컬+Tailscale 배포 회귀(개인정보 국외이전 회피) · Funnel 컨테이너화)
-> 상세 작업 서사(계획/문제/결론)는 [개발일지.md](./개발일지.md) 참고 — 이 문서는 "지금 상태" 스냅샷만 관리한다.
+> 기준일: 2026-09-09. **이 문서는 "지금 상태" 스냅샷만** — 날짜별 작업 서사(계획/문제/결론)는
+> [개발일지.md](./개발일지.md).
+>
+> 배포 완료: 백엔드+Ollama는 국내 PC(`docker compose` + Tailscale Funnel), 프론트 웹은 Vercel,
+> APK는 GitHub Releases.
 
 ---
 
@@ -96,73 +99,22 @@ residual_interactions               :    217건  ← 성분코드 미해소 약�
 - `backend/tests/`: pytest + httpx(ASGITransport), 40개 E2E 테스트(스키마 1회 생성 + 테스트별 TRUNCATE), 운영 DB와 분리된 `drugtest_test_db` 사용
 - 커버리지: 인증(회원가입/로그인/리프레시 단일사용/72바이트 초과 비밀번호 거부/탈퇴 후 재가입), 약품검색, 약품명 매칭(성분명 폴백·정밀매칭 우선순위 회귀), 복약함(추가/중복거부/삭제), quick-check 3단계(critical/caution/safe), AI 가이드(생성·암호화저장·Ollama 다운 시 폴백, Ollama는 mock), 사용자 정보(건강정보 왕복/복호화 손상 격리)
 
-### 실측 데이터 테스트 (2026-08-06)
+## AI 대응 가이드 — 로컬 LLM
 
-실제 운영 DB(35,487건)로 quick-check·약품 매칭을 직접 실행해 검증.
+위험도 **판정**은 규칙 기반(`AnalysisService.quick_check`, DUR 직접 조회)이고,
+AI는 그 결과를 사람이 읽을 설명으로 풀어쓰는 **보조("첨언") 역할만** — AI가 판정을
+바꾸지 않도록 구조적으로 분리.
 
-- **위험도 분류 로직**: 정확 — DUR 데이터에 있는 병용금기/효능군중복은 critical/caution으로 정확히 분류됨을 실제 약품(아스피린+메토트렉세이트, 크레스토20/10mg, 타이레놀+펜잘 등 다른 브랜드의 동일성분 중복)으로 확인. 엣지케이스(중복 ID, 빈 목록, 존재하지 않는 UUID)도 정상 처리.
-- **버그 발견 및 수정**: `match_names()`/`search()`가 "성분명+제형" 입력(예: '와파린정')에서 매칭 실패 — 브랜드명이 성분명을 괄호 안에 숨기는 경우(`쿠파린정2mg(와파린나트륨)`) 문자열이 끊겨 실패. 매칭 실패 시 `matched: null`을 반환할 뿐 에러가 없어 사용자 모르게 약이 등록에서 누락될 수 있었음(와파린처럼 상호작용이 중요한 약일수록 위험). `ingr_name` JSONB + `item_name` 성분 폴백 매칭(4순위, 최후수단)을 추가해 수정 — [drug_service.py](../backend/app/services/drug_service.py) 참고.
-- **알려진 한계 재확인**: 제산제+시프로플록사신 등 병용주의(caution)급 상호작용은 여전히 미탐지 — 공공데이터 API 자체가 없어 코드로 해결 불가한 기존 한계(위 "시스템 커버리지 명세" 참고).
-
----
-
-## AI 대응 가이드 — 로컬 LLM (완료, 2026-08-06)
-
-위험도 **판정**은 그대로 규칙 기반(`AnalysisService.quick_check`, DUR 데이터 직접 조회)이고,
-AI는 그 판정 결과를 사람이 읽을 설명으로 풀어쓰는 **보조("첨언") 역할만** 한다 — AI가
-판정 자체를 바꾸지 않도록 구조적으로 분리했다.
-
-- **모델**: Ollama + `qwen2.5:14b-instruct` (Q4 양자화, ~9GB) — 외부 API(Anthropic 등) 미사용,
-  건강정보가 이 PC 밖으로 나가지 않음
-- **인프라**: docker-compose `ollama` 서비스, GPU passthrough(`deploy.resources.reservations.devices`
-  nvidia). `docker info`에 `nvidia` 런타임이 이미 등록돼 있었고 실측(`docker run --gpus all ... nvidia-smi`)으로
-  RTX 4070(12GB) 인식 확인 후 컨테이너로 통합(네이티브 설치 대신)
-- **검색(RAG) 설계**: 벡터 임베딩이 아니라 구조화 조회 — quick_check가 이미 찾아낸 `drug_id`로
-  `DrugService.get_drugs_by_ids()`를 직접 재사용해 `efcy_qesitm`/`atpn_qesitm`/`se_qesitm` 텍스트를
-  가져오고, 사용자의 복호화된 건강정보/알레르기도 컨텍스트에 포함. "이미 찾은 특정 finding을
-  설명"하는 용도라 개방형 검색(임베딩·pgvector)이 불필요하다고 판단
-- **안전장치**: Ollama가 응답하지 않아도(`OllamaUnavailableError`) 판정(risk_level)은 그대로
-  반환되고 가이드만 안전한 폴백 문구로 대체 — 실제로 `docker compose stop ollama` 상태에서
-  `/analysis/guide` 호출해 정상 폴백 확인
-- **실측 성능** (RTX 4070 12GB, VRAM 12282MiB):
-  | 상황 | 소요 시간 |
-  |---|---|
-  | 최초 로드(콜드스타트, 9GB를 GPU에 올림) | 87초~2분 30초 (편차 있음) |
-  | 이후 요청(모델 로드된 상태) | ~10~15초 |
-
-  `keep_alive: "30m"`로 매 요청마다 재로드되지 않게 함 (기본값 5분은 너무 짧음 — 실측으로
-  드러난 문제라 코드에 반영).
-  **실제로 겪은 버그**: 처음 `OLLAMA_TIMEOUT_SECONDS=90`으로 설정했는데, "전체 테스트
-  진행" 지시로 실제 API를 다시 호출했을 때 콜드스타트가 91.8초 걸려 90초 타임아웃에
-  걸리고 폴백으로 빠지는 걸 직접 목격함 — 초기 실측(2분 30초)보다 짧게 나온 경우라도
-  87~91초대는 90초 경계에 걸릴 만큼 아슬아슬했다. `OLLAMA_TIMEOUT_SECONDS=200`으로
-  올려 재현 확인(같은 조합으로 워밍 상태에서 10.8초 만에 정상 생성 확인).
-- **실측으로 확인한 한계**: 시스템 프롬프트로 "제공된 정보에만 근거하라, 없는 사실을
-  추측하지 마라"를 강하게 지시해도, 실제 critical 조합(아스피린+메토트렉세이트) 테스트에서
-  모델이 DB에 없는 내용(메토트렉세이트의 류마티스 치료 용도 — `efcy_qesitm`이 비어있는
-  약품이었음에도)을 일반 지식으로 채워 넣는 사례를 확인함. 내용 자체는 사실이었지만
-  "이 데이터 안에서만" 원칙이 프롬프트만으로 100% 보장되지는 않는다는 뜻 — UI에서
-  "AI 참고용 설명(진단 아님)"이라는 disclaimer를 반드시 노출해야 하는 이유
-- **저장**: `analysis_results` 테이블(0004 마이그레이션)에 판정 스냅샷 + AES-256-GCM
-  암호화된 가이드 텍스트 저장 — 이력 조회·월간 리포트 등 향후 기능 대비
-- **Flutter 연동**: 홈 화면 상호작용 상세 바텀시트(`_showFindings`)에 "AI 설명 보기" 버튼
-  추가 — 자동 호출이 아니라 탭했을 때만 호출(비용·지연 때문). 타임아웃은 백엔드
-  `OLLAMA_TIMEOUT_SECONDS`(200초)보다 항상 여유있게 220초로 설정.
-  **Android 에뮬레이터(Pixel 3a)에서 실제 회원가입→로그인→약품 추가→위험배너 탭→
-  AI 설명 생성까지 전체 플로우 실기기 검증 완료** — 스크린샷으로 각 단계 확인함
-
-### 실기기 검증 중 발견한 버그 3건 (2026-08-06)
-
-- **Android 빌드 실패**: `flutter_local_notifications`가 core library desugaring을
-  요구하는데 `android/app/build.gradle.kts`에 설정이 없어 `assembleDebug` 자체가
-  실패했음 — `isCoreLibraryDesugaringEnabled = true` + `desugar_jdk_libs:2.1.4`
-  의존성 추가로 수정. (이 버그는 이번 세션 이전부터 있었을 것 — 실제로 emulator에서
-  빌드해본 적이 없었다는 뜻)
-- **Cleartext HTTP 차단**: `AndroidManifest.xml`에 `usesCleartextTraffic` 설정이
-  없어 Android 기본 정책상 `http://10.0.2.2:8000`(에뮬레이터용 개발 서버) 접속이
-  전부 막혀 있었음 — CLAUDE.md에 문서화된 에뮬레이터 개발 흐름 자체가 실제로는
-  한 번도 성공한 적 없었다는 뜻. `android:usesCleartextTraffic="true"` 추가로 해결
-  (HTTPS인 운영 배포에는 영향 없음)
+- **모델**: Ollama + `qwen2.5:14b-instruct` (~9GB). 외부 API 미사용 — 건강정보가 PC 밖으로 안 나감.
+- **인프라**: docker-compose `ollama` 서비스, GPU passthrough(nvidia, RTX 4070 12GB).
+- **RAG**: 임베딩이 아니라 구조화 조회 — quick_check가 찾은 `drug_id`로 `get_drugs_by_ids()` 재사용,
+  복호화된 건강정보/알레르기도 컨텍스트에 포함.
+- **안전장치**: Ollama 무응답 시(`OllamaUnavailableError`) 판정은 그대로, 가이드만 안전한 폴백 문구.
+- **성능**(실측): 콜드스타트 87초~2분30초, 이후 요청 ~10~15초. `keep_alive:"30m"`,
+  `OLLAMA_TIMEOUT_SECONDS=200`(콜드스타트 커버), 클라이언트 타임아웃 220초.
+- **한계**(실측): "제공된 정보에만 근거" 프롬프트에도 14B 모델이 가끔 일반 지식을 섞음 →
+  UI에 "AI 참고용 설명(진단 아님)" disclaimer 필수.
+- **저장**: `analysis_results`에 판정 스냅샷 + AES-256-GCM 암호화 저장(`drug_ids`·`findings`·가이드 전부).
 - **에뮬레이터 저장공간 부족**: 기본 AVD 데이터 파티션이 6GB로 이미 94% 차 있어
   APK 설치가 실패 — 이건 코드 문제가 아니라 이 PC의 에뮬레이터 설정 문제
   (`disk.dataPartition.size=8G`로 확장 + wipe-data로 해결, 다른 환경에서는
@@ -194,7 +146,7 @@ front_app/lib/
     └── search/          search_screen, search_provider
 ```
 
-### 약품 매칭 전략 (4단계, 2026-08-06 성분명 폴백 추가)
+### 약품 매칭 전략 (4단계)
 
 | 순위 | 방식 | 설명 |
 |---|---|---|
@@ -209,10 +161,8 @@ front_app/lib/
 - 실제 기기(어디서든) / 릴리스 APK: `https://goodmedicine.tail9f1768.ts.net/api/v1/` (Tailscale Funnel, PC 켜져 있을 때)
 - `BASE_URL`은 반드시 `/api/v1/` 접두사 + 끝 슬래시 포함해야 함 — 상세는 CLAUDE.md 참고 (실측으로 발견한 버그)
 
-### 약품 설명 표시 (2026-08-31 추가)
-- 복약함 목록 카드: 접힌 상태에서도 효능(`efcy_qesitm`) 한 줄 요약이 항상 보임
-- 상호작용 상세(AI 설명 진입 화면): 각 약품 이름 아래 효능 설명 표시 — 기존엔 약품명·상호작용 사유만 보이고 그 약이 뭔지 안 보이던 문제
-- 추가 API 호출 없이 이미 로드된 복약함 데이터(`medicine-box` 응답의 `efcy_qesitm`)를 재사용
+### 약품 설명 표시
+- 복약함 카드·상호작용 상세에 효능(`efcy_qesitm`) 요약 표시 — 이미 로드된 `medicine-box` 응답 재사용(추가 API 호출 없음)
 
 ---
 
@@ -220,8 +170,7 @@ front_app/lib/
 
 ### quick-check가 탐지하는 범위
 
-**판정 축 전환 (2026-09-01)**: 품목(item) 단위 → **성분(ingredient) 단위**, 그리고
-품목 테이블 폐기까지 완료.
+판정은 **성분(ingredient) 단위**가 유일한 정식 경로. 구 품목쌍 테이블은 폐기됨.
 
 - 복약함 약품을 `drug_ingredients`로 DUR 성분코드(`INGR_CODE`)에 해소(역인덱스) →
   `dur_ingredient_contraindications`(357건) / `dur_ingredient_effect_groups`(259건) 조회.
@@ -274,24 +223,12 @@ front_app/lib/
 
 ---
 
-## FCM (완료, 2026-07-15)
+## FCM 푸시
 
-- Firebase 프로젝트: `good-medicine-app`
-- Android 패키지명: `com.goodmedicine.good_medicine` (기존 `com.example.drugtest`에서 변경 — Play Store 등록 불가한 이름이라 Firebase 등록값에 맞춰 통일)
-- `backend/firebase-service-account.json`, `front_app/android/app/google-services.json` 배치 완료 (둘 다 gitignore 대상)
-- `front_app/android/`에 누락되어 있던 네이티브 파일(AndroidManifest.xml, MainActivity, 루트 Gradle 설정)을 `flutter create --platforms=android .`로 복구 — 카메라/인터넷 권한 재설정 포함
-- `flutter build apk --debug` 빌드 성공 확인
-- (2026-08-03) 포그라운드 알림 미표시 버그 수정: `flutter_local_notifications` 추가, `onMessage`/`onBackgroundMessage` 핸들러 연결, `POST_NOTIFICATIONS`(Android 13+) 권한 추가 — 상세는 [개발일지.md](./개발일지.md) 20회차 참고
-
-## 알려진 이슈
-
-(2026-08-31 실측 점검에서 아래 3건 발견·수정 완료 — 상세는 CLAUDE.md 및 git log 참고)
-
-| 이슈 | 원인 | 조치 |
-|---|---|---|
-| ~~로컬 Docker 호스트 포트 8000 충돌~~ (해결됨) | `health-api`(다른 프로젝트)가 호스트 8000을 상시 점유 | drugtest backend를 8001로 이전(`docker-compose.yml`). 두 프로젝트 동시 기동 가능해짐 |
-| DB가 8/19 이후 빈 상태였음 (해결됨) | `docker-compose.yml`의 `postgres_data`가 실제로는 `D:\drugTest\postgres_data` bind mount가 아니라 빈 named volume이었음 (문서와 실제 설정 불일치) | D: 드라이브의 기존 데이터(약품 35,324건 등)를 bind mount로 재연결해 복구 |
-| Flutter BASE_URL 문서 오류 (해결됨) | CLAUDE.md에 문서화된 실행 명령이 `ApiClient`가 요구하는 `/api/v1/` 접두사+끝 슬래시를 빠뜨려 모든 API 호출이 깨진 URL로 나감 | CLAUDE.md 실행 명령 수정 |
+- Firebase 프로젝트 `good-medicine-app`, Android 패키지명 `com.goodmedicine.good_medicine`.
+- `backend/firebase-service-account.json`, `front_app/android/app/google-services.json` (둘 다 gitignore).
+- 복약함에 병용금기 약 추가 시 `fcm_service.py`가 발송. 포그라운드는 `flutter_local_notifications`로 표시.
+- `users.fcm_token` 없으면 조용히 스킵(에러 아님).
 
 ## 배포 — 백엔드(API) 국내 PC · 프론트(웹) Vercel
 
@@ -305,7 +242,7 @@ front_app/lib/
   - 배포: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build`
     → override 배제 + `tailscale` 컨테이너 추가. 단일 스테이지 이미지라 빌드 ~30초.
   - 외부 노출: **`tailscale` 컨테이너**(userspace, 노드명 `goodmedicine`,
-    `deploy/tailscale/serve.json` 로 `/`→`backend:8000` 프록시) → `https://goodmedicine.tail9f1768.ts.net/api/v1/`
+    `infrastructure/tailscale/serve.json` 로 `/`→`backend:8000` 프록시) → `https://goodmedicine.tail9f1768.ts.net/api/v1/`
     (고정 HTTPS). Docker Desktop 자동시작 + `restart: unless-stopped` 로 재부팅 후 터널까지 자동 복구.
     최초 1회 `docker logs drugtest-tailscale` 의 로그인 URL 승인(`tailscale_state` 볼륨에 영속).
   - 병용금기 판정 + **AI 가이드 풀 동작**(PC의 GPU). 비용 $0. PC 켜져 있을 때만.
@@ -347,9 +284,8 @@ docker exec drugtest-backend-1 python validate_db.py
 docker exec drugtest-backend-1 python sync.py build_residual
 docker exec drugtest-backend-1 python sync.py extract_risk_tags
 
-# E2E 테스트 (별도 drugtest_test_db 사용, 운영 DB 무관)
-docker exec -u root drugtest-backend-1 pip install pytest pytest-asyncio pytest-cov httpx
-docker exec -e PYTHONPATH=/app -w /app drugtest-backend-1 python -m pytest tests/ -v
+# E2E 테스트 (별도 drugtest_test_db 사용, 운영 DB 무관. pytest는 이미지에 포함됨)
+docker exec -e PYTHONPATH=/app -w /app drugtest-backend-1 python -m pytest tests/ -q
 
 # 마이그레이션
 docker exec -it drugtest-backend-1 alembic upgrade head

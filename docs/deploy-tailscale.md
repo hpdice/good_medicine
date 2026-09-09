@@ -95,12 +95,12 @@ flutter build apk --release --dart-define=BASE_URL=https://goodmedicine.tail9f17
 | PC 재부팅 | Docker Desktop 자동시작 + `restart: unless-stopped` → backend·tailscale·터널까지 전부 자동 복구. **수동 조작 없음** |
 | Funnel 주소 | 노드명(`goodmedicine`)+tailnet 기준이라 **안 바뀜** |
 | 터널만 재시작 | `docker compose -f docker-compose.yml -f docker-compose.prod.yml restart tailscale` |
-| serve 설정 변경 | `deploy/tailscale/serve.json` 수정 후 tailscale 컨테이너 restart |
+| serve 설정 변경 | `infrastructure/tailscale/serve.json` 수정 후 tailscale 컨테이너 restart |
 | 시연 | PC 절전 해제. 라이브 + 녹화 영상 백업 |
 
 **파일**
 - `docker-compose.prod.yml` — `tailscale` 서비스 정의(이미지 `tailscale/tailscale:v1.102.3`, userspace, `tailscale_state` 볼륨)
-- `deploy/tailscale/serve.json` — Funnel + `/` → `http://backend:8000` 프록시 (`${TS_CERT_DOMAIN}` 은 노드 FQDN 으로 자동 치환)
+- `infrastructure/tailscale/serve.json` — Funnel + `/` → `http://backend:8000` 프록시 (`${TS_CERT_DOMAIN}` 은 노드 FQDN 으로 자동 치환)
 
 ---
 
