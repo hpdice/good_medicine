@@ -107,6 +107,12 @@ front_app/ios/Runner/GoogleService-Info.plist
 # =====================
 docs/study/
 
+# =====================
+# AI 작업용 컨텍스트 파일 (로컬 전용, git 미추적)
+# =====================
+CLAUDE.md
+.claude/
+
 # DB 덤프 (배포 이관용, 커밋 금지)
 *.dump
 env.txt
