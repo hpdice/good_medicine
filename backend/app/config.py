@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=["../.env", ".env"], extra="ignore")
 
@@ -30,6 +31,11 @@ class Settings(BaseSettings):
     LOGIN_RATE_LIMIT: str = "5/15minutes"
     DEFAULT_RATE_LIMIT: str = "60/minute"
     ANALYSIS_RATE_LIMIT: str = "10/minute"
+    OCR_RATE_LIMIT: str = "20/minute"
+
+    # 처방전/약봉투 OCR — 이미지는 메모리에서만 처리하고 OCR 직후 폐기(디스크·DB 저장 없음).
+    OCR_MAX_IMAGE_BYTES: int = 8 * 1024 * 1024  # 8MB 초과 업로드는 거부
+    OCR_TESSERACT_LANG: str = "kor+eng"
 
     # FCM 푸시 알림 — Firebase 서비스 계정 키 JSON 경로 (미설정 시 푸시 기능 비활성화)
     FIREBASE_CREDENTIALS_JSON: str = ""

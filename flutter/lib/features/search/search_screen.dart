@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../core/models/drug_models.dart';
+import '../../core/theme/app_theme.dart';
 import 'search_provider.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -42,17 +43,29 @@ class _SearchScreenState extends State<SearchScreen> {
         appBar: AppBar(title: const Text('약품 검색')),
         body: Column(children: [
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
             child: TextField(
               controller: _ctrl,
               autofocus: true,
+              textInputAction: TextInputAction.search,
               decoration: InputDecoration(
-                hintText: '약품명 검색...',
-                prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                hintText: '약품명을 입력하세요',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: _ctrl.text.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.close_rounded, size: 20),
+                        onPressed: () {
+                          _ctrl.clear();
+                          _onChanged('', search);
+                          setState(() {});
+                        },
+                      ),
               ),
-              onChanged: (q) => _onChanged(q, search),
+              onChanged: (q) {
+                _onChanged(q, search);
+                setState(() {});
+              },
             ),
           ),
           Expanded(child: _buildResults(context, search)),
@@ -62,25 +75,35 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Widget _buildResults(BuildContext context, SearchProvider search) {
-    if (search.isLoading) return const Center(child: CircularProgressIndicator());
+    if (search.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
     if (search.error != null) {
-      return Center(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(search.error!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error)),
-          const SizedBox(height: 8),
-          TextButton(
-              onPressed: search.clearError, child: const Text('닫기')),
-        ]),
+      return _CenterMessage(
+        icon: Icons.wifi_off_rounded,
+        title: search.error!,
+        action: TextButton(
+            onPressed: search.clearError, child: const Text('닫기')),
       );
     }
-    if (search.results.isEmpty && search.query.isNotEmpty) {
-      return const Center(child: Text('검색 결과가 없습니다.'));
+    if (search.query.isEmpty) {
+      return _CenterMessage(
+        icon: Icons.search_rounded,
+        title: '약품명으로 검색',
+        subtitle: '예: 타이레놀, 아스피린, 와파린정',
+      );
+    }
+    if (search.results.isEmpty) {
+      return const _CenterMessage(
+        icon: Icons.search_off_rounded,
+        title: '검색 결과가 없습니다',
+        subtitle: '철자를 확인하거나 다른 이름으로 시도해 보세요.',
+      );
     }
     return ListView.separated(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       itemCount: search.results.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, i) {
         final drug = search.results[i];
         return _DrugCard(
@@ -96,40 +119,94 @@ class _SearchScreenState extends State<SearchScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
       builder: (_) => DraggableScrollableSheet(
         expand: false,
         initialChildSize: 0.5,
         maxChildSize: 0.9,
         builder: (_, ctrl) => ListView(
           controller: ctrl,
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
           children: [
-            Text(drug.itemName,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            Text('효능',
-                style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: Theme.of(context).colorScheme.primary)),
+            Text(drug.displayName,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w700)),
+            if (drug.entpName != null) ...[
+              const SizedBox(height: 4),
+              Text(drug.entpName!,
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            ],
+            Gap.v16,
+            _SectionLabel('효능'),
             const SizedBox(height: 4),
-            Text(drug.efcyQesitm ?? '효능 정보 없음'),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: () {
-                  context.pop();
-                  search.addToBox(drug.id);
-                },
-                child: const Text('+ 내 약에 추가'),
+            if (drug.efcyQesitm != null)
+              Text(drug.efcyQesitm!, style: const TextStyle(height: 1.5))
+            else
+              Text(
+                '식약처 e약은요에 효능 설명이 등록되지 않은 약품이에요.',
+                style: TextStyle(
+                  height: 1.5,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
+            Gap.v24,
+            FilledButton.icon(
+              onPressed: () {
+                context.pop();
+                search.addToBox(drug.id);
+              },
+              icon: const Icon(Icons.add_rounded, size: 20),
+              label: const Text('내 약에 추가'),
             ),
-            const SizedBox(height: 8),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  final String text;
+  const _SectionLabel(this.text);
+  @override
+  Widget build(BuildContext context) => Text(text,
+      style: TextStyle(
+          fontWeight: FontWeight.w700,
+          fontSize: 13,
+          color: Theme.of(context).colorScheme.primary));
+}
+
+class _CenterMessage extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final Widget? action;
+  const _CenterMessage(
+      {required this.icon, required this.title, this.subtitle, this.action});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 48, color: scheme.onSurfaceVariant),
+          Gap.v12,
+          Text(title,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium),
+          if (subtitle != null) ...[
+            Gap.v4,
+            Text(subtitle!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: scheme.onSurfaceVariant)),
+          ],
+          if (action != null) ...[Gap.v8, action!],
+        ]),
       ),
     );
   }
@@ -142,33 +219,41 @@ class _DrugCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final meta = [drug.className, drug.etcOtcName]
+        .where((e) => e != null && e.isNotEmpty)
+        .join('  ·  ');
     return Card(
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(kRadius),
         child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(drug.itemName,
-                style: const TextStyle(fontWeight: FontWeight.w500)),
-            const SizedBox(height: 4),
-            Row(children: [
-              if (drug.className != null)
-                Text(drug.className!,
-                    style:
-                        TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-              if (drug.className != null && drug.etcOtcName != null)
-                Text(' | ',
-                    style:
-                        TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-              if (drug.etcOtcName != null)
-                Text(drug.etcOtcName!,
-                    style:
-                        TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-            ]),
-            if (drug.entpName != null)
-              Text(drug.entpName!,
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+          padding: const EdgeInsets.all(14),
+          child: Row(children: [
+            Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(drug.displayName,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 14.5)),
+                    if (meta.isNotEmpty) ...[
+                      const SizedBox(height: 3),
+                      Text(meta,
+                          style: TextStyle(
+                              fontSize: 12, color: scheme.onSurfaceVariant)),
+                    ],
+                    if (drug.entpName != null) ...[
+                      const SizedBox(height: 1),
+                      Text(drug.entpName!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 11.5, color: scheme.onSurfaceVariant)),
+                    ],
+                  ]),
+            ),
+            Icon(Icons.chevron_right_rounded, color: scheme.onSurfaceVariant),
           ]),
         ),
       ),

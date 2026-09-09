@@ -125,8 +125,10 @@ class AiGuideService:
     ) -> None:
         result = AnalysisResult(
             user_id=user_id,
-            drug_ids=[str(d) for d in drug_ids],
-            findings_snapshot=[f.model_dump(mode="json") for f in findings],
+            drug_ids_encrypted=self._enc.encrypt([str(d) for d in drug_ids]),
+            findings_snapshot_encrypted=self._enc.encrypt(
+                [f.model_dump(mode="json") for f in findings]
+            ),
             risk_level=risk_level,
             model_name=settings.OLLAMA_MODEL,
             action_guide_encrypted=self._enc.encrypt(guide_text),

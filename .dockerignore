@@ -1,0 +1,45 @@
+# 빌드 컨텍스트 = 레포 루트. 이미지 빌드에 필요한 건 backend/ 와 flutter/(웹 빌드용)뿐.
+
+# --- 버전관리/메타 ---
+.git
+.github
+.claude
+.gitignore
+.dockerignore
+
+# --- 문서·부산물 (이미지 불필요) ---
+docs
+archive
+deploy
+scripts
+infrastructure
+*.md
+docker-compose*.yml
+
+# --- 시크릿 (절대 이미지에 넣지 않음) ---
+**/.env
+**/.env.*
+backend/firebase-service-account*.json
+
+# --- Python ---
+**/__pycache__/
+**/*.py[cod]
+backend/.pytest_cache/
+backend/.ruff_cache/
+backend/.mypy_cache/
+backend/tests/
+*.dump
+
+# --- Flutter: 웹 빌드에 lib/·web/·pubspec·assets 만 필요 ---
+flutter/build/
+flutter/.dart_tool/
+flutter/.flutter-plugins
+flutter/.flutter-plugins-dependencies
+flutter/.pub-cache/
+flutter/android/
+flutter/ios/
+flutter/linux/
+flutter/macos/
+flutter/windows/
+flutter/test/
+flutter/coverage/

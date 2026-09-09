@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.exceptions import ConflictError, UnauthorizedError
 from app.core.security import (
     create_access_token,
@@ -13,7 +14,6 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.config import settings
 from app.models.user import AuditLog, RefreshToken, User
 from app.schemas.user import UserLogin, UserRegister
 
@@ -78,8 +78,9 @@ class AuthService:
         }
 
     async def refresh(self, refresh_token_str: str) -> dict:
-        from app.core.security import decode_token
         from jose import JWTError
+
+        from app.core.security import decode_token
 
         try:
             payload = decode_token(refresh_token_str)

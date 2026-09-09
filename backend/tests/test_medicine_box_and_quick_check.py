@@ -1,3 +1,9 @@
+import uuid
+
+from sqlalchemy import select
+
+from app.core.encryption import get_encryptor
+from app.models.medicine_box import MedicineBoxEntry
 from tests.factories import (
     make_contraindication,
     make_drug,
@@ -21,6 +27,39 @@ async def test_add_drug_to_medicine_box(client, session_factory):
     res = await client.post("/medicine-box", json={"drug_id": str(drug.id)}, headers=headers)
     assert res.status_code == 201
     assert res.json()["drug"]["id"] == str(drug.id)
+
+
+async def test_medicine_box_entry_encrypted_at_rest(client, session_factory):
+    """복약 정보(어떤 약·용량·메모)는 payload_encrypted 한 컬럼에만 저장되고
+    평문 drug_id 컬럼은 존재하지 않는다. 응답에는 복호화된 평문이 나온다."""
+    async with session_factory() as session:
+        drug = await make_drug(session, "가스활명수정")
+    headers = await _auth_headers(client)
+
+    res = await client.post(
+        "/medicine-box",
+        json={"drug_id": str(drug.id), "dosage_per_intake": "1정", "notes": "아침 식후 복용"},
+        headers=headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["drug"]["id"] == str(drug.id)
+    assert res.json()["notes"] == "아침 식후 복용"
+
+    async with session_factory() as session:
+        row = (await session.execute(select(MedicineBoxEntry))).scalar_one()
+        assert not hasattr(row, "drug_id")
+        assert "아침" not in row.payload_encrypted  # 원문이 암호문에 노출되지 않음
+        payload = get_encryptor().decrypt(row.payload_encrypted)
+        assert payload["drug_id"] == str(drug.id)
+        assert payload["notes"] == "아침 식후 복용"
+
+
+async def test_add_nonexistent_drug_rejected(client, session_factory):
+    headers = await _auth_headers(client)
+    res = await client.post(
+        "/medicine-box", json={"drug_id": str(uuid.uuid4())}, headers=headers
+    )
+    assert res.status_code == 404
 
 
 async def test_add_same_drug_twice_rejected(client, session_factory):

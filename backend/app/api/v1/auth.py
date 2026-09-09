@@ -1,15 +1,13 @@
 from fastapi import APIRouter, Depends, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core.rate_limit import limiter
 from app.db.session import get_db
 from app.schemas.user import RefreshRequest, TokenResponse, UserLogin, UserRegister, UserResponse
 from app.services.auth_service import AuthService
 
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
 
 
 def _get_client_ip(request: Request) -> str:

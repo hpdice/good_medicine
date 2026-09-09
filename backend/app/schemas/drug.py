@@ -53,3 +53,12 @@ class DrugNameMatchResult(BaseModel):
     alternatives: list[DrugSearchResult]
 
     model_config = {"from_attributes": True}
+
+
+class OcrMatchResponse(BaseModel):
+    """처방전/약봉투 사진 OCR 결과. 서버는 이미지를 저장하지 않으며,
+    raw_text/candidates/matches 텍스트만 반환한다."""
+
+    raw_text: str
+    candidates: list[str]
+    matches: list[DrugNameMatchResult]

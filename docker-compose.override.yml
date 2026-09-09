@@ -1,0 +1,10 @@
+# 개발 편의 오버라이드 — `docker compose up` 시 자동 로드된다.
+# 소스를 바인드마운트해 재빌드 없이 코드 반영(라이브 리로드).
+#
+# 원격 시연/배포(`-f docker-compose.yml -f docker-compose.prod.yml`)에서는
+# `-f` 목록을 명시하므로 이 파일이 로드되지 않아 바인드마운트가 빠지고,
+# 이미지에 포함된 Flutter 웹 번들이 `/app/web` 에서 서빙된다.
+services:
+  backend:
+    volumes:
+      - ./backend:/app

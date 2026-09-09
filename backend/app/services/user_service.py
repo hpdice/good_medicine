@@ -1,7 +1,6 @@
 import logging
 import uuid
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.encryption import get_encryptor

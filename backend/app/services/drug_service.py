@@ -51,8 +51,12 @@ def _ingredient_match_clause(stem: str):
     커버리지가 낮다. item_name 자체에 성분명이 괄호로 표기되는 경우가 훨씬 많으므로
     (ingr_name 유무와 무관하게) item_name/simple_name에 대한 stem ILIKE를 함께 건다.
     """
+    # jsonb_typeof 가드: ingr_name 이 JSON 배열이 아닐 때(NULL, 또는 JSONB `null` 스칼라 —
+    # SQLAlchemy JSONB 기본이 none_as_null=False 라 미설정 시 'null' 스칼라가 됨)
+    # jsonb_array_elements 가 "cannot extract elements from a scalar" 로 터지는 것을 막는다.
     ingr_jsonb_exists = text(
-        "EXISTS (SELECT 1 FROM jsonb_array_elements(drugs.ingr_name) elem "
+        "jsonb_typeof(drugs.ingr_name) = 'array' AND EXISTS ("
+        "SELECT 1 FROM jsonb_array_elements(drugs.ingr_name) elem "
         "WHERE elem->>'kor' ILIKE :ingr_stem_pattern)"
     ).bindparams(ingr_stem_pattern=f"%{stem}%")
     pattern = f"%{stem}%"

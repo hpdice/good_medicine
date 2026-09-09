@@ -41,6 +41,12 @@ async def test_guide_generated_for_critical_finding(client, session_factory, mon
         row = (await session.execute(select(AnalysisResult))).scalar_one()
         assert row.risk_level == "critical"
         assert get_encryptor().decrypt(row.action_guide_encrypted) == "테스트용 AI 설명입니다."
+        # 어떤 약 조합·판정 내역도 암호화 저장 (평문 JSONB 컬럼 없음)
+        assert not hasattr(row, "drug_ids")
+        assert get_encryptor().decrypt(row.drug_ids_encrypted) == [
+            str(drug_a.id), str(drug_b.id),
+        ]
+        assert isinstance(get_encryptor().decrypt(row.findings_snapshot_encrypted), list)
 
 
 async def test_guide_falls_back_safely_when_ollama_unavailable(client, session_factory, monkeypatch):

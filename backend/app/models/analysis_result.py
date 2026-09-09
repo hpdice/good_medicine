@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, String, Text, func
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -12,6 +12,9 @@ class AnalysisResult(Base):
     """AI가 생성한 대응 가이드(첨언) 이력. 위험도 판정(risk_level)은 이미
     AnalysisService.quick_check()가 규칙 기반으로 확정한 값을 스냅샷으로만
     저장한다 — 이 테이블/AI는 판정 자체에 관여하지 않는다.
+
+    어떤 약 조합을 분석했는지(`drug_ids`)와 판정 내역(`findings_snapshot`)도
+    개인 건강정보이므로 가이드 본문과 함께 AES-256-GCM 으로 암호화해 저장한다.
     """
 
     __tablename__ = "analysis_results"
@@ -22,8 +25,8 @@ class AnalysisResult(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
-    drug_ids: Mapped[list] = mapped_column(JSONB, nullable=False)
-    findings_snapshot: Mapped[list] = mapped_column(JSONB, nullable=False)
+    drug_ids_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    findings_snapshot_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     risk_level: Mapped[str] = mapped_column(String(20), nullable=False)
     model_name: Mapped[str] = mapped_column(String(100), nullable=False)
 

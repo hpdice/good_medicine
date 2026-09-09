@@ -1,11 +1,13 @@
-import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import '../../core/theme/app_theme.dart';
 import 'camera_provider.dart';
 
+/// 처방전·약봉투 사진을 촬영하거나 파일에서 골라 서버 OCR로 보낸다.
+/// (온디바이스 카메라 프리뷰 대신 image_picker — 웹 포함 전 플랫폼 동일 동작)
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
 
@@ -14,122 +16,158 @@ class CameraScreen extends StatefulWidget {
 }
 
 class _CameraScreenState extends State<CameraScreen> {
-  CameraController? _controller;
-  bool _hasPermission = false;
-  bool _capturing = false;
-  String? _initError;
+  final _picker = ImagePicker();
+  bool _busy = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _initCamera();
-  }
-
-  Future<void> _initCamera() async {
+  Future<void> _pick(ImageSource source) async {
+    if (_busy) return;
+    setState(() => _busy = true);
     try {
-      final status = await Permission.camera.request();
+      final XFile? file = await _picker.pickImage(
+        source: source,
+        maxWidth: 2000,
+        imageQuality: 85,
+      );
+      if (file == null || !mounted) return;
+      final bytes = await file.readAsBytes();
       if (!mounted) return;
-      if (!status.isGranted) {
-        setState(() => _hasPermission = false);
-        return;
-      }
-      setState(() => _hasPermission = true);
-      final cameras = await availableCameras();
-      if (!mounted) return;
-      if (cameras.isEmpty) {
-        setState(() => _initError = '사용 가능한 카메라가 없습니다.');
-        return;
-      }
-      _controller = CameraController(cameras.first, ResolutionPreset.high);
-      await _controller!.initialize();
-      if (mounted) setState(() {});
-    } catch (e) {
-      if (mounted) setState(() => _initError = '카메라 초기화 실패: $e');
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  Future<void> _capture() async {
-    if (_controller == null || !_controller!.value.isInitialized || _capturing) return;
-    setState(() => _capturing = true);
-    try {
-      final file = await _controller!.takePicture();
-      final inputImage = InputImage.fromFilePath(file.path);
-      if (!mounted) return;
-      await context.read<CameraProvider>().processImage(inputImage);
+      await context
+          .read<CameraProvider>()
+          .processImageBytes(bytes, filename: file.name);
       if (mounted) context.push('/ocr-result');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('이미지를 불러오지 못했습니다: $e')));
+      }
     } finally {
-      if (mounted) setState(() => _capturing = false);
+      if (mounted) setState(() => _busy = false);
     }
+  }
+
+  void _viewPhoto(SubmittedPhoto p) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => Dialog(
+        child: InteractiveViewer(
+          child: Image.memory(p.bytes, fit: BoxFit.contain),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_initError != null) {
-      return Scaffold(
-        appBar: AppBar(),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Text(_initError!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
-              const SizedBox(height: 16),
-              FilledButton(onPressed: _initCamera, child: const Text('다시 시도')),
+    final cam = context.watch<CameraProvider>();
+    final scheme = Theme.of(context).colorScheme;
+    final busy = _busy || cam.isProcessing;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('처방전 스캔')),
+      body: ListView(
+        padding: kScreenPadding,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: softCard(context),
+            child: Row(children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: scheme.primary.withValues(alpha: 0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.privacy_tip_outlined,
+                    size: 18, color: scheme.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  '사진은 서버에서 약품명만 인식한 뒤 즉시 삭제됩니다.\n'
+                  '원본은 서버에 저장되지 않고, 이 화면에서만 잠시 볼 수 있어요.',
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      height: 1.45,
+                      color: scheme.onSurfaceVariant),
+                ),
+              ),
             ]),
           ),
-        ),
-      );
-    }
-    if (!_hasPermission) {
-      return Scaffold(
-        appBar: AppBar(),
-        body: Center(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Text('카메라 권한이 필요합니다.'),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: _initCamera,
-              child: const Text('권한 요청'),
+          Gap.v16,
+          if (!kIsWeb) ...[
+            FilledButton.icon(
+              onPressed: busy ? null : () => _pick(ImageSource.camera),
+              icon: const Icon(Icons.photo_camera_rounded),
+              label: const Text('사진 촬영'),
             ),
-          ]),
-        ),
-      );
-    }
-    if (_controller == null || !_controller!.value.isInitialized) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-    return Scaffold(
-      body: Stack(children: [
-        SizedBox.expand(child: CameraPreview(_controller!)),
-        SafeArea(
-          child: Align(
-            alignment: Alignment.topLeft,
-            child: IconButton(
-              icon: const Icon(Icons.close, color: Colors.white, size: 28),
-              onPressed: () => context.pop(),
-            ),
+            Gap.v12,
+          ],
+          OutlinedButton.icon(
+            onPressed: busy ? null : () => _pick(ImageSource.gallery),
+            icon: const Icon(Icons.photo_library_outlined),
+            label: Text(kIsWeb ? '이미지 선택' : '앨범에서 선택'),
           ),
-        ),
-        Align(
-          alignment: Alignment.bottomCenter,
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 40),
-            child: FloatingActionButton.large(
-              onPressed: _capturing ? null : _capture,
-              child: _capturing
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : const Icon(Icons.camera_alt),
+          if (busy) ...[
+            Gap.v24,
+            const Center(child: CircularProgressIndicator()),
+            Gap.v8,
+            Center(
+                child: Text('사진에서 약품을 인식하는 중…',
+                    style: TextStyle(color: scheme.onSurfaceVariant))),
+          ],
+          if (cam.history.isNotEmpty) ...[
+            Gap.v32,
+            Row(
+              children: [
+                Text('최근 올린 사진',
+                    style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(width: 8),
+                Text('앱을 닫으면 사라져요',
+                    style: TextStyle(
+                        fontSize: 12, color: scheme.onSurfaceVariant)),
+              ],
             ),
-          ),
-        ),
-      ]),
+            Gap.v12,
+            GridView.count(
+              crossAxisCount: 3,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+              children: [
+                for (final p in cam.history)
+                  InkWell(
+                    onTap: () => _viewPhoto(p),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.memory(p.bytes, fit: BoxFit.cover),
+                        ),
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: Container(
+                            color: Colors.black54,
+                            padding: const EdgeInsets.symmetric(vertical: 2),
+                            child: Text(
+                              '매칭 ${p.matchedCount}/${p.candidateCount}',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 11),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

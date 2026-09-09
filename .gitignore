@@ -57,12 +57,6 @@ poetry.lock
 archive/ml/artifacts/
 
 # =====================
-# Alembic
-# =====================
-backend/alembic/versions/*.py
-!backend/alembic/versions/.gitkeep
-
-# =====================
 # Docker 로그
 # =====================
 *.log
@@ -107,3 +101,7 @@ flutter/ios/Runner/GoogleService-Info.plist
 # 학습용 문서 (개인 공부용, git 미추적)
 # =====================
 docs/study/
+
+# DB 덤프 (배포 이관용, 커밋 금지)
+*.dump
+env.txt

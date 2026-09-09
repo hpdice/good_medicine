@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'core/theme/app_theme.dart';
 import 'core/storage/token_storage.dart';
 import 'features/auth/auth_provider.dart';
 import 'features/auth/login_screen.dart';
@@ -52,12 +53,11 @@ class App extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => CameraProvider()),
       ],
       child: MaterialApp.router(
-        title: '약봉투',
-        theme: ThemeData(
-          colorScheme:
-              ColorScheme.fromSeed(seedColor: const Color(0xFF4CAF50)),
-          useMaterial3: true,
-        ),
+        title: '굿메디슨',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        themeMode: ThemeMode.system,
         routerConfig: _router,
       ),
     );
@@ -75,24 +75,39 @@ class _MainShell extends StatelessWidget {
 
     return Scaffold(
       body: child,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: selectedIndex,
-        onDestinationSelected: (i) {
-          switch (i) {
-            case 0:
-              context.go('/');
-            case 1:
-              context.go('/search');
-            case 2:
-              context.push('/camera');
-          }
-        },
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), label: '홈'),
-          NavigationDestination(icon: Icon(Icons.search), label: '검색'),
-          NavigationDestination(
-              icon: Icon(Icons.camera_alt_outlined), label: '스캔'),
-        ],
+      bottomNavigationBar: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: Theme.of(context).dividerColor),
+          ),
+        ),
+        child: NavigationBar(
+          selectedIndex: selectedIndex,
+          onDestinationSelected: (i) {
+            switch (i) {
+              case 0:
+                context.go('/');
+              case 1:
+                context.go('/search');
+              case 2:
+                context.push('/camera');
+            }
+          },
+          destinations: const [
+            NavigationDestination(
+                icon: Icon(Icons.medication_outlined),
+                selectedIcon: Icon(Icons.medication_rounded),
+                label: '내 약'),
+            NavigationDestination(
+                icon: Icon(Icons.search_rounded),
+                selectedIcon: Icon(Icons.search_rounded),
+                label: '검색'),
+            NavigationDestination(
+                icon: Icon(Icons.photo_camera_outlined),
+                selectedIcon: Icon(Icons.photo_camera_rounded),
+                label: '스캔'),
+          ],
+        ),
       ),
     );
   }

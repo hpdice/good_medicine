@@ -3,7 +3,6 @@ import uuid
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import UnauthorizedError
 from app.core.security import decode_token

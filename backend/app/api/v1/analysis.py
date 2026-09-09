@@ -1,11 +1,10 @@
 import uuid
 
 from fastapi import APIRouter, Depends, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core.rate_limit import limiter
 from app.db.session import get_db
 from app.dependencies import get_current_user_id
 from app.schemas.analysis import (
@@ -18,7 +17,6 @@ from app.services.ai_guide_service import AiGuideService
 from app.services.analysis_service import AnalysisService
 
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
 
 
 @router.post("/quick-check", response_model=QuickCheckResponse)

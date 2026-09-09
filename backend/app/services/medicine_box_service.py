@@ -2,67 +2,159 @@ import uuid
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
+from app.core.encryption import get_encryptor
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.core.logging import logger
+from app.models.drug import Drug
 from app.models.medicine_box import MedicineBoxEntry
 from app.models.user import User
-from app.schemas.medicine_box import MedicineBoxAddManual, MedicineBoxUpdate
+from app.schemas.drug import DrugSearchResult
+from app.schemas.medicine_box import (
+    MedicineBoxAddManual,
+    MedicineBoxEntryResponse,
+    MedicineBoxUpdate,
+)
 from app.services import fcm_service
 from app.services.analysis_service import AnalysisService
+from app.services.drug_service import DrugService
+
+# payload_encrypted 안에 들어가는(=암호화되는) 필드. 나머지(user_id/is_current/
+# added_method/타임스탬프)는 평문 컬럼으로 남는다.
+_PAYLOAD_FIELDS = {
+    "drug_id",
+    "prescribed_date",
+    "dosage_per_intake",
+    "intake_frequency",
+    "intake_duration_days",
+    "notes",
+}
 
 
 class MedicineBoxService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+        self._enc = get_encryptor()
 
-    async def list_entries(self, user_id: uuid.UUID, current_only: bool = True) -> list[MedicineBoxEntry]:
+    # ------------------------------------------------------------------ #
+    # 내부: 암호화 payload 로드/조립                                        #
+    # ------------------------------------------------------------------ #
+
+    async def _load_with_payload(
+        self, user_id: uuid.UUID, current_only: bool = True
+    ) -> list[tuple[MedicineBoxEntry, dict]]:
+        """사용자의 복약함 행 + 복호화된 payload dict 쌍을 최신순으로 반환."""
         stmt = (
             select(MedicineBoxEntry)
             .where(MedicineBoxEntry.user_id == user_id)
-            .options(selectinload(MedicineBoxEntry.drug))
             .order_by(MedicineBoxEntry.created_at.desc())
         )
         if current_only:
             stmt = stmt.where(MedicineBoxEntry.is_current == True)  # noqa: E712
         result = await self.db.execute(stmt)
-        return list(result.scalars().all())
+        entries = list(result.scalars().all())
+        return [(e, self._enc.decrypt(e.payload_encrypted)) for e in entries]
 
-    async def add_manual(self, user_id: uuid.UUID, data: MedicineBoxAddManual) -> MedicineBoxEntry:
-        existing = await self.db.scalar(
-            select(MedicineBoxEntry).where(
-                MedicineBoxEntry.user_id == user_id,
-                MedicineBoxEntry.drug_id == data.drug_id,
-                MedicineBoxEntry.is_current == True,  # noqa: E712
-            )
+    def _build_response(
+        self, entry: MedicineBoxEntry, drug: Drug, payload: dict
+    ) -> MedicineBoxEntryResponse:
+        return MedicineBoxEntryResponse(
+            id=entry.id,
+            drug=DrugSearchResult.model_validate(drug),
+            prescribed_date=payload.get("prescribed_date"),
+            dosage_per_intake=payload.get("dosage_per_intake"),
+            intake_frequency=payload.get("intake_frequency"),
+            intake_duration_days=payload.get("intake_duration_days"),
+            is_current=entry.is_current,
+            added_method=entry.added_method,
+            notes=payload.get("notes"),
+            created_at=entry.created_at,
         )
-        if existing:
+
+    # ------------------------------------------------------------------ #
+    # 공개 API                                                            #
+    # ------------------------------------------------------------------ #
+
+    async def list_entries(
+        self, user_id: uuid.UUID, current_only: bool = True
+    ) -> list[MedicineBoxEntryResponse]:
+        rows = await self._load_with_payload(user_id, current_only=current_only)
+        drug_ids = [uuid.UUID(p["drug_id"]) for _, p in rows]
+        drugs = await DrugService(self.db).get_drugs_by_ids(drug_ids) if drug_ids else {}
+
+        out: list[MedicineBoxEntryResponse] = []
+        for entry, payload in rows:
+            drug = drugs.get(uuid.UUID(payload["drug_id"]))
+            if drug is None:
+                logger.warning(
+                    "복약함 항목 %s 의 약품 %s 이(가) drugs 테이블에 없음 — 응답에서 제외",
+                    entry.id, payload["drug_id"],
+                )
+                continue
+            out.append(self._build_response(entry, drug, payload))
+        return out
+
+    async def add_manual(
+        self, user_id: uuid.UUID, data: MedicineBoxAddManual
+    ) -> MedicineBoxEntryResponse:
+        drug = await self.db.get(Drug, data.drug_id)
+        if drug is None:
+            raise NotFoundError("약품을 찾을 수 없습니다.")
+
+        rows = await self._load_with_payload(user_id, current_only=True)
+        if any(p["drug_id"] == str(data.drug_id) for _, p in rows):
             raise ConflictError("이미 복약 중인 약품입니다.")
 
+        payload = data.model_dump(mode="json")  # date/UUID → 문자열
         entry = MedicineBoxEntry(
             user_id=user_id,
-            drug_id=data.drug_id,
-            prescribed_date=data.prescribed_date,
-            dosage_per_intake=data.dosage_per_intake,
-            intake_frequency=data.intake_frequency,
-            intake_duration_days=data.intake_duration_days,
-            notes=data.notes,
+            payload_encrypted=self._enc.encrypt(payload),
             added_method="manual",
         )
         self.db.add(entry)
         await self.db.commit()
         await self.db.refresh(entry)
-        await self.db.refresh(entry, ["drug"])
 
         try:
-            await self._notify_if_contraindicated(user_id, entry)
+            await self._notify_if_contraindicated(user_id, new_drug_id=data.drug_id)
         except Exception:
             # 푸시 발송은 부가 기능 — 실패해도 이미 커밋된 약품 추가 자체는 성공으로 유지한다.
             logger.exception("병용금기 푸시 알림 발송 중 오류 (약품 추가는 정상 처리됨)")
-        return entry
+        return self._build_response(entry, drug, payload)
 
-    async def _notify_if_contraindicated(self, user_id: uuid.UUID, new_entry: MedicineBoxEntry) -> None:
+    async def update_entry(
+        self, user_id: uuid.UUID, entry_id: uuid.UUID, data: MedicineBoxUpdate
+    ) -> MedicineBoxEntryResponse:
+        entry = await self._get_entry_for_user(user_id, entry_id)
+
+        changes = data.model_dump(exclude_none=True, mode="json")
+        if "is_current" in changes:
+            entry.is_current = changes.pop("is_current")
+        payload = self._enc.decrypt(entry.payload_encrypted)
+        if changes:
+            payload.update({k: v for k, v in changes.items() if k in _PAYLOAD_FIELDS})
+            entry.payload_encrypted = self._enc.encrypt(payload)
+
+        await self.db.commit()
+        await self.db.refresh(entry)
+
+        drug = await self.db.get(Drug, uuid.UUID(payload["drug_id"]))
+        if drug is None:
+            raise NotFoundError("약품을 찾을 수 없습니다.")
+        return self._build_response(entry, drug, payload)
+
+    async def delete_entry(self, user_id: uuid.UUID, entry_id: uuid.UUID) -> None:
+        entry = await self._get_entry_for_user(user_id, entry_id)
+        await self.db.delete(entry)
+        await self.db.commit()
+
+    # ------------------------------------------------------------------ #
+    # 내부                                                                #
+    # ------------------------------------------------------------------ #
+
+    async def _notify_if_contraindicated(
+        self, user_id: uuid.UUID, new_drug_id: uuid.UUID
+    ) -> None:
         """새로 추가된 약품이 기존 복약 목록과 병용금기이면 FCM 푸시를 발송한다.
 
         OCR로 백그라운드에서 약을 추가하는 흐름에서는 사용자가 화면을 보고 있지
@@ -75,8 +167,8 @@ class MedicineBoxService:
         if not user or not user.fcm_token:
             return
 
-        current_entries = await self.list_entries(user_id, current_only=True)
-        box_drug_ids = [e.drug_id for e in current_entries]
+        rows = await self._load_with_payload(user_id, current_only=True)
+        box_drug_ids = [uuid.UUID(p["drug_id"]) for _, p in rows]
         if len(box_drug_ids) < 2:
             return
 
@@ -87,14 +179,14 @@ class MedicineBoxService:
             (
                 f for f in check.findings
                 if f.interaction_type == "contraindicated"
-                and new_entry.drug_id in (f.drug1_id, f.drug2_id)
+                and new_drug_id in (f.drug1_id, f.drug2_id)
             ),
             None,
         )
         if hit is None:
             return
 
-        if hit.drug1_id == new_entry.drug_id:
+        if hit.drug1_id == new_drug_id:
             new_name, other_id, other_name = hit.drug1_name, hit.drug2_id, hit.drug2_name
         else:
             new_name, other_id, other_name = hit.drug2_name, hit.drug1_id, hit.drug1_name
@@ -105,7 +197,7 @@ class MedicineBoxService:
             body=f"{new_name} · {other_name} 병용금기 — 앱에서 확인하세요.",
             data={
                 "type": "contraindication",
-                "drug1_id": str(new_entry.drug_id),
+                "drug1_id": str(new_drug_id),
                 "drug2_id": str(other_id),
             },
         )
@@ -113,22 +205,9 @@ class MedicineBoxService:
             user.fcm_token = None
             await self.db.commit()
 
-    async def update_entry(
-        self, user_id: uuid.UUID, entry_id: uuid.UUID, data: MedicineBoxUpdate
+    async def _get_entry_for_user(
+        self, user_id: uuid.UUID, entry_id: uuid.UUID
     ) -> MedicineBoxEntry:
-        entry = await self._get_entry_for_user(user_id, entry_id)
-        for field, value in data.model_dump(exclude_none=True).items():
-            setattr(entry, field, value)
-        await self.db.commit()
-        await self.db.refresh(entry, ["drug"])
-        return entry
-
-    async def delete_entry(self, user_id: uuid.UUID, entry_id: uuid.UUID) -> None:
-        entry = await self._get_entry_for_user(user_id, entry_id)
-        await self.db.delete(entry)
-        await self.db.commit()
-
-    async def _get_entry_for_user(self, user_id: uuid.UUID, entry_id: uuid.UUID) -> MedicineBoxEntry:
         entry = await self.db.get(MedicineBoxEntry, entry_id)
         if not entry:
             raise NotFoundError("항목을 찾을 수 없습니다.")

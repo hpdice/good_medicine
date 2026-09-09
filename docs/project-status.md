@@ -1,7 +1,7 @@
 # 프로젝트 전체 현황
 
-> 기준일: 2026-08-31 (전체 스택 실측 테스트·버그 수정·배포 전환 반영)
-> 상세 작업 서사(계획/문제/결론)는 [개발일지.md](./개발일지.md) 16~20회차 참고 — 이 문서는 "지금 상태" 스냅샷만 관리한다.
+> 기준일: 2026-09-09 (서버 OCR 전환 · 코드 정리 · 프론트 리디자인 · 로컬+Tailscale 배포 회귀(개인정보 국외이전 회피) · Funnel 컨테이너화)
+> 상세 작업 서사(계획/문제/결론)는 [개발일지.md](./개발일지.md) 참고 — 이 문서는 "지금 상태" 스냅샷만 관리한다.
 
 ---
 
@@ -10,14 +10,14 @@
 | 영역 | 진행률 | 상태 |
 |---|---|---|
 | 백엔드 코드 | 100% | ✅ 완료 |
-| 인프라 (Docker) | 100% | ✅ 완료 (postgres·backend·ollama 3개 컨테이너, backend는 호스트 8001) |
-| DB 마이그레이션 | 100% | ✅ 완료 (0001~0004) |
+| 인프라 (Docker) | 100% | ✅ 완료 (postgres·backend·ollama, backend는 호스트 8001. 배포 overlay는 tailscale 컨테이너 추가) |
+| DB 마이그레이션 | 100% | ✅ 완료 (0001~0009 — 성분 단위 전환·품목 테이블 폐기·risk_tags·복약정보 필드암호화) |
 | 데이터 적재 | 100% | ✅ 완료 + 품질 검증 통과 |
-| Flutter 앱 프론트엔드 | 100% | ✅ 완료 (Phase 1~4 + 버그 수정) |
-| 백엔드 E2E 테스트 | 핵심 플로우 완료 | ✅ 27개 테스트 통과 (21회차에서 +5) |
-| AI 대응 가이드 (로컬 LLM) | 완료 | ✅ Ollama + Qwen2.5 14B, 실제 GPU 추론 검증 완료 — 아래 참고 |
+| Flutter 앱 프론트엔드 | 100% | ✅ 완료. OCR은 서버 처리로 전환(`image_picker`, 웹 포함 전 플랫폼) |
+| 백엔드 E2E 테스트 | 핵심 플로우 완료 | ✅ **38개** 테스트 통과 (성분 전환 +5, 서버 OCR +6) |
+| AI 대응 가이드 (로컬 LLM) | 완료 | ✅ Ollama + Qwen2.5 14B. 배포도 로컬 PC(GPU)라 **풀 동작** — Funnel 경유 실측: `is_ai_generated=true`, 308자 실제 생성 |
 | FCM 푸시 알림 | 완료 | ✅ Firebase 프로젝트(`good-medicine-app`) 연동, 디버그 APK 빌드 검증 완료 |
-| 배포 | 완료 (고정 주소) | ✅ DuckDNS+Caddy로 로컬 PC 노출, `goodmedicine.duckdns.org` — 아래 참고 |
+| 배포 | 로컬 + Tailscale | ✅ 로컬 `docker compose` + Tailscale Funnel **컨테이너**(`https://goodmedicine.tail9f1768.ts.net`, 고정 HTTPS). **개인정보 국외 저장·처리 회피 목적으로 전부 국내 PC 운영.** 아래 참고 |
 | APK 배포 채널 | 완료 | ✅ GitHub Releases(`v0.1.0-test`)로 사이드로드 배포 중 — Play 미등록 상태라 설치 시 Play 프로텍트 경고는 정상 |
 
 ---
@@ -25,22 +25,27 @@
 ## 데이터 적재 현황
 
 ```
-drugs 전체            :  35,324건
+drugs 전체            :  35,487건
 ├─ 효능정보(efcy)     :   4,725건  ← e약은요
 ├─ 성분JSONB(ingr)    :   7,628건  ← main_item_ingr 파싱
 ├─ 낱알식별(shape)    :   8,807건  ← 낱알식별 API
 └─ 허가정보           :  35,296건  ← 허가일자 기준
 
-drug_interactions     : 324,321건  ← DUR 병용금기 (양방향 중복 정리 완료)
-drug_effect_groups    :   7,040건  ← DUR 효능군중복주의 (신규)
+drug_ingredients                    : 24,800건  ← 성분 단위 판정 조인 브리지 (drugs의 61% 해소)
+dur_ingredient_contraindications    :    357건  ← DUR 병용금기 (성분쌍, 정식 경로)
+dur_ingredient_effect_groups        :    259건  ← DUR 효능군중복주의 (성분 단위)
+residual_interactions               :    217건  ← 성분코드 미해소 약이 낀 잔여 폴백
 ```
+
+> 구 품목 테이블 `drug_interactions`(331K행)·`drug_effect_groups`는 성분 경로가 그 탐지의 100%를
+> 재현함을 전수검증 후 **0006 마이그레이션에서 폐기**(DB 311MB→85MB).
 
 ### DB 품질 검증 결과 (`validate_db.py`)
 
 | 항목 | 결과 |
 |---|---|
 | 자기 자신 상호작용 | ✅ 0건 |
-| 깨진 참조(drug_interactions) | ✅ 0건 |
+| 깨진 참조(residual_interactions·drug_ingredients) | ✅ 0건 |
 | DUR 비정상 item_seq | ✅ 0건 |
 | drug_key 중복 | ✅ 허용 174그룹 (수출용·개량신약 variants — 정상) |
 | item_name 3자 미만 | ✅ 허용 3건 (API 원본 자체가 짧은 이름) |
@@ -53,11 +58,11 @@ drug_effect_groups    :   7,040건  ← DUR 효능군중복주의 (신규)
 ## 백엔드 구현 현황
 
 ### 인프라
-- Docker Compose: PostgreSQL 16 + FastAPI + Ollama (3개 컨테이너)
-- 데이터 볼륨: `D:\drugTest\postgres_data` (bind mount), `ollama_data` (named volume, 모델 가중치)
-- Swagger UI: `http://localhost:8000/api/docs` (DEBUG=true 환경에서만)
+- Docker Compose: PostgreSQL 16 + FastAPI + Ollama (배포 overlay는 tailscale 컨테이너 추가)
+- 데이터 볼륨: `D:\drugTest\postgres_data` (bind mount), `ollama_data`·`tailscale_state` (named volume)
+- Swagger UI: `http://localhost:8001/api/docs` (DEBUG=true 환경에서만)
 
-### API 엔드포인트 (16개)
+### API 엔드포인트 (17개)
 
 | 엔드포인트 | 기능 | 보안 |
 |---|---|---|
@@ -70,7 +75,8 @@ drug_effect_groups    :   7,040건  ← DUR 효능군중복주의 (신규)
 | DELETE /users/me | 회원 탈퇴 | JWT |
 | GET /drugs?q= | 약품 검색 (pg_trgm 퍼지) | JWT |
 | GET /drugs/{id} | 약품 상세 조회 | JWT |
-| POST /drugs/match-names | OCR 결과 일괄 매칭 | JWT |
+| POST /drugs/ocr | 처방전 사진 업로드 → 서버 OCR(Tesseract) → 후보 추출 → 매칭 (이미지 미저장) | JWT · Rate Limit 20회/분 |
+| POST /drugs/match-names | 텍스트 약품명 후보 일괄 매칭 | JWT |
 | GET /medicine-box | 복약 목록 조회 | JWT |
 | POST /medicine-box | 복약 약품 추가 (중복 방지, 병용금기 시 FCM 발송) | JWT |
 | PATCH /medicine-box/{id} | 복약 정보 수정 | JWT |
@@ -80,19 +86,19 @@ drug_effect_groups    :   7,040건  ← DUR 효능군중복주의 (신규)
 
 ### 보안
 - JWT Access Token 30분 + Single-use Refresh Token 7일 (모든 토큰에 `jti` 고유값 포함)
-- AES-256-GCM 필드 암호화 (건강정보, 알레르기, AI 가이드) — 복호화 실패 시 필드별 격리(계정 전체 500 방지)
+- AES-256-GCM 필드 암호화 (건강정보·알레르기, **복약함 전체 payload**(drug_id·용량·메모 등), 분석이력 drug_ids·findings·AI 가이드) — "누가 무슨 약을 먹는지"도 민감정보로 취급. 복호화 실패 시 필드별 격리(계정 전체 500 방지)
 - Rate Limiting (login, quick-check, analysis/guide)
 - 보안 헤더 (X-Frame-Options, X-Content-Type-Options, HSTS)
 - AuditLog (민감 작업 추적)
 - 회원 탈퇴: email/hashed_password/name tombstone 처리 (개인정보 삭제 + 이메일 재사용 가능)
 
 ### 테스트
-- `backend/tests/`: pytest + httpx(ASGITransport), 27개 E2E 테스트, 운영 DB와 분리된 `drugtest_test_db` 사용
+- `backend/tests/`: pytest + httpx(ASGITransport), 38개 E2E 테스트, 운영 DB와 분리된 `drugtest_test_db` 사용
 - 커버리지: 인증(회원가입/로그인/리프레시 단일사용/72바이트 초과 비밀번호 거부/탈퇴 후 재가입), 약품검색, 약품명 매칭(성분명 폴백·정밀매칭 우선순위 회귀), 복약함(추가/중복거부/삭제), quick-check 3단계(critical/caution/safe), AI 가이드(생성·암호화저장·Ollama 다운 시 폴백, Ollama는 mock), 사용자 정보(건강정보 왕복/복호화 손상 격리)
 
 ### 실측 데이터 테스트 (2026-08-06)
 
-실제 운영 DB(35,324건)로 quick-check·약품 매칭을 직접 실행해 검증.
+실제 운영 DB(35,487건)로 quick-check·약품 매칭을 직접 실행해 검증.
 
 - **위험도 분류 로직**: 정확 — DUR 데이터에 있는 병용금기/효능군중복은 critical/caution으로 정확히 분류됨을 실제 약품(아스피린+메토트렉세이트, 크레스토20/10mg, 타이레놀+펜잘 등 다른 브랜드의 동일성분 중복)으로 확인. 엣지케이스(중복 ID, 빈 목록, 존재하지 않는 UUID)도 정상 처리.
 - **버그 발견 및 수정**: `match_names()`/`search()`가 "성분명+제형" 입력(예: '와파린정')에서 매칭 실패 — 브랜드명이 성분명을 괄호 안에 숨기는 경우(`쿠파린정2mg(와파린나트륨)`) 문자열이 끊겨 실패. 매칭 실패 시 `matched: null`을 반환할 뿐 에러가 없어 사용자 모르게 약이 등록에서 누락될 수 있었음(와파린처럼 상호작용이 중요한 약일수록 위험). `ingr_name` JSONB + `item_name` 성분 폴백 매칭(4순위, 최후수단)을 추가해 수정 — [drug_service.py](../backend/app/services/drug_service.py) 참고.
@@ -168,7 +174,7 @@ AI는 그 판정 결과를 사람이 읽을 설명으로 풀어쓰는 **보조("
 
 ### 기술 스택
 - Flutter + Dart
-- camera + google_mlkit_text_recognition (온디바이스 OCR)
+- image_picker (사진 촬영/선택, 웹 포함 전 플랫폼) — OCR은 서버(`POST /drugs/ocr`, Tesseract)에서 처리
 - dio + flutter_secure_storage (HTTP 클라이언트, 토큰 저장)
 - go_router (라우팅) · provider (상태 관리)
 - firebase_core / firebase_messaging (FCM) + flutter_local_notifications (포그라운드 알림 표시)
@@ -200,7 +206,7 @@ flutter/lib/
 ### 백엔드 연결
 - 에뮬레이터: `http://10.0.2.2:8001/api/v1/`
 - 실제 기기(같은 네트워크): `http://192.168.X.X:8001/api/v1/` (PC IP)
-- 실제 기기(어디서든): `https://goodmedicine.duckdns.org/api/v1/` (고정 배포 주소, 릴리스 APK가 이 값으로 빌드됨)
+- 실제 기기(어디서든) / 릴리스 APK: `https://goodmedicine.tail9f1768.ts.net/api/v1/` (Tailscale Funnel, PC 켜져 있을 때)
 - `BASE_URL`은 반드시 `/api/v1/` 접두사 + 끝 슬래시 포함해야 함 — 상세는 CLAUDE.md 참고 (실측으로 발견한 버그)
 
 ### 약품 설명 표시 (2026-08-31 추가)
@@ -287,33 +293,39 @@ flutter/lib/
 | DB가 8/19 이후 빈 상태였음 (해결됨) | `docker-compose.yml`의 `postgres_data`가 실제로는 `D:\drugTest\postgres_data` bind mount가 아니라 빈 named volume이었음 (문서와 실제 설정 불일치) | D: 드라이브의 기존 데이터(약품 35,324건 등)를 bind mount로 재연결해 복구 |
 | Flutter BASE_URL 문서 오류 (해결됨) | CLAUDE.md에 문서화된 실행 명령이 `ApiClient`가 요구하는 `/api/v1/` 접두사+끝 슬래시를 빠뜨려 모든 API 호출이 깨진 URL로 나감 | CLAUDE.md 실행 명령 수정 |
 
-## 배포 (2026-08-31, 고정 주소로 전환)
+## 배포 — 로컬 `docker compose` + Tailscale Funnel 컨테이너 · 절차: `docs/deploy-tailscale.md`
 
-**로컬 PC를 DuckDNS + Caddy로 외부에 노출하는 방식.** 별도 서버/클라우드 계정 없이 지금 떠 있는
-`docker compose` 그대로 인터넷에 연결하되, 매번 주소가 바뀌던 Cloudflare Quick Tunnel에서
-**고정 주소**로 전환했다. AI 대응 가이드가 이 PC의 GPU(RTX 4070)에 의존적이므로, 배포 아키텍처는
-"계속 이 PC에서 서빙"으로 확정 — GPU 클라우드 이전은 비용 대비 실익이 낮아 보류.
+**개인정보(회원 email/이름 + 암호화된 건강정보·복약정보)를 국외에서 저장·처리하지 않으려고
+전부 국내(내 PC)로 운영한다.**
 
-```
-공개 주소: https://goodmedicine.duckdns.org  (고정, 재시작해도 안 바뀜)
-```
+- **개발**: `docker compose up -d` — `docker-compose.override.yml` 자동 로드(소스 바인드마운트
+  라이브 리로드, `target: backend-base`라 Flutter 웹 스테이지 스킵). `DEBUG=false`, 포트 `127.0.0.1`.
+- **원격 시연/배포**: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build`
+  → override 배제 + `target: full` → 이미지에 Flutter 웹 번들 포함, backend가 `/` 웹 + `/api/v1/`
+  API를 같은 오리진으로 서빙 (CORS·별도 프론트 호스팅 불필요). 이 overlay 에 **`tailscale` 서비스**도
+  들어 있어 터널까지 같이 뜬다.
+- **외부 노출**: `docker-compose.prod.yml` 의 **`tailscale` 컨테이너**(`tailscale/tailscale`, userspace,
+  노드명 `goodmedicine`, `deploy/tailscale/serve.json` 로 Funnel + `/`→`backend:8000` 프록시) →
+  `https://goodmedicine.tail9f1768.ts.net` (고정 HTTPS, 경고 페이지 없음). 호스트에서 `tailscale funnel`
+  수동 실행 불필요 — Docker Desktop 자동시작 + `restart: unless-stopped` 로 재부팅 후 터널까지 자동 복구.
+  최초 1회만 `docker logs drugtest-tailscale` 의 로그인 URL 승인(상태는 `tailscale_state` 볼륨에 영속).
+  호스트 네이티브 Tailscale(`drugtest-pc`)은 관리용으로만 두고 funnel 은 껐다.
+  개발 중 임시 공유는 `cloudflared tunnel --url http://localhost:8001`(주소 매번 바뀜).
+- 병용금기 판정 + **AI 가이드 풀 동작**(PC의 GPU). 비용 $0. PC 켜져 있을 때만 접속 가능(시연 영상 백업).
+- 공공 의약품 DB: 출처 표시 조건으로 이용(공공누리 제1유형 가정 — 데이터셋별 이용허락범위 확인 필요).
 
-- DuckDNS 서브도메인/Caddy 설정은 `C:\Dev\Health` 저장소가 관리(기존 `health-coach`와 같은
-  DuckDNS 계정·Caddy 컨테이너 공유). drugtest 쪽 설정은 `C:\Dev\drugTest\docker-compose.yml`에서
-  backend를 호스트 8001로 노출하는 것뿐 — Caddy가 `host.docker.internal:8001`로 리버스 프록시.
-- 공유기에서 외부 80/443 → 이 PC LAN IP로 포트포워딩 필요(최초 1회, health-coach 때 이미 설정됨)
-- Caddy가 Let's Encrypt로 자동 HTTPS 인증서 발급·갱신
-- PC가 꺼지거나 절전모드면 서비스 중단되는 건 기존과 동일
-- 이 PC가 꺼지거나 절전모드로 들어가면 서비스가 중단된다
-- `DEBUG=false` — `/api/docs` Swagger 문서는 공개되지 않음
-- Cloudflare Quick Tunnel(`cloudflared tunnel --url http://localhost:8001`)은 도메인 없이 즉석
-  테스트할 때 폴백으로 여전히 사용 가능
+### 향후 과제 — 한국 리전 상시 서버
+
+PC 상시 가동 부담을 덜려면 한국 리전 상시 서버(Oracle Cloud Always Free 춘천/서울, 국내 VPS)로 이전 검토.
+`backend/Dockerfile` 멀티스테이지(webbuild/backend-base/full) · `main.py` 정적 서빙 + SPA 폴백은
+호스트 무관하게 그대로 재사용 가능. **조건: 개인정보 저장·처리가 국내에 머물 것.**
 
 ## 남은 작업
 
 | 작업 | 우선순위 | 비고 |
 |---|---|---|
-| 재부팅 후 자동 복구 실제 검증 | 중간 | 스케줄 작업(`drugTest-autostart`)·Docker Desktop 자동시작·`restart: always` 조합은 설정상 맞으나, 실제 재부팅으로 end-to-end 검증은 아직 안 함 |
+| 한국 리전 상시 서버 탐색 | 낮음 | Oracle Cloud Free 서울/춘천, 국내 VPS. 향후 과제 |
+| 시연 영상 녹화 | 중간 | 라이브 시연 백업. 사진 선택→OCR→복약함→quick-check→AI 가이드 전체 흐름 |
 | `gh` CLI 인증 | 낮음 | GitHub Release로 APK 배포 중인데 `gh auth login` 미완료 — 매번 웹에서 수동 업로드 중. 인증하면 자동화 가능 |
 | 특정연령대금기·노인주의 등 4개 API 적재 | 낮음 | 사용자 연령 수집 스키마·동의 흐름 설계 선행 필요 |
 | 복합제 기반 안전 성분쌍(341개) 활용 | 낮음 | 규모가 작아 실질 효과 낮음, 향후 검토 |

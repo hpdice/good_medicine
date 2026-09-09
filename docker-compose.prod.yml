@@ -1,0 +1,40 @@
+# 원격 시연/배포용 오버레이 — 백엔드 이미지에 Flutter 웹 번들을 포함시켜
+# 링크 1개(`/` 웹 + `/api/v1/` API)로 서빙하고, Tailscale Funnel 컨테이너로
+# 공개 HTTPS 주소까지 이 스택 안에서 띄운다.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# → https://goodmedicine.tail9f1768.ts.net  (재부팅해도 restart 정책으로 자동 복구)
+#
+# (기본 `docker compose up`은 target: backend-base라 웹 빌드를 건너뛰고 Tailscale도
+#  안 띄운다 — 개발 시 빠르다.)
+services:
+  backend:
+    build:
+      target: full
+
+  # Tailscale Funnel — 공개 HTTPS 주소를 컨테이너로 제공.
+  # 호스트에서 `tailscale funnel` 를 수동 실행할 필요가 없어지고,
+  # Docker Desktop 자동시작 + restart 정책만으로 재부팅 후에도 터널이 살아난다.
+  #
+  # 최초 1회: `docker compose ... up -d tailscale` 후
+  #   docker logs -f drugtest-tailscale   → 출력되는 로그인 URL을 브라우저로 1회 승인.
+  # 인증 상태는 tailscale_state 볼륨에 저장돼 이후 재기동 시 자동 로그인.
+  tailscale:
+    image: tailscale/tailscale:v1.102.3
+    container_name: drugtest-tailscale
+    hostname: goodmedicine          # tailnet 노드명 → https://goodmedicine.<tailnet>.ts.net
+    environment:
+      TS_HOSTNAME: goodmedicine
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: "true"         # Docker Desktop(Windows)에서 /dev/net/tun·NET_ADMIN 불필요
+      TS_SERVE_CONFIG: /config/serve.json
+    volumes:
+      - tailscale_state:/var/lib/tailscale
+      - ./deploy/tailscale/serve.json:/config/serve.json:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  tailscale_state:
