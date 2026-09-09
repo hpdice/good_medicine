@@ -9,7 +9,7 @@ git push (flutter/** 변경)
   → GitHub Actions (.github/workflows/deploy-web.yml)
       flutter build web  --dart-define=BASE_URL=<WEB_API_BASE_URL>
       → vercel deploy --prebuilt --prod
-  → https://goodmedicine-bice.vercel.app   (프론트)
+  → https://goodmedicine-hpdice.vercel.app   (프론트)
         └─ fetch → https://goodmedicine.tail9f1768.ts.net/api/v1/  (백엔드, 국내 PC)
 ```
 
@@ -23,7 +23,7 @@ git push (flutter/** 변경)
   레포를 연결하되 **Framework Preset = Other**, Build/Output 설정은 비워둔다
   (실제 빌드는 GitHub Actions 가 하고 `--prebuilt` 로 올린다).
 - 도메인은 프로젝트 이름 + 짧은 접미사(이름이 전역에서 겹치면). 실제로 만들어진 주소:
-  **`https://goodmedicine-bice.vercel.app`** (프로젝트 Settings → Domains 에서 PRODUCTION 확인)
+  **`https://goodmedicine-hpdice.vercel.app`** (프로젝트 Settings → Domains 에서 PRODUCTION 확인)
 
 ### 2. 로컬에서 프로젝트 ID 얻기
 
@@ -56,7 +56,7 @@ vercel.com → **Settings → Tokens → Create** → 값 복사.
 루트 `.env` 에 추가:
 
 ```
-CORS_ORIGINS=["http://localhost:8081","exp://localhost:8081","https://goodmedicine-bice.vercel.app"]
+CORS_ORIGINS=["http://localhost:8081","exp://localhost:8081","https://goodmedicine-hpdice.vercel.app"]
 CORS_ORIGIN_REGEX=https://goodmedicine-.*\.vercel\.app
 ```
 (`CORS_ORIGINS` 는 JSON 배열 문자열. 프로덕션 도메인은 정확 목록에, 프리뷰 배포는 정규식으로.)
@@ -68,7 +68,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ### 6. 첫 배포
 
 레포 **Actions → deploy web (Vercel) → Run workflow** (또는 `flutter/` 아무거나 고쳐 push).
-끝나면 `https://goodmedicine-bice.vercel.app` 접속 → 로그인 → 약품검색 동작 확인.
+끝나면 `https://goodmedicine-hpdice.vercel.app` 접속 → 로그인 → 약품검색 동작 확인.
 
 ---
 
