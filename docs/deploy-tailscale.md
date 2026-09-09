@@ -1,4 +1,6 @@
-# 배포 — 로컬 `docker compose` + Tailscale Funnel (컨테이너)
+# 백엔드(API) 배포 — 로컬 `docker compose` + Tailscale Funnel 컨테이너
+
+> 프론트 웹은 Vercel 이 호스팅한다 — `docs/deploy-web-vercel.md`. 이 문서는 API 백엔드만 다룬다.
 
 > **결정 배경**: 개인정보(회원 email/이름 + 암호화된 건강정보·복약정보)를 **국외에서 저장·처리하지
 > 않으려고** 전부 국내(내 PC)로 운영한다 — PIPA상 건강·복약 정보는 민감정보라, 백엔드가 해외에
@@ -6,8 +8,7 @@
 > 제1유형 가정 — 데이터셋별 확인).
 >
 > **향후 과제**: PC 상시 가동 부담을 덜려면 한국 리전 상시 서버(Oracle Cloud Free 춘천/서울, 국내 VPS)로
-> 이전 검토. `backend/Dockerfile`(멀티스테이지) · `main.py` 정적 서빙은 호스트 무관하게 재사용 가능.
-> **조건: 개인정보 저장·처리가 국내에 머물 것.**
+> 이전 검토. **조건: 개인정보 저장·처리가 국내에 머물 것.**
 
 ---
 
@@ -16,14 +17,13 @@
 ```
 내 PC (국내)
   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-    ├─ backend   (FastAPI + Flutter 웹 번들, /app/web)   127.0.0.1:8001
+    ├─ backend   (FastAPI, API 전용)                     127.0.0.1:8001
     ├─ postgres  (약품 35,487 · DUR 규칙)               127.0.0.1:5432
     ├─ ollama    (AI 가이드, GPU)                        127.0.0.1:11434
     └─ tailscale (Funnel, userspace)  →  backend:8000  (compose 내부 네트워크)
 
-  → https://goodmedicine.tail9f1768.ts.net   (고정 HTTPS, 경고 페이지 없음, 재부팅해도 유지)
-        ├─ /            → Flutter 웹 화면
-        └─ /api/v1/...  → API  (병용금기 판정 + AI 가이드 풀 동작)
+  → https://goodmedicine.tail9f1768.ts.net/api/v1/   (고정 HTTPS, 재부팅해도 유지)
+        · `/` 는 404 (API 엔드포인트만). 웹 화면은 Vercel(goodmedicine-hpdice.vercel.app)
 ```
 
 - **터널이 컨테이너 안에 있다** — 호스트에서 `tailscale funnel` 을 수동 실행할 필요가 없다.
@@ -50,14 +50,14 @@
 ```
 (이미 활성화돼 있음 — tailnet `hpdice.github` 에서 완료함.)
 
-### 2. 스택 기동 (웹 번들 + tailscale 포함)
+### 2. 스택 기동 (backend + tailscale)
 
 ```cmd
 cd C:\Dev\drugTest
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
-- 첫 빌드는 Flutter 웹까지 만들어 3~6분. 이후는 캐시.
-- 일반 개발은 `docker compose up -d` (override 자동 로드 → 웹 빌드 스킵, tailscale 미기동, 소스 라이브 리로드).
+- 백엔드 단일 스테이지 이미지라 빌드 ~30초.
+- 일반 개발은 `docker compose up -d` (override 자동 로드 → tailscale 미기동, 소스 라이브 리로드).
 
 ### 3. tailscale 노드 인증 (최초 1회만)
 
@@ -71,10 +71,11 @@ docker logs -f drugtest-tailscale
 ### 4. 확인
 
 ```cmd
-curl https://goodmedicine.tail9f1768.ts.net/health   → {"status":"ok"}
+curl https://goodmedicine.tail9f1768.ts.net/health              → {"status":"ok"}
+curl https://goodmedicine.tail9f1768.ts.net/api/v1/drugs?q=x     → 403 (인증 필요 — API 정상)
 ```
-브라우저로 같은 주소 → 웹 화면. 로그인 → 약품검색 → 위험 배너 동작.
-`/api/docs` 는 404(운영 `DEBUG=false`).
+`/` 는 404(웹은 Vercel). `/api/docs` 도 404(운영 `DEBUG=false`).
+웹 화면은 `https://goodmedicine-hpdice.vercel.app` 에서 확인.
 
 ### 5. APK
 
@@ -89,7 +90,8 @@ flutter build apk --release --dart-define=BASE_URL=https://goodmedicine.tail9f17
 
 | 상황 | 대응 |
 |---|---|
-| 코드 수정 후 반영 | 개발: `docker compose up -d` (라이브). 웹/배포판: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build` |
+| 백엔드 코드 수정 후 반영 | 개발: `docker compose up -d` (라이브). 배포판: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build` |
+| 프론트 수정 반영 | `front_app/` 커밋 후 `git push` → GitHub Actions 가 Vercel 로 배포 (`docs/deploy-web-vercel.md`) |
 | PC 재부팅 | Docker Desktop 자동시작 + `restart: unless-stopped` → backend·tailscale·터널까지 전부 자동 복구. **수동 조작 없음** |
 | Funnel 주소 | 노드명(`goodmedicine`)+tailnet 기준이라 **안 바뀜** |
 | 터널만 재시작 | `docker compose -f docker-compose.yml -f docker-compose.prod.yml restart tailscale` |

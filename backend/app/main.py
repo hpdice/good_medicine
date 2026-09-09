@@ -1,13 +1,10 @@
 import asyncio
-import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.v1.router import api_router
 from app.config import settings
@@ -38,7 +35,8 @@ async def _ollama_keepalive_loop() -> None:
 async def lifespan(app: FastAPI):
     setup_logging()
     logger.info(f"Starting drugtest backend (debug={settings.DEBUG})")
-    logger.info(f"FCM push notifications: {'enabled' if fcm_service.is_configured() else 'disabled'}")
+    fcm_state = "enabled" if fcm_service.is_configured() else "disabled"
+    logger.info(f"FCM push notifications: {fcm_state}")
     keepalive_task = asyncio.create_task(_ollama_keepalive_loop())
     yield
     keepalive_task.cancel()
@@ -89,39 +87,3 @@ app.include_router(api_router, prefix="/api/v1")
 @app.get("/health", tags=["system"])
 async def health_check():
     return {"status": "ok"}
-
-
-# Flutter 웹 번들 서빙 (배포 이미지에만 /app/web 존재 — 로컬 docker compose엔 없음).
-# 링크 1개로 웹 화면(`/`) + API(`/api/v1/`)를 같은 오리진에서 제공 → CORS·별도 프론트 호스팅 불필요.
-_WEB_DIR = os.path.join(os.path.dirname(__file__), "..", "web")
-if os.path.isdir(_WEB_DIR):
-
-    class _SpaStaticFiles(StaticFiles):
-        """SPA 폴백: 없는 경로는 404 대신 index.html (go_router가 클라이언트에서 처리).
-
-        현재 빌드는 해시 라우팅(`/#/...`)이라 사실상 `/` 만 서빙되지만, path URL 전략으로
-        바꿔도 새로고침 시 404가 안 나도록 대비해 둔다. (신형 Starlette는 미존재 경로에
-        404 응답 대신 HTTPException 을 던지므로 그것을 잡는다.)
-        """
-
-        # 매 배포마다 바뀌는 엔트리 파일은 브라우저가 재검증하게 한다
-        # (Flutter 웹 재배포 후 옛 화면이 캐시로 남는 문제 방지). "." = 루트("/") 요청.
-        _NO_STORE = {".", "", "index.html", "flutter_bootstrap.js", "flutter.js"}
-
-        async def get_response(self, path: str, scope):
-            no_store = path in self._NO_STORE
-            try:
-                response = await super().get_response(path, scope)
-            except StarletteHTTPException as exc:
-                # API 404는 그대로 404 (HTML로 덮지 않음). 그 외 없는 경로만 SPA 폴백.
-                if exc.status_code == 404 and not path.startswith(("api/", "health")):
-                    response = await super().get_response("index.html", scope)
-                    no_store = True  # 폴백으로 index.html 을 주는 경우도 캐시 금지
-                else:
-                    raise
-            if no_store:
-                response.headers["Cache-Control"] = "no-store, must-revalidate"
-            return response
-
-    app.mount("/", _SpaStaticFiles(directory=_WEB_DIR, html=True), name="web")
-    logger.info(f"Serving Flutter web bundle from {_WEB_DIR}")

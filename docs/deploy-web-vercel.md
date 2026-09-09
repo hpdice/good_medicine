@@ -1,8 +1,8 @@
-# 프론트(Flutter 웹) → Vercel 분리 배포
+# 프론트(Flutter 웹) → Vercel 배포
 
-> **구조**: 프론트만 Vercel(정적 CDN), API 는 국내 PC 백엔드(`https://goodmedicine.tail9f1768.ts.net/api/v1/`).
+> **구조**: 프론트는 Vercel(정적 CDN), API 는 국내 PC 백엔드(`https://goodmedicine.tail9f1768.ts.net/api/v1/`).
 > 개인정보는 프론트에 없으므로 Vercel(해외) 호스팅은 PIPA 무관 — 저장·처리는 전부 국내 백엔드/DB.
-> 백엔드는 `_SpaStaticFiles` 로 웹 번들도 계속 서빙하므로, Vercel 이 죽어도 `*.ts.net` 링크가 폴백.
+> 백엔드는 API 만 서빙한다(웹 번들 없음). 웹은 Vercel 이 유일한 호스트.
 
 ```
 git push (front_app/** 변경)
@@ -79,7 +79,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 | 프론트 수정 | `git push` → Actions 자동 배포 (front_app/** 경로만 트리거) |
 | 백엔드 수정 | 기존대로 PC 에서 `docker compose ... up -d --build` |
 | API 주소 변경(터널 등) | `WEB_API_BASE_URL` 시크릿 수정 → 워크플로 재실행. 백엔드 `CORS_ORIGINS` 도 갱신 |
-| Vercel 장애 | `https://goodmedicine.tail9f1768.ts.net/` 가 번들된 웹으로 폴백 |
+| Vercel 장애 | 웹 폴백 없음 — 급하면 로컬에서 `flutter build web` 후 `cd front_app/build/web && python -m http.server` 로 임시 서빙, 또는 APK 사용 |
 
 ## 향후
 

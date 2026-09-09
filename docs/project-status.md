@@ -14,10 +14,10 @@
 | DB 마이그레이션 | 100% | ✅ 완료 (0001~0009 — 성분 단위 전환·품목 테이블 폐기·risk_tags·복약정보 필드암호화) |
 | 데이터 적재 | 100% | ✅ 완료 + 품질 검증 통과 |
 | Flutter 앱 프론트엔드 | 100% | ✅ 완료. OCR은 서버 처리로 전환(`image_picker`, 웹 포함 전 플랫폼) |
-| 백엔드 E2E 테스트 | 핵심 플로우 완료 | ✅ **38개** 테스트 통과 (성분 전환 +5, 서버 OCR +6) |
+| 백엔드 E2E 테스트 | 핵심 플로우 완료 | ✅ **40개** 테스트 통과 (성분 전환·서버 OCR·복약정보 암호화 커버) |
 | AI 대응 가이드 (로컬 LLM) | 완료 | ✅ Ollama + Qwen2.5 14B. 배포도 로컬 PC(GPU)라 **풀 동작** — Funnel 경유 실측: `is_ai_generated=true`, 308자 실제 생성 |
 | FCM 푸시 알림 | 완료 | ✅ Firebase 프로젝트(`good-medicine-app`) 연동, 디버그 APK 빌드 검증 완료 |
-| 배포 | 로컬 + Tailscale | ✅ 로컬 `docker compose` + Tailscale Funnel **컨테이너**(`https://goodmedicine.tail9f1768.ts.net`, 고정 HTTPS). **개인정보 국외 저장·처리 회피 목적으로 전부 국내 PC 운영.** 아래 참고 |
+| 배포 | 백엔드 국내 PC · 프론트 Vercel | ✅ 백엔드(API): 로컬 `docker compose` + Tailscale Funnel 컨테이너(`goodmedicine.tail9f1768.ts.net/api/v1/`). 프론트(웹): `git push` → GitHub Actions → Vercel(`goodmedicine-hpdice.vercel.app`). **개인정보는 백엔드·DB(국내 PC)에만.** 아래 참고 |
 | APK 배포 채널 | 완료 | ✅ GitHub Releases(`v0.1.0-test`)로 사이드로드 배포 중 — Play 미등록 상태라 설치 시 Play 프로텍트 경고는 정상 |
 
 ---
@@ -93,7 +93,7 @@ residual_interactions               :    217건  ← 성분코드 미해소 약�
 - 회원 탈퇴: email/hashed_password/name tombstone 처리 (개인정보 삭제 + 이메일 재사용 가능)
 
 ### 테스트
-- `backend/tests/`: pytest + httpx(ASGITransport), 38개 E2E 테스트, 운영 DB와 분리된 `drugtest_test_db` 사용
+- `backend/tests/`: pytest + httpx(ASGITransport), 40개 E2E 테스트(스키마 1회 생성 + 테스트별 TRUNCATE), 운영 DB와 분리된 `drugtest_test_db` 사용
 - 커버리지: 인증(회원가입/로그인/리프레시 단일사용/72바이트 초과 비밀번호 거부/탈퇴 후 재가입), 약품검색, 약품명 매칭(성분명 폴백·정밀매칭 우선순위 회귀), 복약함(추가/중복거부/삭제), quick-check 3단계(critical/caution/safe), AI 가이드(생성·암호화저장·Ollama 다운 시 폴백, Ollama는 mock), 사용자 정보(건강정보 왕복/복호화 손상 격리)
 
 ### 실측 데이터 테스트 (2026-08-06)
@@ -293,32 +293,32 @@ front_app/lib/
 | DB가 8/19 이후 빈 상태였음 (해결됨) | `docker-compose.yml`의 `postgres_data`가 실제로는 `D:\drugTest\postgres_data` bind mount가 아니라 빈 named volume이었음 (문서와 실제 설정 불일치) | D: 드라이브의 기존 데이터(약품 35,324건 등)를 bind mount로 재연결해 복구 |
 | Flutter BASE_URL 문서 오류 (해결됨) | CLAUDE.md에 문서화된 실행 명령이 `ApiClient`가 요구하는 `/api/v1/` 접두사+끝 슬래시를 빠뜨려 모든 API 호출이 깨진 URL로 나감 | CLAUDE.md 실행 명령 수정 |
 
-## 배포 — 로컬 `docker compose` + Tailscale Funnel 컨테이너 · 절차: `docs/deploy-tailscale.md`
+## 배포 — 백엔드(API) 국내 PC · 프론트(웹) Vercel
+
+절차: `docs/deploy-tailscale.md`(백엔드), `docs/deploy-web-vercel.md`(프론트).
 
 **개인정보(회원 email/이름 + 암호화된 건강정보·복약정보)를 국외에서 저장·처리하지 않으려고
-전부 국내(내 PC)로 운영한다.**
+백엔드·DB는 전부 국내(내 PC).** 프론트엔 개인정보가 없어 Vercel(해외) 무방.
 
-- **개발**: `docker compose up -d` — `docker-compose.override.yml` 자동 로드(소스 바인드마운트
-  라이브 리로드, `target: backend-base`라 Flutter 웹 스테이지 스킵). `DEBUG=false`, 포트 `127.0.0.1`.
-- **원격 시연/배포**: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build`
-  → override 배제 + `target: full` → 이미지에 Flutter 웹 번들 포함, backend가 `/` 웹 + `/api/v1/`
-  API를 같은 오리진으로 서빙 (CORS·별도 프론트 호스팅 불필요). 이 overlay 에 **`tailscale` 서비스**도
-  들어 있어 터널까지 같이 뜬다.
-- **외부 노출**: `docker-compose.prod.yml` 의 **`tailscale` 컨테이너**(`tailscale/tailscale`, userspace,
-  노드명 `goodmedicine`, `deploy/tailscale/serve.json` 로 Funnel + `/`→`backend:8000` 프록시) →
-  `https://goodmedicine.tail9f1768.ts.net` (고정 HTTPS, 경고 페이지 없음). 호스트에서 `tailscale funnel`
-  수동 실행 불필요 — Docker Desktop 자동시작 + `restart: unless-stopped` 로 재부팅 후 터널까지 자동 복구.
-  최초 1회만 `docker logs drugtest-tailscale` 의 로그인 URL 승인(상태는 `tailscale_state` 볼륨에 영속).
-  호스트 네이티브 Tailscale(`drugtest-pc`)은 관리용으로만 두고 funnel 은 껐다.
-  개발 중 임시 공유는 `cloudflared tunnel --url http://localhost:8001`(주소 매번 바뀜).
-- 병용금기 판정 + **AI 가이드 풀 동작**(PC의 GPU). 비용 $0. PC 켜져 있을 때만 접속 가능(시연 영상 백업).
-- 공공 의약품 DB: 출처 표시 조건으로 이용(공공누리 제1유형 가정 — 데이터셋별 이용허락범위 확인 필요).
+- **백엔드(API 전용, 웹 서빙 안 함)**
+  - 개발: `docker compose up -d` — `docker-compose.override.yml` 자동 로드(소스 바인드마운트 라이브 리로드).
+  - 배포: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build`
+    → override 배제 + `tailscale` 컨테이너 추가. 단일 스테이지 이미지라 빌드 ~30초.
+  - 외부 노출: **`tailscale` 컨테이너**(userspace, 노드명 `goodmedicine`,
+    `deploy/tailscale/serve.json` 로 `/`→`backend:8000` 프록시) → `https://goodmedicine.tail9f1768.ts.net/api/v1/`
+    (고정 HTTPS). Docker Desktop 자동시작 + `restart: unless-stopped` 로 재부팅 후 터널까지 자동 복구.
+    최초 1회 `docker logs drugtest-tailscale` 의 로그인 URL 승인(`tailscale_state` 볼륨에 영속).
+  - 병용금기 판정 + **AI 가이드 풀 동작**(PC의 GPU). 비용 $0. PC 켜져 있을 때만.
+- **프론트(웹)** — `front_app/**` push → GitHub Actions(`.github/workflows/deploy-web.yml`) →
+  `flutter build web` → `vercel deploy --prebuilt --prod` → `https://goodmedicine-hpdice.vercel.app`.
+  프론트↔API 가 다른 오리진이라 백엔드 `.env` 에 `CORS_ORIGINS` + `CORS_ORIGIN_REGEX` 필요.
+- **APK** — `flutter build apk --release --dart-define=BASE_URL=https://goodmedicine.tail9f1768.ts.net/api/v1/`.
+- 공공 의약품 DB: 출처 표시 조건으로 이용(공공누리 제1유형 가정 — 데이터셋별 확인).
 
 ### 향후 과제 — 한국 리전 상시 서버
 
 PC 상시 가동 부담을 덜려면 한국 리전 상시 서버(Oracle Cloud Always Free 춘천/서울, 국내 VPS)로 이전 검토.
-`backend/Dockerfile` 멀티스테이지(webbuild/backend-base/full) · `main.py` 정적 서빙 + SPA 폴백은
-호스트 무관하게 그대로 재사용 가능. **조건: 개인정보 저장·처리가 국내에 머물 것.**
+**조건: 개인정보 저장·처리가 국내에 머물 것.**
 
 ## 남은 작업
 

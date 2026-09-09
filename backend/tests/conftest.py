@@ -1,12 +1,13 @@
 """E2E 테스트 공통 픽스처.
 
-실제 운영 DB(drugtest_db, 35,299개 약품·324,321개 상호작용)는 절대 건드리지 않는다.
-같은 Postgres 인스턴스 안에 별도의 `drugtest_test_db`를 만들어 스키마만 복제한다.
+실제 운영 DB(drugtest_db)는 절대 건드리지 않는다 — 같은 Postgres 인스턴스 안에
+별도의 `drugtest_test_db`를 만들어 스키마만 복제한다.
 
-엔진을 세션 스코프로 공유하면 asyncpg 커넥션이 pytest-asyncio의 테스트별 이벤트
-루프와 어긋나 "another operation is in progress" 오류가 난다 — 그래서 엔진 자체를
-테스트 함수 스코프로 만들어, 매 테스트가 자기 이벤트 루프 안에서 엔진을 새로
-만들고 정리한다 (테이블 수가 적어 비용은 미미하다).
+- 스키마 생성(확장 + create_all)은 **세션당 1회**(`_prepare_schema`).
+- 테스트 격리는 매 테스트 시작 시 전체 테이블 `TRUNCATE`(`test_engine`)로 한다.
+- 엔진 객체는 함수 스코프로 새로 만든다 — 엔진을 세션 스코프로 공유하면 asyncpg
+  커넥션이 pytest-asyncio의 테스트별 이벤트 루프와 어긋나 "another operation is
+  in progress" 오류가 나기 때문. (엔진 생성 자체는 저렴, DDL 이 비쌌던 것)
 """
 import os
 
@@ -18,6 +19,9 @@ os.environ["LOGIN_RATE_LIMIT"] = "1000/minute"
 # 테스트 1개당 수백 ms 씩 붙으므로 4 로 낮춘다 (보안 무관, 속도만).
 os.environ["BCRYPT_ROUNDS"] = "4"
 
+import asyncio
+
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -43,15 +47,38 @@ async def _ensure_test_database() -> None:
     await admin_engine.dispose()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _prepare_schema():
+    """세션당 1회: 테스트 DB 생성 + 확장 + 스키마(create_all).
+
+    자체 이벤트 루프(`asyncio.run`)에서 완결·정리하므로 pytest-asyncio 의
+    테스트별 루프와 겹치지 않는다.
+    """
+
+    async def _setup() -> None:
+        await _ensure_test_database()
+        engine = create_async_engine(TEST_DATABASE_URL, poolclass=None)
+        async with engine.begin() as conn:
+            await conn.execute(text('CREATE EXTENSION IF NOT EXISTS "pg_trgm"'))
+            await conn.execute(text('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"'))
+            await conn.run_sync(Base.metadata.drop_all)
+            await conn.run_sync(Base.metadata.create_all)
+        await engine.dispose()
+
+    asyncio.run(_setup())
+    yield
+
+
+_TRUNCATE_ALL = "TRUNCATE {} RESTART IDENTITY CASCADE".format(
+    ", ".join(f'"{t.name}"' for t in Base.metadata.sorted_tables)
+)
+
+
 @pytest_asyncio.fixture
-async def test_engine():
-    await _ensure_test_database()
+async def test_engine(_prepare_schema):
     engine = create_async_engine(TEST_DATABASE_URL, poolclass=None)
     async with engine.begin() as conn:
-        await conn.execute(text('CREATE EXTENSION IF NOT EXISTS "pg_trgm"'))
-        await conn.execute(text('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"'))
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(text(_TRUNCATE_ALL))
     yield engine
     await engine.dispose()
 
