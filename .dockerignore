@@ -1,4 +1,4 @@
-# 빌드 컨텍스트 = 레포 루트. 이미지 빌드에 필요한 건 backend/ 와 flutter/(웹 빌드용)뿐.
+# 빌드 컨텍스트 = 레포 루트. 이미지 빌드에 필요한 건 backend/ 와 front_app/(웹 빌드용)뿐.
 
 # --- 버전관리/메타 ---
 .git
@@ -31,15 +31,15 @@ backend/tests/
 *.dump
 
 # --- Flutter: 웹 빌드에 lib/·web/·pubspec·assets 만 필요 ---
-flutter/build/
-flutter/.dart_tool/
-flutter/.flutter-plugins
-flutter/.flutter-plugins-dependencies
-flutter/.pub-cache/
-flutter/android/
-flutter/ios/
-flutter/linux/
-flutter/macos/
-flutter/windows/
-flutter/test/
-flutter/coverage/
+front_app/build/
+front_app/.dart_tool/
+front_app/.flutter-plugins
+front_app/.flutter-plugins-dependencies
+front_app/.pub-cache/
+front_app/android/
+front_app/ios/
+front_app/linux/
+front_app/macos/
+front_app/windows/
+front_app/test/
+front_app/coverage/

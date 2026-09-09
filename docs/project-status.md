@@ -181,7 +181,7 @@ AI는 그 판정 결과를 사람이 읽을 설명으로 풀어쓰는 **보조("
 
 ### 프로젝트 구조
 ```
-flutter/lib/
+front_app/lib/
 ├── core/
 │   ├── api/            api_client.dart
 │   ├── models/          auth_models, drug_models, medicine_box_models, analysis_models
@@ -278,8 +278,8 @@ flutter/lib/
 
 - Firebase 프로젝트: `good-medicine-app`
 - Android 패키지명: `com.goodmedicine.good_medicine` (기존 `com.example.drugtest`에서 변경 — Play Store 등록 불가한 이름이라 Firebase 등록값에 맞춰 통일)
-- `backend/firebase-service-account.json`, `flutter/android/app/google-services.json` 배치 완료 (둘 다 gitignore 대상)
-- `flutter/android/`에 누락되어 있던 네이티브 파일(AndroidManifest.xml, MainActivity, 루트 Gradle 설정)을 `flutter create --platforms=android .`로 복구 — 카메라/인터넷 권한 재설정 포함
+- `backend/firebase-service-account.json`, `front_app/android/app/google-services.json` 배치 완료 (둘 다 gitignore 대상)
+- `front_app/android/`에 누락되어 있던 네이티브 파일(AndroidManifest.xml, MainActivity, 루트 Gradle 설정)을 `flutter create --platforms=android .`로 복구 — 카메라/인터넷 권한 재설정 포함
 - `flutter build apk --debug` 빌드 성공 확인
 - (2026-08-03) 포그라운드 알림 미표시 버그 수정: `flutter_local_notifications` 추가, `onMessage`/`onBackgroundMessage` 핸들러 연결, `POST_NOTIFICATIONS`(Android 13+) 권한 추가 — 상세는 [개발일지.md](./개발일지.md) 20회차 참고
 

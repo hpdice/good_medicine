@@ -2,19 +2,19 @@
 # Vercel (프론트 배포 — 로컬 linkage/creds)
 # =====================
 .vercel/
-flutter/.vercel/
+front_app/.vercel/
 
 # =====================
 # Flutter / Dart
 # =====================
-flutter/.dart_tool/
-flutter/.flutter-plugins-dependencies
-flutter/.pub-cache/
-flutter/.pub/
-flutter/build/
-flutter/coverage/
-flutter/**/.dart_tool/
-flutter/**/build/
+front_app/.dart_tool/
+front_app/.flutter-plugins-dependencies
+front_app/.pub-cache/
+front_app/.pub/
+front_app/build/
+front_app/coverage/
+front_app/**/.dart_tool/
+front_app/**/build/
 *.iml
 .gradle/
 
@@ -100,8 +100,8 @@ secrets/
 # Firebase (FCM)
 # =====================
 backend/firebase-service-account*.json
-flutter/android/app/google-services.json
-flutter/ios/Runner/GoogleService-Info.plist
+front_app/android/app/google-services.json
+front_app/ios/Runner/GoogleService-Info.plist
 
 # =====================
 # 학습용 문서 (개인 공부용, git 미추적)

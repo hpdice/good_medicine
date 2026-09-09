@@ -5,7 +5,7 @@
 > 백엔드는 `_SpaStaticFiles` 로 웹 번들도 계속 서빙하므로, Vercel 이 죽어도 `*.ts.net` 링크가 폴백.
 
 ```
-git push (flutter/** 변경)
+git push (front_app/** 변경)
   → GitHub Actions (.github/workflows/deploy-web.yml)
       flutter build web  --dart-define=BASE_URL=<WEB_API_BASE_URL>
       → vercel deploy --prebuilt --prod
@@ -29,11 +29,11 @@ git push (flutter/** 변경)
 
 ```cmd
 npm i -g vercel
-cd C:\Dev\drugTest\flutter
+cd C:\Dev\drugTest\front_app
 vercel link          # 계정 로그인 → 위에서 만든 프로젝트 선택
 type .vercel\project.json     # orgId, projectId 확인
 ```
-(`flutter/.vercel/` 는 `.gitignore` 됨 — 커밋 안 됨)
+(`front_app/.vercel/` 는 `.gitignore` 됨 — 커밋 안 됨)
 
 ### 3. Vercel 토큰 발급
 
@@ -67,7 +67,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 ### 6. 첫 배포
 
-레포 **Actions → deploy web (Vercel) → Run workflow** (또는 `flutter/` 아무거나 고쳐 push).
+레포 **Actions → deploy web (Vercel) → Run workflow** (또는 `front_app/` 아무거나 고쳐 push).
 끝나면 `https://goodmedicine-hpdice.vercel.app` 접속 → 로그인 → 약품검색 동작 확인.
 
 ---
@@ -76,7 +76,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 | 상황 | 대응 |
 |---|---|
-| 프론트 수정 | `git push` → Actions 자동 배포 (flutter/** 경로만 트리거) |
+| 프론트 수정 | `git push` → Actions 자동 배포 (front_app/** 경로만 트리거) |
 | 백엔드 수정 | 기존대로 PC 에서 `docker compose ... up -d --build` |
 | API 주소 변경(터널 등) | `WEB_API_BASE_URL` 시크릿 수정 → 워크플로 재실행. 백엔드 `CORS_ORIGINS` 도 갱신 |
 | Vercel 장애 | `https://goodmedicine.tail9f1768.ts.net/` 가 번들된 웹으로 폴백 |

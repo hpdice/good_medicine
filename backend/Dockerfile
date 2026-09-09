@@ -1,12 +1,12 @@
-# 빌드 컨텍스트 = 레포 루트 (docker-compose.yml 의 context: . — backend/ + flutter/ 둘 다 필요)
+# 빌드 컨텍스트 = 레포 루트 (docker-compose.yml 의 context: . — backend/ + front_app/ 둘 다 필요)
 # ─────────────────────────────────────────────────────────────────────────────
 # 1) Flutter 웹 번들 빌드 — 배포 이미지에서만 사용 (로컬 docker compose는 target: backend-base)
 # ─────────────────────────────────────────────────────────────────────────────
 FROM ghcr.io/cirruslabs/flutter:stable AS webbuild
 WORKDIR /src
-COPY flutter/pubspec.yaml flutter/pubspec.lock ./
+COPY front_app/pubspec.yaml front_app/pubspec.lock ./
 RUN flutter pub get
-COPY flutter/ ./
+COPY front_app/ ./
 # 같은 주소(오리진)에서 API를 호출하므로 상대 경로. 모바일 APK는 별도로 절대 URL을 준다.
 # --pwa-strategy=none: 서비스 워커 비활성화 — 재배포 때 브라우저 캐시가 옛 빌드를 붙들지 않게.
 RUN flutter build web --release --pwa-strategy=none --dart-define=BASE_URL=/api/v1/

@@ -10,7 +10,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "flutter/**"
+      - "front_app/**"
       - ".github/workflows/deploy-web.yml"
   workflow_dispatch:
 
@@ -33,7 +33,7 @@ jobs:
           cache: true
 
       - name: flutter build web
-        working-directory: flutter
+        working-directory: front_app
         run: |
           flutter pub get
           flutter build web --release --pwa-strategy=none \
@@ -42,7 +42,7 @@ jobs:
       - name: assemble Vercel prebuilt output
         run: |
           mkdir -p .vercel/output/static
-          cp -r flutter/build/web/. .vercel/output/static/
+          cp -r front_app/build/web/. .vercel/output/static/
           cat > .vercel/output/config.json <<'JSON'
           {
             "version": 3,

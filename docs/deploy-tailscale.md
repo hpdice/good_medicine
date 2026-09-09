@@ -79,7 +79,7 @@ curl https://goodmedicine.tail9f1768.ts.net/health   → {"status":"ok"}
 ### 5. APK
 
 ```cmd
-cd C:\Dev\drugTest\flutter
+cd C:\Dev\drugTest\front_app
 flutter build apk --release --dart-define=BASE_URL=https://goodmedicine.tail9f1768.ts.net/api/v1/
 ```
 
