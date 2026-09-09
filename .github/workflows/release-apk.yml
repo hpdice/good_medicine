@@ -1,0 +1,61 @@
+# APK 릴리스 — Flutter 안드로이드 APK 를 빌드해 GitHub Release 에 첨부한다.
+# 트리거: 태그 push(`v*`) 또는 Actions 에서 수동 실행(version 입력).
+# 인증: 워크플로 기본 GITHUB_TOKEN (contents: write) — 개인 토큰 불필요.
+# 필요한 Secret: WEB_API_BASE_URL (APK 가 호출할 API 주소, Vercel 워크플로와 공용)
+name: release apk
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "릴리스 태그 (예: v0.2.0)"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-apk
+  cancel-in-progress: false
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: build apk
+        working-directory: front_app
+        run: |
+          flutter pub get
+          flutter build apk --release \
+            --dart-define=BASE_URL="${{ secrets.WEB_API_BASE_URL }}"
+
+      - name: resolve tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: ${{ steps.tag.outputs.name }}
+          generate_release_notes: true
+          files: front_app/build/app/outputs/flutter-apk/app-release.apk
