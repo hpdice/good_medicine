@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "306379095204",
+    "project_id": "good-medicine-app",
+    "storage_bucket": "good-medicine-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:306379095204:android:aabd707355d431268bfa31",
+        "android_client_info": {
+          "package_name": "com.goodmedicine.good_medicine"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBoFFKEPk3mKV5rwIQS536LrTp62Cx3S6E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

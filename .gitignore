@@ -100,7 +100,6 @@ secrets/
 # Firebase (FCM)
 # =====================
 backend/firebase-service-account*.json
-front_app/android/app/google-services.json
 front_app/ios/Runner/GoogleService-Info.plist
 
 # =====================
