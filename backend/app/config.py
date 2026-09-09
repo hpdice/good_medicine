@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    # bcrypt 코스트 팩터. 운영 12 유지, 테스트는 conftest 에서 4 로 낮춰 속도 확보.
+    BCRYPT_ROUNDS: int = 12
+
     # 필드 암호화 키 (AES-256-GCM) - 32바이트 hex
     FIELD_ENCRYPTION_KEY: str
 

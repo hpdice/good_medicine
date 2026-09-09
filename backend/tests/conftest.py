@@ -14,6 +14,9 @@ os.environ.setdefault("DEBUG", "false")
 # 로그인 엔드포인트는 5회/15분으로 강하게 제한되어 있어, 여러 테스트가
 # 순차적으로 로그인을 호출하면 실제 슬로우API 제한에 걸린다. 테스트에서는 완화한다.
 os.environ["LOGIN_RATE_LIMIT"] = "1000/minute"
+# 테스트는 거의 매번 회원가입+로그인(=bcrypt 해시+검증)을 한다. 운영 코스트(12)면
+# 테스트 1개당 수백 ms 씩 붙으므로 4 로 낮춘다 (보안 무관, 속도만).
+os.environ["BCRYPT_ROUNDS"] = "4"
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
