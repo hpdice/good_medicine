@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../../core/models/medicine_box_models.dart';
 import '../../core/notifications/fcm_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../camera/camera_provider.dart';
@@ -104,7 +105,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ? _expanded.remove(entry.id)
                       : _expanded.add(entry.id);
                 }),
-                onDelete: () => home.deleteEntry(entry.id),
+                onDelete: () => _confirmDelete(context, home, entry),
                 onEditReminder: () => showReminderEditSheet(context, entry),
               ),
             ),
@@ -118,6 +119,31 @@ class _HomeScreenState extends State<HomeScreen> {
           child: FloatingError(text: home.error!, onClose: home.clearError),
         ),
     ]);
+  }
+
+  Future<void> _confirmDelete(
+      BuildContext context, HomeProvider home, MedicineBoxEntry entry) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('약 삭제'),
+        content: Text('${entry.drug.displayName}을(를) 복약함에서 삭제할까요?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(true),
+            child: Text('삭제',
+                style: TextStyle(color: Theme.of(dialogCtx).colorScheme.error)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      home.deleteEntry(entry.id);
+    }
   }
 
   void _showAbout(BuildContext context) {
