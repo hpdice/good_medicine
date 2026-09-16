@@ -140,12 +140,6 @@ class _SearchScreenState extends State<SearchScreen> {
                       color: Theme.of(context).colorScheme.onSurfaceVariant)),
             ],
             _InfoSection(label: '효능', text: drug.efcyQesitm),
-            _InfoSection(label: '이렇게 복용하세요', text: drug.useMethodQesitm),
-            _InfoSection(label: '경고', text: drug.atpnWarnQesitm),
-            _InfoSection(label: '주의사항', text: drug.atpnQesitm),
-            _InfoSection(label: '함께 먹으면 안 되는 음식·약', text: drug.intrcQesitm),
-            _InfoSection(label: '이런 증상이 나타날 수 있어요', text: drug.seQesitm),
-            _InfoSection(label: '보관 방법', text: drug.depositMethodQesitm),
             Gap.v24,
             FilledButton.icon(
               onPressed: () {
