@@ -22,7 +22,6 @@ async def validate():
                 (SELECT count(*) FROM drugs) AS total_drugs,
                 (SELECT count(*) FROM drugs WHERE efcy_qesitm IS NOT NULL) AS has_efcy,
                 (SELECT count(*) FROM drugs WHERE ingr_name IS NOT NULL) AS has_ingr,
-                (SELECT count(*) FROM drugs WHERE drug_shape IS NOT NULL) AS has_shape,
                 (SELECT count(*) FROM drug_ingredients) AS di_rows,
                 (SELECT count(*) FROM drug_ingredients WHERE source = 'dur') AS di_dur,
                 (SELECT count(*) FROM drug_ingredients WHERE source = 'jsonb_fallback') AS di_fb,
@@ -36,7 +35,6 @@ async def validate():
         print(f"  drugs 전체:               {row.total_drugs:>8,}건")
         print(f"  └ 효능정보(efcy):         {row.has_efcy:>8,}건")
         print(f"  └ 성분JSONB(ingr):        {row.has_ingr:>8,}건")
-        print(f"  └ 낱알식별(shape):        {row.has_shape:>8,}건")
         print(f"  drug_ingredients:         {row.di_rows:>8,}건  (dur={row.di_dur:,} / fallback={row.di_fb:,})")
         print(f"  └ 성분코드 해소 약품:     {row.di_drugs:>8,}건 ({resolve_pct:.1f}%)")
         print(f"  성분 병용금기 규칙:       {row.contra:>8,}건  (risk_tags {row.contra_tagged:,}건)")

@@ -18,11 +18,6 @@ class DrugResponse(BaseModel):
     atpn_qesitm: str | None
     intrc_qesitm: str | None
     se_qesitm: str | None
-    drug_shape: str | None
-    color_class1: str | None
-    print_front: str | None
-    print_back: str | None
-    item_image: str | None
     class_name: str | None
     etc_otc_name: str | None
     created_at: datetime
@@ -45,7 +40,6 @@ class DrugSearchResult(BaseModel):
     intrc_qesitm: str | None
     se_qesitm: str | None
     deposit_method_qesitm: str | None
-    item_image: str | None
 
     model_config = {"from_attributes": True}
 

@@ -9,14 +9,13 @@
     overview                e약은요 기본정보 동기화
     dur_contraindications   DUR 병용금기 동기화 (성분 테이블만 채움)
     efcy_dplct              DUR 효능군중복주의 동기화 (성분 테이블만 채움)
-    identification          낱알식별 동기화
     approval                의약품 허가정보 동기화
     build_drug_ingredients  drug_ingredients 로컬 보강 (API 미사용, item_name·ingr_name → 성분코드)
     build_residual          residual_interactions 시드 복원 (DB 완전 초기화 후 재구축 시)
     extract_risk_tags       prohibit_content → 로컬 LLM 위험/증상 태그 1회 추출 (GPU 필요)
     dur_extra_codes         DUR 기타 엔드포인트(임부/용량/투여기간)에서 성분코드 매핑만 수확
     dur_age_caution         DUR 특정연령대금기·노인주의 동기화 (성분 테이블만 채움)
-    all                     overview·dur_contraindications·efcy_dplct·identification·approval 순 (기본값)
+    all                     overview·dur_contraindications·efcy_dplct·approval 순 (기본값)
 
 판정은 성분 단위(drug_ingredients + dur_ingredient_*)만 쓴다. dur_contraindications·
 efcy_dplct 동기화가 이 테이블들을 채운다. dur_extra_codes는 판정엔 미관여하고
@@ -36,13 +35,12 @@ logging.basicConfig(format="%(message)s", level=logging.WARNING)
 for _logger in ("sqlalchemy.engine", "sqlalchemy.pool", "sqlalchemy.dialects", "app"):
     logging.getLogger(_logger).setLevel(logging.WARNING)
 
-SOURCES = ["overview", "dur_contraindications", "efcy_dplct", "identification", "approval"]
+SOURCES = ["overview", "dur_contraindications", "efcy_dplct", "approval"]
 
 SOURCE_LABELS = {
     "overview": "e약은요 기본정보",
     "dur_contraindications": "DUR 병용금기",
     "efcy_dplct": "DUR 효능군중복주의",
-    "identification": "낱알식별",
     "approval": "의약품 제품 허가정보",
     "dur_extra_codes": "DUR 기타 성분코드 매핑",
     "dur_age_caution": "DUR 특정연령대금기·노인주의",
@@ -125,7 +123,6 @@ async def cmd_status():
         total = await db.scalar(select(func.count()).select_from(Drug))
         has_efcy = await db.scalar(select(func.count()).select_from(Drug).where(Drug.efcy_qesitm.isnot(None)))
         has_ingr = await db.scalar(select(func.count()).select_from(Drug).where(Drug.ingr_name.isnot(None)))
-        has_shape = await db.scalar(select(func.count()).select_from(Drug).where(Drug.drug_shape.isnot(None)))
         di_rows = await db.scalar(select(func.count()).select_from(DrugIngredient))
         di_drugs = await db.scalar(
             select(func.count(func.distinct(DrugIngredient.drug_id)))
@@ -149,7 +146,6 @@ async def cmd_status():
     print(f"  drugs 전체          : {total:>7,}건")
     print(f"  └ 효능정보(efcy)    : {has_efcy:>7,}건")
     print(f"  └ 성분JSONB(ingr)   : {has_ingr:>7,}건")
-    print(f"  └ 낱알식별(shape)   : {has_shape:>7,}건")
     print("  ----- 성분 단위 (정식 판정) -----")
     print(f"  drug_ingredients    : {di_rows:>7,}건")
     print(f"  └ 성분코드 해소 약품 : {di_drugs:>7,}건 ({resolve_pct:.1f}% of drugs)")
@@ -191,8 +187,6 @@ async def run_sync(sources: list[str]):
                     n = await service._sync_dur_contraindications()
                 elif source == "efcy_dplct":
                     n = await service._sync_efcy_dplct()
-                elif source == "identification":
-                    n = await service._sync_drug_identification()
                 elif source == "approval":
                     n = await service.sync_drug_approval()
                 elif source == "dur_extra_codes":

@@ -5,7 +5,6 @@
 나눴다. 이렇게 하면 `sync.py`/`drug_service.py`의 기존 import는 그대로 통과한다."""
 from .base import _SyncBase
 from .drug_approval_sync import DrugApprovalSyncMixin
-from .drug_identification_sync import DrugIdentificationSyncMixin
 from .drug_overview_sync import DrugOverviewSyncMixin
 from .dur_sync import DurSyncMixin
 from .maintenance import MaintenanceMixin
@@ -16,7 +15,6 @@ class PublicDataService(
     _SyncBase,
     DrugOverviewSyncMixin,
     DrugApprovalSyncMixin,
-    DrugIdentificationSyncMixin,
     DurSyncMixin,
     MaintenanceMixin,
     RiskTagsMixin,

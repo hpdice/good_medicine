@@ -18,7 +18,7 @@ class Drug(Base):
 
     # 식품의약품안전처 식별자
     item_seq: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
-    item_name: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    item_name: Mapped[str] = mapped_column(Text, nullable=False)
     entp_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     item_permit_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
@@ -34,13 +34,6 @@ class Drug(Base):
     intrc_qesitm: Mapped[str | None] = mapped_column(Text, nullable=True)
     se_qesitm: Mapped[str | None] = mapped_column(Text, nullable=True)
     deposit_method_qesitm: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    # 낱알 식별 정보
-    drug_shape: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    color_class1: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    print_front: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    print_back: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    item_image: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # 분류
     class_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -61,5 +54,4 @@ class Drug(Base):
               postgresql_ops={"drug_key": "gin_trgm_ops"}),
         Index("idx_drugs_simple_name_trgm", "simple_name", postgresql_using="gin",
               postgresql_ops={"simple_name": "gin_trgm_ops"}),
-        Index("idx_drugs_ingr_name_gin", "ingr_name", postgresql_using="gin"),
     )

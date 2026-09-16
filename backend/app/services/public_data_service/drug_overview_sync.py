@@ -38,7 +38,6 @@ class DrugOverviewSyncMixin:
         drug.intrc_qesitm = _clean(item.get("intrcQesitm"))
         drug.se_qesitm = _clean(item.get("seQesitm"))
         drug.deposit_method_qesitm = _clean(item.get("depositMethodQesitm"))
-        drug.item_image = _clean(item.get("itemImage"))
         drug.class_name = _clean(item.get("className"))
 
         ingr_raw = _clean(item.get("mainItemIngr"))

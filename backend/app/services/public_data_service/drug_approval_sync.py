@@ -42,8 +42,6 @@ class DrugApprovalSyncMixin:
         if drug:
             if not drug.simple_name:
                 drug.simple_name = _make_simple_name(item_name)
-            if not drug.item_image:
-                drug.item_image = _clean(item.get("BIG_PRDT_IMG_URL"))
             if not drug.item_permit_date:
                 drug.item_permit_date = permit_date
             if not drug.class_name:
@@ -61,6 +59,5 @@ class DrugApprovalSyncMixin:
             item_permit_date=permit_date,
             class_name=class_name,
             etc_otc_name=_clean(item.get("SPCLTY_PBLC")),
-            item_image=_clean(item.get("BIG_PRDT_IMG_URL")),
         )
         self.db.add(drug)
