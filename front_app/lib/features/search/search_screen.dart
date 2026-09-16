@@ -139,19 +139,13 @@ class _SearchScreenState extends State<SearchScreen> {
                       fontSize: 13,
                       color: Theme.of(context).colorScheme.onSurfaceVariant)),
             ],
-            Gap.v16,
-            _SectionLabel('효능'),
-            const SizedBox(height: 4),
-            if (drug.efcyQesitm != null)
-              Text(drug.efcyQesitm!, style: const TextStyle(height: 1.5))
-            else
-              Text(
-                '식약처 e약은요에 효능 설명이 등록되지 않은 약품이에요.',
-                style: TextStyle(
-                  height: 1.5,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
+            _InfoSection(label: '효능', text: drug.efcyQesitm),
+            _InfoSection(label: '이렇게 복용하세요', text: drug.useMethodQesitm),
+            _InfoSection(label: '경고', text: drug.atpnWarnQesitm),
+            _InfoSection(label: '주의사항', text: drug.atpnQesitm),
+            _InfoSection(label: '함께 먹으면 안 되는 음식·약', text: drug.intrcQesitm),
+            _InfoSection(label: '이런 증상이 나타날 수 있어요', text: drug.seQesitm),
+            _InfoSection(label: '보관 방법', text: drug.depositMethodQesitm),
             Gap.v24,
             FilledButton.icon(
               onPressed: () {
@@ -163,6 +157,28 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _InfoSection extends StatelessWidget {
+  final String label;
+  final String? text;
+  const _InfoSection({required this.label, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    if (text == null || text!.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionLabel(label),
+          const SizedBox(height: 4),
+          Text(text!, style: const TextStyle(height: 1.5)),
+        ],
       ),
     );
   }

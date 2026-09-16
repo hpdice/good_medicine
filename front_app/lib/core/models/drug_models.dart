@@ -6,6 +6,12 @@ class DrugSearchResult {
   final String? className;
   final String? etcOtcName;
   final String? efcyQesitm;
+  final String? useMethodQesitm;
+  final String? atpnWarnQesitm;
+  final String? atpnQesitm;
+  final String? intrcQesitm;
+  final String? seQesitm;
+  final String? depositMethodQesitm;
 
   DrugSearchResult.fromJson(Map<String, dynamic> j)
       : id = j['id'],
@@ -14,7 +20,13 @@ class DrugSearchResult {
         entpName = j['entp_name'],
         className = j['class_name'],
         etcOtcName = j['etc_otc_name'],
-        efcyQesitm = j['efcy_qesitm'];
+        efcyQesitm = j['efcy_qesitm'],
+        useMethodQesitm = j['use_method_qesitm'],
+        atpnWarnQesitm = j['atpn_warn_qesitm'],
+        atpnQesitm = j['atpn_qesitm'],
+        intrcQesitm = j['intrc_qesitm'],
+        seQesitm = j['se_qesitm'],
+        depositMethodQesitm = j['deposit_method_qesitm'];
 
   String get displayName =>
       (simpleName?.isNotEmpty == true) ? simpleName! : itemName;

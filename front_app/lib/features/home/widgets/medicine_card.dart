@@ -22,13 +22,37 @@ class MedicineCard extends StatelessWidget {
     required this.onEditReminder,
   });
 
+  static const List<(String, String? Function(MedicineBoxDrug))> _detailFields = [
+    ('효능', _efcy),
+    ('이렇게 복용하세요', _useMethod),
+    ('경고', _atpnWarn),
+    ('주의사항', _atpn),
+    ('함께 먹으면 안 되는 음식·약', _intrc),
+    ('이런 증상이 나타날 수 있어요', _se),
+    ('보관 방법', _depositMethod),
+  ];
+  static String? _efcy(MedicineBoxDrug d) => d.efcyQesitm;
+  static String? _useMethod(MedicineBoxDrug d) => d.useMethodQesitm;
+  static String? _atpnWarn(MedicineBoxDrug d) => d.atpnWarnQesitm;
+  static String? _atpn(MedicineBoxDrug d) => d.atpnQesitm;
+  static String? _intrc(MedicineBoxDrug d) => d.intrcQesitm;
+  static String? _se(MedicineBoxDrug d) => d.seQesitm;
+  static String? _depositMethod(MedicineBoxDrug d) => d.depositMethodQesitm;
+
+  List<(String, String)> _sectionsFor(MedicineBoxDrug drug) => _detailFields
+      .map((f) => (f.$1, f.$2(drug)))
+      .where((s) => s.$2 != null && s.$2!.isNotEmpty)
+      .map((s) => (s.$1, s.$2!))
+      .toList();
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final drug = entry.drug;
+    final sections = _sectionsFor(drug);
     return Card(
       child: InkWell(
-        onTap: onToggle,
+        onTap: sections.isEmpty ? null : onToggle,
         borderRadius: BorderRadius.circular(kRadius),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
@@ -99,24 +123,40 @@ class MedicineCard extends StatelessWidget {
                   ? CrossFadeState.showSecond
                   : CrossFadeState.showFirst,
               firstChild: const SizedBox(width: double.infinity),
-              secondChild: drug.efcyQesitm != null
-                  ? Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 10, 8, 0),
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Divider(height: 1),
-                            const SizedBox(height: 8),
-                            Text(drug.efcyQesitm!,
-                                style: TextStyle(
-                                    fontSize: 12.5,
-                                    height: 1.45,
-                                    color: scheme.onSurfaceVariant)),
-                          ]))
-                  : const SizedBox(width: double.infinity),
+              secondChild: _buildExpandedDetail(context, sections),
             ),
           ]),
         ),
+      ),
+    );
+  }
+
+  Widget _buildExpandedDetail(BuildContext context, List<(String, String)> sections) {
+    if (sections.isEmpty) return const SizedBox(width: double.infinity);
+
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 10, 8, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Divider(height: 1),
+          const SizedBox(height: 8),
+          for (int i = 0; i < sections.length; i++) ...[
+            if (i > 0) const SizedBox(height: 10),
+            if (sections.length > 1) ...[
+              Text(sections[i].$1,
+                  style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: scheme.primary)),
+              const SizedBox(height: 3),
+            ],
+            Text(sections[i].$2,
+                style: TextStyle(
+                    fontSize: 12.5, height: 1.45, color: scheme.onSurfaceVariant)),
+          ],
+        ],
       ),
     );
   }
