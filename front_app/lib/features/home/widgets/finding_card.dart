@@ -137,12 +137,6 @@ class _FindingCardState extends State<FindingCard> {
               ),
             ],
           ],
-          if (finding.source == 'residual') ...[
-            Gap.v4,
-            Text('※ 품목 단위 참고 데이터',
-                style: TextStyle(
-                    fontSize: 10.5, color: scheme.onSurfaceVariant)),
-          ],
         ]),
       ),
     );

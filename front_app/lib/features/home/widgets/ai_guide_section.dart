@@ -68,7 +68,7 @@ class _AiGuideSectionState extends State<AiGuideSection> {
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                  'AI가 설명을 생성하는 중입니다\n보통 10~20초, 서버를 처음 깨우면 최대 2~3분',
+                  'AI가 설명을 생성하는 중입니다',
                   style: TextStyle(
                       fontSize: 12.5,
                       height: 1.4,
