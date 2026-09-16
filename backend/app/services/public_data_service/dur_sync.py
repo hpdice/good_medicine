@@ -15,6 +15,7 @@ from app.models.dur_ingredient_rule import (
     DurIngredientContraindication,
     DurIngredientEffectGroup,
 )
+from app.models.residual_interaction import ResidualInteraction
 
 from .helpers import _clean, _parse_age_criteria
 
@@ -164,7 +165,13 @@ class DurSyncMixin:
             code_a, code_b, ingr_kor_a, ingr_kor_b,
             prohibit_content=mechanism, remark=_clean(item.get("REMARK")),
         )
-        # 품목쌍(구 drug_interactions)은 폐기됨 — 이 sweep은 이제 성분 테이블만 채운다.
+        # 한쪽이라도 성분코드 미해소면 dur_ingredient_contraindications가 이 쌍을
+        # 못 잡는다 — 식약처가 이미 ITEM_SEQ로 직접 pair해서 준 것이므로(이름 매칭
+        # 등 추론 없음) residual_interactions에 그대로 남겨 quick_check 폴백이 보게 한다.
+        # 양쪽 다 해소되면 성분 경로가 100% 재현하므로(0006 마이그레이션 전수검증)
+        # 중복 저장하지 않는다.
+        if not code_a or not code_b:
+            await self._upsert_residual_contraindication(drug_a.id, drug_b.id, mechanism)
 
     # ------------------------------------------------------------------ #
     # 성분(ingredient) 단위 판정 규칙 upsert — run 내 in-memory 캐시로        #
@@ -198,6 +205,32 @@ class DurSyncMixin:
             ingr_code_a=code_a, ingr_code_b=code_b,
             ingr_kor_a=kor_a, ingr_kor_b=kor_b,
             prohibit_content=prohibit_content, remark=remark,
+        ))
+
+    async def _upsert_residual_contraindication(
+        self, drug_a_id, drug_b_id, mechanism: str | None,
+    ) -> None:
+        """성분코드가 해소되지 않아 dur_ingredient_contraindications로 못 잡는 품목쌍을
+        식약처 DUR 응답의 ITEM_SEQ 쌍 그대로 residual_interactions에 남긴다."""
+        if drug_a_id == drug_b_id:
+            return
+        key = frozenset((drug_a_id, drug_b_id))
+        if key in self._seen_residual:
+            return
+        self._seen_residual.add(key)
+
+        existing = await self.db.scalar(
+            select(ResidualInteraction).where(
+                ResidualInteraction.drug1_id.in_((drug_a_id, drug_b_id)),
+                ResidualInteraction.drug2_id.in_((drug_a_id, drug_b_id)),
+                ResidualInteraction.interaction_type == "contraindicated",
+            )
+        )
+        if existing:
+            return
+        self.db.add(ResidualInteraction(
+            drug1_id=drug_a_id, drug2_id=drug_b_id,
+            interaction_type="contraindicated", mechanism=mechanism,
         ))
 
     async def _upsert_ingr_effect_group(

@@ -29,6 +29,7 @@ class _SyncBase:
         self._seen_ingr_contra: set[tuple] = set()
         self._seen_ingr_effect: set[tuple] = set()
         self._seen_ingr_age: set[tuple] = set()
+        self._seen_residual: set[frozenset] = set()
 
     async def _emit(self, **kwargs) -> None:
         if self._progress_cb:
