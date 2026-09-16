@@ -1,0 +1,222 @@
+"""동기화 서비스 공통 기반 — HTTP 페이지 조회·재시도, Drug 레코드 확보,
+성분 upsert처럼 여러 소스가 공유하는 인프라만 담는다. 특정 DUR 판정 규칙
+(병용금기·효능군중복·연령대금기) upsert는 dur_sync.py로 분리."""
+import asyncio
+from datetime import date
+
+import httpx
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import settings
+from app.core.logging import logger
+from app.models.drug import Drug
+from app.models.drug_ingredient import DrugIngredient
+
+from .helpers import _make_drug_key, _make_simple_name
+
+
+class _SyncBase:
+    PAGE_SIZE = 100
+
+    def __init__(self, db: AsyncSession, progress_cb=None) -> None:
+        self.db = db
+        self._api_key = settings.PUBLIC_DATA_API_KEY
+        self._progress_cb = progress_cb
+        # 성분 sweep에서 (drug_id, ingr_code)·(code_a, code_b)가 수천 번 재등장하므로
+        # run 내 in-memory 캐시로 중복 upsert의 DB 왕복을 건너뛴다.
+        self._seen_drug_ingr: set[tuple] = set()
+        self._seen_ingr_contra: set[tuple] = set()
+        self._seen_ingr_effect: set[tuple] = set()
+        self._seen_ingr_age: set[tuple] = set()
+
+    async def _emit(self, **kwargs) -> None:
+        if self._progress_cb:
+            await self._progress_cb(kwargs)
+
+    async def _fetch_page(self, client: httpx.AsyncClient, url: str, params: dict, retries: int = 5) -> dict | None:
+        """페이지 요청. 429는 60초 대기 후 재시도, 그 외 에러는 지수 백오프."""
+        for attempt in range(retries):
+            try:
+                resp = await client.get(url, params=params)
+                resp.raise_for_status()
+                return resp.json()
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 429:
+                    wait = 60
+                    logger.warning(f"Rate limit (attempt {attempt + 1}/{retries}, page {params.get('pageNo')}): retrying in {wait}s")
+                else:
+                    wait = 2 ** attempt
+                    logger.warning(f"API error (attempt {attempt + 1}/{retries}, page {params.get('pageNo')}): {e}. retrying in {wait}s")
+                await asyncio.sleep(wait)
+            except Exception as e:
+                wait = 2 ** attempt
+                logger.warning(f"API error (attempt {attempt + 1}/{retries}, page {params.get('pageNo')}): {e}. retrying in {wait}s")
+                await asyncio.sleep(wait)
+        logger.error(f"API failed after {retries} attempts, skipping page {params.get('pageNo')}")
+        return None
+
+    # ------------------------------------------------------------------ #
+    # 공통 페이지네이션 루프 — 단순형(3곳이 쓰던 걸 통합) /                    #
+    #                        다중 엔드포인트형(2곳이 쓰던 걸 통합)            #
+    # ------------------------------------------------------------------ #
+
+    async def _run_simple_paginated_sync(self, url: str, item_handler, source: str, log_label: str) -> int:
+        """단일 엔드포인트를 totalCount까지 순회하며 `item_handler(item)`을 호출한다.
+        `_sync_drug_overview`/`_sync_efcy_dplct`/`sync_drug_approval`이 각자 복붙해
+        갖고 있던 거의 동일한 루프를 추출한 것(로직 변경 없음)."""
+        count = 0
+        page = 1
+        async with httpx.AsyncClient(timeout=30) as client:
+            while True:
+                params = {"serviceKey": self._api_key, "pageNo": page, "numOfRows": self.PAGE_SIZE, "type": "json"}
+                data = await self._fetch_page(client, url, params)
+                if data is None:
+                    page += 1
+                    continue
+
+                items = data.get("body", {}).get("items", [])
+                if not items:
+                    break
+
+                for item in items:
+                    await item_handler(item)
+                    count += 1
+
+                await self.db.commit()
+                total = data.get("body", {}).get("totalCount", 0)
+                logger.info(f"Synced {log_label} page {page} ({count}/{total})")
+                await self._emit(source=source, page=page, count=count, total=total)
+
+                if count >= total or len(items) < self.PAGE_SIZE:
+                    break
+                page += 1
+                await asyncio.sleep(0.5)
+
+        return count
+
+    async def _run_multi_endpoint_sync(
+        self, ops: dict, item_handler, *, error_label: str, source_prefix: str, retry_hint: str,
+    ) -> int:
+        """`ops`: {label: (엔드포인트 op, item_handler에 넘길 부가값)}을 순회하며 각각
+        totalCount까지 페이지를 돈다. 연속 3회 응답 실패 시 할당량 초과로 보고
+        RuntimeError. `sync_dur_age_caution`/`sync_dur_extra_ingredient_codes`가
+        각자 갖고 있던 거의 동일한 루프를 추출한 것(로직 변경 없음)."""
+        processed = 0
+        for label, (op, extra) in ops.items():
+            url = f"{settings.DUR_PRODUCT_API_URL}/{op}"
+            page = 1
+            ep_count = 0
+            consecutive_failures = 0
+            async with httpx.AsyncClient(timeout=30) as client:
+                while True:
+                    params = {
+                        "serviceKey": self._api_key, "pageNo": page,
+                        "numOfRows": self.PAGE_SIZE, "type": "json",
+                    }
+                    data = await self._fetch_page(client, url, params)
+                    if data is None:
+                        consecutive_failures += 1
+                        if consecutive_failures >= 3:
+                            raise RuntimeError(
+                                f"{error_label} [{label}] page {page} 연속 실패 — 할당량 초과 추정. "
+                                f"할당량 리셋 후 `{retry_hint}` 재실행."
+                            )
+                        page += 1
+                        continue
+                    consecutive_failures = 0
+
+                    items = data.get("body", {}).get("items", [])
+                    if not items:
+                        break
+
+                    for item in items:
+                        await item_handler(item, extra)
+                        ep_count += 1
+                        processed += 1
+
+                    await self.db.commit()
+                    total = data.get("body", {}).get("totalCount", 0)
+                    logger.info(f"{error_label} [{label}] page {page} ({ep_count}/{total})")
+                    await self._emit(source=f"{source_prefix}:{label}", page=page, count=ep_count, total=total)
+
+                    if len(items) < self.PAGE_SIZE:
+                        break
+                    page += 1
+                    await asyncio.sleep(0.5)
+
+        return processed
+
+    # ------------------------------------------------------------------ #
+    # Drug 레코드 확보 — 여러 sync가 공유                                    #
+    # ------------------------------------------------------------------ #
+
+    async def _find_drug_by_name(self, name: str) -> Drug | None:
+        drug_key = _make_drug_key(name)
+        return await self.db.scalar(select(Drug).where(Drug.drug_key == drug_key))
+
+    async def _find_or_create_drug_from_dur(
+        self,
+        seq: str | None,
+        name: str,
+        entp: str | None,
+        main_ingr: str | None,
+        permit_date_str: str | None,
+        class_name: str | None,
+        etc_otc_name: str | None,
+    ) -> Drug:
+        """item_seq로 조회하고 없으면 DUR 데이터로 최소 Drug 레코드를 생성한다."""
+        if seq:
+            drug = await self.db.scalar(select(Drug).where(Drug.item_seq == seq))
+            if drug:
+                return drug
+
+        drug = await self._find_drug_by_name(name)
+        if drug:
+            if seq and not drug.item_seq:
+                drug.item_seq = seq
+            return drug
+
+        permit_date: date | None = None
+        if permit_date_str and len(permit_date_str) == 8:
+            try:
+                permit_date = date(int(permit_date_str[:4]), int(permit_date_str[4:6]), int(permit_date_str[6:]))
+            except ValueError:
+                pass
+
+        drug = Drug(
+            item_seq=seq or f"DUR_{_make_drug_key(name)}",
+            item_name=name,
+            simple_name=_make_simple_name(name),
+            drug_key=_make_drug_key(name),
+            entp_name=entp,
+            main_item_ingr=main_ingr,
+            item_permit_date=permit_date,
+            class_name=class_name,
+            etc_otc_name=etc_otc_name,
+        )
+        self.db.add(drug)
+        await self.db.flush()
+        return drug
+
+    async def _upsert_drug_ingredient(
+        self, drug_id, ingr_code: str | None, ingr_kor: str | None
+    ) -> None:
+        if not ingr_code:
+            return
+        key = (drug_id, ingr_code)
+        if key in self._seen_drug_ingr:
+            return
+        self._seen_drug_ingr.add(key)
+
+        existing = await self.db.scalar(
+            select(DrugIngredient).where(
+                DrugIngredient.drug_id == drug_id,
+                DrugIngredient.ingr_code == ingr_code,
+            )
+        )
+        if existing:
+            return
+        self.db.add(DrugIngredient(
+            drug_id=drug_id, ingr_code=ingr_code, ingr_kor=ingr_kor, source="dur",
+        ))

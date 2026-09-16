@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
+from app.core.logging import logger
 from app.core.rate_limit import limiter
 from app.db.session import get_db
 from app.dependencies import get_current_user_id
@@ -83,6 +84,12 @@ async def ocr_match_drugs(
 
     candidates = extract_candidates(text)
     matches = await DrugService(db).match_names(candidates) if candidates else []
+    matched_count = sum(1 for m in matches if m.get("matched"))
+    # 디버깅용 — 이미지 자체는 이 시점엔 이미 폐기됨, 텍스트만 로그에 남는다.
+    logger.warning(
+        "drugs/ocr 후보=%s 매칭=%d/%d 원문(최대 500자)=%r",
+        candidates, matched_count, len(candidates), text[:500],
+    )
     return {"raw_text": text, "candidates": candidates, "matches": matches}
 
 

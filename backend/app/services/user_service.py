@@ -1,15 +1,13 @@
-import logging
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.encryption import get_encryptor
 from app.core.exceptions import NotFoundError
+from app.core.logging import logger
 from app.core.security import hash_password
 from app.models.user import User
 from app.schemas.user import UserUpdate
-
-logger = logging.getLogger(__name__)
 
 
 class UserService:
@@ -26,7 +24,7 @@ class UserService:
     async def update_user(self, user_id: uuid.UUID, data: UserUpdate) -> User:
         user = await self.db.get(User, user_id)
         if not user:
-            raise NotFoundError()
+            raise NotFoundError("사용자를 찾을 수 없습니다.")
 
         if data.name is not None:
             user.name = data.name
@@ -38,6 +36,8 @@ class UserService:
             user.health_conditions_encrypted = self._enc.encrypt(data.health_conditions)
         if data.allergy_info is not None:
             user.allergy_info_encrypted = self._enc.encrypt(data.allergy_info)
+        if data.birth_year is not None:
+            user.birth_year_encrypted = self._enc.encrypt(data.birth_year)
 
         await self.db.commit()
         await self.db.refresh(user)
@@ -47,10 +47,11 @@ class UserService:
         """개인정보보호법: 탈퇴 시 민감 정보 즉시 삭제 (이메일 재사용 가능하도록 tombstone 처리)"""
         user = await self.db.get(User, user_id)
         if not user:
-            raise NotFoundError()
+            raise NotFoundError("사용자를 찾을 수 없습니다.")
 
         user.health_conditions_encrypted = None
         user.allergy_info_encrypted = None
+        user.birth_year_encrypted = None
         user.fcm_token = None
         user.email = f"deleted-{user.id}@deleted.local"
         user.hashed_password = hash_password(uuid.uuid4().hex)
@@ -70,6 +71,9 @@ class UserService:
         )
         user.__dict__["allergy_info"] = self._safe_decrypt(
             user.id, "allergy_info", user.allergy_info_encrypted
+        )
+        user.__dict__["birth_year"] = self._safe_decrypt(
+            user.id, "birth_year", user.birth_year_encrypted
         )
         return user
 

@@ -23,7 +23,7 @@ class AuthProvider extends ChangeNotifier {
           res.data['access_token'], res.data['refresh_token']);
       _set(AuthStatus.success);
     } on DioException catch (e) {
-      _setError(_parseError(e, '로그인 실패'));
+      _setError(describeDioError(e, '로그인 실패'));
     }
   }
 
@@ -39,14 +39,8 @@ class AuthProvider extends ChangeNotifier {
       });
       await login(email, password);
     } on DioException catch (e) {
-      _setError(_parseError(e, '회원가입 실패'));
+      _setError(describeDioError(e, '회원가입 실패'));
     }
-  }
-
-  String _parseError(DioException e, String fallback) {
-    final detail = e.response?.data?['detail'];
-    if (detail is String && detail.isNotEmpty) return detail;
-    return '$fallback (${e.response?.statusCode ?? '네트워크 오류'})';
   }
 
   void resetState() => _set(AuthStatus.idle);

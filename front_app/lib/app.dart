@@ -11,6 +11,8 @@ import 'features/camera/camera_screen.dart';
 import 'features/camera/ocr_result_screen.dart';
 import 'features/home/home_provider.dart';
 import 'features/home/home_screen.dart';
+import 'features/profile/profile_provider.dart';
+import 'features/profile/profile_screen.dart';
 import 'features/search/search_provider.dart';
 import 'features/search/search_screen.dart';
 
@@ -30,6 +32,7 @@ final _router = GoRouter(
     GoRoute(path: '/register', builder: (_, __) => const RegisterScreen()),
     GoRoute(path: '/camera', builder: (_, __) => const CameraScreen()),
     GoRoute(path: '/ocr-result', builder: (_, __) => const OcrResultScreen()),
+    GoRoute(path: '/profile', builder: (_, __) => const ProfileScreen()),
     ShellRoute(
       builder: (context, state, child) => _MainShell(child: child),
       routes: [
@@ -51,6 +54,7 @@ class App extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => HomeProvider()),
         ChangeNotifierProvider(create: (_) => SearchProvider()),
         ChangeNotifierProvider(create: (_) => CameraProvider()),
+        ChangeNotifierProvider(create: (_) => ProfileProvider()),
       ],
       child: MaterialApp.router(
         title: '굿메디슨',

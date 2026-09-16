@@ -59,7 +59,16 @@ class CameraProvider extends ChangeNotifier {
           filename: filename.isEmpty ? 'prescription.jpg' : filename,
         ),
       });
-      final res = await ApiClient.dio.post('drugs/ocr', data: form);
+      // OCR은 회전·색상 재시도 때문에 다른 API보다 오래 걸릴 수 있어(최악 케이스 약
+      // 10초대) 기본 10초 타임아웃보다 여유를 둔다.
+      final res = await ApiClient.dio.post(
+        'drugs/ocr',
+        data: form,
+        options: Options(
+          sendTimeout: const Duration(seconds: 30),
+          receiveTimeout: const Duration(seconds: 30),
+        ),
+      );
       final data = res.data as Map<String, dynamic>;
       final candidates = (data['candidates'] as List? ?? []);
       _matchResults = (data['matches'] as List? ?? [])

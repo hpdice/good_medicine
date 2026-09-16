@@ -54,6 +54,48 @@ async def test_medicine_box_entry_encrypted_at_rest(client, session_factory):
         assert payload["notes"] == "아침 식후 복용"
 
 
+async def test_medicine_box_reminder_fields_round_trip(client, session_factory):
+    """intake_times/reminder_enabled은 payload_encrypted 안 논리 필드로 저장·복호화된다."""
+    async with session_factory() as session:
+        drug = await make_drug(session, "가스활명수정")
+    headers = await _auth_headers(client)
+
+    res = await client.post(
+        "/medicine-box",
+        json={
+            "drug_id": str(drug.id),
+            "intake_times": ["08:00", "20:00"],
+            "reminder_enabled": True,
+        },
+        headers=headers,
+    )
+    assert res.status_code == 201
+    body = res.json()
+    assert body["intake_times"] == ["08:00", "20:00"]
+    assert body["reminder_enabled"] is True
+
+    entry_id = body["id"]
+    patch_res = await client.patch(
+        f"/medicine-box/{entry_id}", json={"reminder_enabled": False}, headers=headers
+    )
+    assert patch_res.status_code == 200
+    assert patch_res.json()["reminder_enabled"] is False
+    assert patch_res.json()["intake_times"] == ["08:00", "20:00"]  # 다른 필드는 유지
+
+
+async def test_medicine_box_rejects_invalid_intake_time_format(client, session_factory):
+    async with session_factory() as session:
+        drug = await make_drug(session, "가스활명수정")
+    headers = await _auth_headers(client)
+
+    res = await client.post(
+        "/medicine-box",
+        json={"drug_id": str(drug.id), "intake_times": ["25:00"]},
+        headers=headers,
+    )
+    assert res.status_code == 422
+
+
 async def test_add_nonexistent_drug_rejected(client, session_factory):
     headers = await _auth_headers(client)
     res = await client.post(

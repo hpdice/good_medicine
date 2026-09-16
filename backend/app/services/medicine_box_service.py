@@ -27,6 +27,8 @@ _PAYLOAD_FIELDS = {
     "dosage_per_intake",
     "intake_frequency",
     "intake_duration_days",
+    "intake_times",
+    "reminder_enabled",
     "notes",
 }
 
@@ -65,6 +67,8 @@ class MedicineBoxService:
             dosage_per_intake=payload.get("dosage_per_intake"),
             intake_frequency=payload.get("intake_frequency"),
             intake_duration_days=payload.get("intake_duration_days"),
+            intake_times=payload.get("intake_times"),
+            reminder_enabled=payload.get("reminder_enabled", False),
             is_current=entry.is_current,
             added_method=entry.added_method,
             notes=payload.get("notes"),

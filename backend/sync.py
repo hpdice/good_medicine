@@ -14,7 +14,8 @@
     build_drug_ingredients  drug_ingredients 로컬 보강 (API 미사용, item_name·ingr_name → 성분코드)
     build_residual          residual_interactions 시드 복원 (DB 완전 초기화 후 재구축 시)
     extract_risk_tags       prohibit_content → 로컬 LLM 위험/증상 태그 1회 추출 (GPU 필요)
-    dur_extra_codes         DUR 기타 엔드포인트(연령/노인/임부/용량/투여기간)에서 성분코드 매핑만 수확
+    dur_extra_codes         DUR 기타 엔드포인트(임부/용량/투여기간)에서 성분코드 매핑만 수확
+    dur_age_caution         DUR 특정연령대금기·노인주의 동기화 (성분 테이블만 채움)
     all                     overview·dur_contraindications·efcy_dplct·identification·approval 순 (기본값)
 
 판정은 성분 단위(drug_ingredients + dur_ingredient_*)만 쓴다. dur_contraindications·
@@ -44,6 +45,7 @@ SOURCE_LABELS = {
     "identification": "낱알식별",
     "approval": "의약품 제품 허가정보",
     "dur_extra_codes": "DUR 기타 성분코드 매핑",
+    "dur_age_caution": "DUR 특정연령대금기·노인주의",
 }
 
 
@@ -113,6 +115,7 @@ async def cmd_status():
     from app.models.drug import Drug
     from app.models.drug_ingredient import DrugIngredient
     from app.models.dur_ingredient_rule import (
+        DurIngredientAgeCaution,
         DurIngredientContraindication,
         DurIngredientEffectGroup,
     )
@@ -130,6 +133,14 @@ async def cmd_status():
         )
         ingr_contra = await db.scalar(select(func.count()).select_from(DurIngredientContraindication))
         ingr_effect = await db.scalar(select(func.count()).select_from(DurIngredientEffectGroup))
+        age_taboo = await db.scalar(
+            select(func.count()).select_from(DurIngredientAgeCaution)
+            .where(DurIngredientAgeCaution.rule_type == "age_taboo")
+        )
+        elderly_caution = await db.scalar(
+            select(func.count()).select_from(DurIngredientAgeCaution)
+            .where(DurIngredientAgeCaution.rule_type == "elderly_caution")
+        )
         residual = await db.scalar(select(func.count()).select_from(ResidualInteraction))
 
     resolve_pct = (di_drugs / total * 100) if total else 0
@@ -144,6 +155,8 @@ async def cmd_status():
     print(f"  └ 성분코드 해소 약품 : {di_drugs:>7,}건 ({resolve_pct:.1f}% of drugs)")
     print(f"  성분 병용금기 규칙   : {ingr_contra:>7,}건")
     print(f"  성분 효능군중복 규칙 : {ingr_effect:>7,}건")
+    print(f"  특정연령대금기 규칙  : {age_taboo:>7,}건")
+    print(f"  노인주의 규칙        : {elderly_caution:>7,}건")
     print(f"  residual_interactions: {residual:>6,}건 (성분코드 미해소 약 폴백)")
     print("============================\n")
 
@@ -184,6 +197,8 @@ async def run_sync(sources: list[str]):
                     n = await service.sync_drug_approval()
                 elif source == "dur_extra_codes":
                     n = await service.sync_dur_extra_ingredient_codes()
+                elif source == "dur_age_caution":
+                    n = await service.sync_dur_age_caution()
                 else:
                     continue
 
@@ -218,6 +233,9 @@ async def main_async():
         await cmd_status()
     elif cmd == "dur_extra_codes":
         await run_sync(["dur_extra_codes"])
+        await cmd_status()
+    elif cmd == "dur_age_caution":
+        await run_sync(["dur_age_caution"])
         await cmd_status()
     elif cmd in SOURCES:
         await run_sync([cmd])

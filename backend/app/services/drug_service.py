@@ -8,6 +8,7 @@ from app.core.exceptions import NotFoundError
 from app.models.drug import Drug
 from app.models.drug_ingredient import DrugIngredient
 from app.models.dur_ingredient_rule import (
+    DurIngredientAgeCaution,
     DurIngredientContraindication,
     DurIngredientEffectGroup,
 )
@@ -105,9 +106,6 @@ class DrugService:
             raise NotFoundError("약품을 찾을 수 없습니다.")
         return drug
 
-    async def get_by_item_seq(self, item_seq: str) -> Drug | None:
-        return await self.db.scalar(select(Drug).where(Drug.item_seq == item_seq))
-
     async def get_drugs_by_ids(self, drug_ids: list[uuid.UUID]) -> dict[uuid.UUID, Drug]:
         stmt = select(Drug).where(Drug.id.in_(drug_ids))
         result = await self.db.execute(stmt)
@@ -134,6 +132,8 @@ class DrugService:
             # 1순위: 용량 제거 — 첫 숫자 앞까지 잘라서 prefix 검색
             # 예: '가스핀정5mg' → '가스핀정', '이미그란정50mg' → '이미그란정'
             name_prefix = re.split(r'\d', normalized_key)[0]
+            name_digits_match = re.search(r'\d+', normalized_key)
+            name_digits = name_digits_match.group() if name_digits_match else None
             rows = []
             if len(name_prefix) >= 2:
                 order_expr = case(
@@ -146,6 +146,23 @@ class DrugService:
                     .order_by(order_expr, Drug.drug_key)
                     .limit(5)
                 )).scalars().all())
+                # 같은 이름에 용량만 다른 제품(파탁정10mg vs 파탁정20mg)이 여러 개 걸리면,
+                # 위 order_expr(완전일치 아니면 전부 동률)은 그냥 drug_key 알파벳순이라
+                # "10mg"이 "20mg"보다 앞서 나와 엉뚱한 용량이 뽑히는 문제가 있었다
+                # (실측 2026-09-16: OCR이 '20mg'를 '2000'으로 긁어도, 그 숫자가 DB
+                # 쪽 용량 숫자로 시작/포함되면 우선한다).
+                if len(rows) > 1 and name_digits:
+                    def _dosage_rank(drug: Drug) -> int:
+                        if drug.drug_key == normalized_key:
+                            return 0
+                        key_digits_match = re.search(r'\d+', drug.drug_key)
+                        key_digits = key_digits_match.group() if key_digits_match else None
+                        if key_digits and (
+                            name_digits.startswith(key_digits) or key_digits.startswith(name_digits)
+                        ):
+                            return 1
+                        return 2
+                    rows.sort(key=_dosage_rank)
 
             # 2순위: drug_key 정규화 완전 일치 (용량 없는 OCR 입력 대비)
             if not rows:
@@ -240,3 +257,48 @@ class DrugService:
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_ingr_age_caution_for_codes(
+        self, codes: set[str]
+    ) -> list[DurIngredientAgeCaution]:
+        """주어진 성분코드에 걸린 특정연령대금기(age_taboo)·노인주의(elderly_caution) 규칙."""
+        if not codes:
+            return []
+        stmt = select(DurIngredientAgeCaution).where(
+            DurIngredientAgeCaution.ingr_code.in_(codes)
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    # ------------------------------------------------------------------ #
+    # 알레르기 규칙 기반 검사용 — 성분 한글명 조회                            #
+    # ------------------------------------------------------------------ #
+
+    async def get_ingredient_names_for_drug_list(
+        self, drug_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, set[str]]:
+        """약품 ID → 성분 한글명 집합. `drug_ingredients`(61% 해소)를 1차로 쓰고,
+        미해소 약은 `drugs.ingr_name` JSONB(`main_item_ingr` 파싱본)로 보강한다.
+        DUR 성분코드 유무와 무관하게 이름만 필요한 알레르기 대조용이라 두 소스를
+        합쳐 커버리지를 최대화한다."""
+        mapping: dict[uuid.UUID, set[str]] = {}
+        stmt = select(DrugIngredient.drug_id, DrugIngredient.ingr_kor).where(
+            DrugIngredient.drug_id.in_(drug_ids),
+            DrugIngredient.ingr_kor.isnot(None),
+        )
+        result = await self.db.execute(stmt)
+        for drug_id, ingr_kor in result.all():
+            mapping.setdefault(drug_id, set()).add(ingr_kor)
+
+        unresolved = [d for d in drug_ids if d not in mapping]
+        if unresolved:
+            stmt2 = select(Drug.id, Drug.ingr_name).where(
+                Drug.id.in_(unresolved), Drug.ingr_name.isnot(None)
+            )
+            result2 = await self.db.execute(stmt2)
+            for drug_id, ingr_name in result2.all():
+                for elem in ingr_name or []:
+                    kor = (elem or {}).get("kor")
+                    if kor:
+                        mapping.setdefault(drug_id, set()).add(kor)
+        return mapping

@@ -2,6 +2,7 @@ from app.models.analysis_result import AnalysisResult
 from app.models.drug import Drug
 from app.models.drug_ingredient import DrugIngredient
 from app.models.dur_ingredient_rule import (
+    DurIngredientAgeCaution,
     DurIngredientContraindication,
     DurIngredientEffectGroup,
 )
@@ -17,6 +18,7 @@ __all__ = [
     "DrugIngredient",
     "DurIngredientContraindication",
     "DurIngredientEffectGroup",
+    "DurIngredientAgeCaution",
     "ResidualInteraction",
     "MedicineBoxEntry",
     "AnalysisResult",

@@ -41,7 +41,7 @@ class SearchProvider extends ChangeNotifier {
           (res.data as List).map((e) => DrugSearchResult.fromJson(e)).toList();
     } on DioException catch (e) {
       if (CancelToken.isCancel(e)) return;
-      _error = '검색 실패 (${e.response?.statusCode ?? '네트워크 오류'})';
+      _error = describeDioError(e, '검색 실패');
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -54,7 +54,7 @@ class SearchProvider extends ChangeNotifier {
       _addSuccess = true;
       notifyListeners();
     } on DioException catch (e) {
-      _error = '추가 실패 (${e.response?.statusCode})';
+      _error = describeDioError(e, '추가 실패');
       notifyListeners();
     }
   }

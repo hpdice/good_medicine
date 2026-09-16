@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'app.dart';
 import 'core/notifications/fcm_service.dart';
+import 'core/notifications/medication_reminder_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -14,5 +15,6 @@ void main() async {
   } catch (e) {
     debugPrint('Firebase 초기화 건너뜀 (미설정 환경): $e');
   }
+  await MedicationReminderService.init();
   runApp(const App());
 }

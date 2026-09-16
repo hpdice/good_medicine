@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Index, String, Text, UniqueConstraint, func
+from sqlalchemy import DateTime, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -61,4 +61,44 @@ class DurIngredientEffectGroup(Base):
         UniqueConstraint("ingr_code", "dur_seq", name="uq_dur_ingr_effect_ingr_dur_seq"),
         Index("idx_dur_ingr_effect_dur_seq", "dur_seq"),
         Index("idx_dur_ingr_effect_ingr_code", "ingr_code"),
+    )
+
+
+class DurIngredientAgeCaution(Base):
+    """성분 단위 DUR 특정연령대금기·노인주의 — 성분코드 + 연령 규칙.
+
+    `DURPrdlstInfoService03/getSpcifyAgrdeTabooInfoList03`(특정연령대금기)와
+    `getOdsnAtentInfoList03`(노인주의) 응답의 `INGR_CODE`+`TYPE_NAME`+`PROHBT_CONTENT`.
+    두 엔드포인트 다 `dur_seq` 같은 그룹핑 필드가 없고, `TYPE_NAME`이 이미
+    "특정연령대금기"/"노인주의"로 구분돼 있어 하나의 테이블에 `rule_type`으로 합친다.
+
+    **실측 확인(2026-09-12)**: 나이 기준을 담은 구조화 필드가 없다 — 유일한 단서인
+    `PROHBT_CONTENT`(자유 텍스트)를 500건 샘플링한 결과 "OO세 미만" 같은 숫자 패턴은
+    3.6%뿐이고, 대부분 "영아/소아/신생아" 같은 범주어이거나 나이 언급이 아예 없다.
+    그래서 `age_threshold`/`age_unit`/`age_direction`은 정규식으로 뽑히면 채우고
+    실패하면 전부 NULL로 남긴다 — quick_check는 이 세 필드가 모두 있을 때만 나이
+    비교를 하고, NULL이면 판정에 관여시키지 않는다(원문은 표시용으로 남김).
+    노인주의는 반대로 엔드포인트 자체가 이미 "노인 대상"이라는 뜻이라 이 필드들이
+    필요 없다 — 성분코드 존재 여부 + 고정 기준(만 65세 이상)만으로 판정한다.
+    """
+
+    __tablename__ = "dur_ingredient_age_caution"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    ingr_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    ingr_kor: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    rule_type: Mapped[str] = mapped_column(String(20), nullable=False)  # age_taboo | elderly_caution
+    prohibit_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # PROHBT_CONTENT에서 정규식으로 뽑은 구조화 값 — 셋 다 있을 때만 quick_check가 사용
+    age_threshold: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    age_unit: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 세 | 개월
+    age_direction: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 미만|이상|이하|초과
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("ingr_code", "rule_type", name="uq_dur_ingr_age_caution_code_type"),
+        Index("idx_dur_ingr_age_caution_code", "ingr_code"),
     )

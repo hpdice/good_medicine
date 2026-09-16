@@ -6,7 +6,6 @@ from jose import JWTError
 
 from app.core.exceptions import UnauthorizedError
 from app.core.security import decode_token
-from app.db.session import get_db
 
 security = HTTPBearer()
 
@@ -25,8 +24,3 @@ async def get_current_user_id(
         return uuid.UUID(user_id)
     except (JWTError, ValueError) as e:
         raise UnauthorizedError() from e
-
-
-# 공통 의존성 타입 별칭
-CurrentUserId = Depends(get_current_user_id)
-DB = Depends(get_db)

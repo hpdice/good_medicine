@@ -3,6 +3,11 @@ class FindingItem {
   final String? mechanism;
   final List<String> riskTags; // mechanism 문장에서 뽑은 위험/증상 태그
   final String source; // ingredient(성분 단위 판정) / residual(성분코드 미해소 약 폴백)
+  // "자세히 보기" 토글용 — 병용금기의 실제 성분쌍(drug1↔ingrA, drug2↔ingrB).
+  // 성분 경로 병용금기일 때만 값이 있음.
+  final String? ingrA, ingrB;
+
+  bool get hasIngredientDetail => ingrA != null && ingrB != null;
 
   FindingItem.fromJson(Map<String, dynamic> j)
       : drug1Id = j['drug1_id'],
@@ -12,7 +17,30 @@ class FindingItem {
         interactionType = j['interaction_type'],
         mechanism = j['mechanism'],
         riskTags = (j['risk_tags'] as List? ?? []).map((e) => e.toString()).toList(),
-        source = j['source'] ?? 'ingredient';
+        source = j['source'] ?? 'ingredient',
+        ingrA = j['ingr_a'],
+        ingrB = j['ingr_b'];
+}
+
+class AllergyConflictItem {
+  final String drugId, drugName, matchedIngredient, matchedAllergyTerm;
+
+  AllergyConflictItem.fromJson(Map<String, dynamic> j)
+      : drugId = j['drug_id'],
+        drugName = j['drug_name'],
+        matchedIngredient = j['matched_ingredient'],
+        matchedAllergyTerm = j['matched_allergy_term'];
+}
+
+class AgeCautionItem {
+  final String drugId, drugName, ruleType; // age_taboo(금기) / elderly_caution(주의)
+  final String? prohibitContent;
+
+  AgeCautionItem.fromJson(Map<String, dynamic> j)
+      : drugId = j['drug_id'],
+        drugName = j['drug_name'],
+        ruleType = j['rule_type'],
+        prohibitContent = j['prohibit_content'];
 }
 
 class QuickCheckResponse {
@@ -21,7 +49,11 @@ class QuickCheckResponse {
   final String riskLevel; // safe / caution / critical
   final int contraindicatedCount;
   final int duplicateEffectGroupCount;
+  final int ageTabooCount;
+  final int elderlyCautionCount;
   final List<FindingItem> findings;
+  final List<AllergyConflictItem> allergyConflicts;
+  final List<AgeCautionItem> ageCautions;
 
   QuickCheckResponse.fromJson(Map<String, dynamic> j)
       : totalDrugs = j['total_drugs'],
@@ -29,8 +61,16 @@ class QuickCheckResponse {
         riskLevel = j['risk_level'],
         contraindicatedCount = j['contraindicated_count'],
         duplicateEffectGroupCount = j['duplicate_effect_group_count'] ?? 0,
+        ageTabooCount = j['age_taboo_count'] ?? 0,
+        elderlyCautionCount = j['elderly_caution_count'] ?? 0,
         findings = (j['findings'] as List? ?? [])
             .map((e) => FindingItem.fromJson(e))
+            .toList(),
+        allergyConflicts = (j['allergy_conflicts'] as List? ?? [])
+            .map((e) => AllergyConflictItem.fromJson(e))
+            .toList(),
+        ageCautions = (j['age_cautions'] as List? ?? [])
+            .map((e) => AgeCautionItem.fromJson(e))
             .toList();
 }
 

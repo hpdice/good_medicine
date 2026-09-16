@@ -1,10 +1,10 @@
 # 굿메디슨 — AI 의약품 상호작용 분석 플랫폼
 
 > 처방전·약봉투를 촬영하면 OCR로 약품명을 추출해 복약함에 등록하고,
-> 공공데이터 기반 DUR(병용금기·효능군중복주의) 규칙으로 위험도를 판정한 뒤,
-> 그 결과를 로컬 LLM이 사람이 읽을 설명으로 풀어주는 헬스케어 앱.
+> 공공데이터 기반 DUR(병용금기·효능군중복주의) + 사용자 알레르기·연령대 규칙으로
+> 위험도를 판정한 뒤, 그 결과를 로컬 LLM이 사람이 읽을 설명으로 풀어주는 헬스케어 앱.
 
-- **프론트**: Flutter (웹·Android·iOS 단일 코드베이스) — <https://goodmedicine-hpdice.vercel.app>
+- **프론트**: Flutter (웹·Android, `ios/` 프로젝트는 미생성 — 실질적으로 웹+Android) — <https://goodmedicine-hpdice.vercel.app>
 - **백엔드**: FastAPI + PostgreSQL 16 + Ollama(로컬 LLM), Docker Compose 3컨테이너
 - **데이터**: 공공데이터포털 의약품개요정보(e약은요)·제품 허가정보·낱알식별·DUR 병용금기/효능군중복주의
 
@@ -43,8 +43,9 @@ POST /drugs/ocr ─▶ 서버 OCR(Tesseract) ─▶ 후보 추출 ─▶ 매칭 
 홈 화면 진입 시 자동으로
   │ POST /analysis/quick-check ───▶ AnalysisService.quick_check
   ▼                                    │  (DB 규칙 조회만, AI 없음)
-위험 배너 표시           복약함 약품 ─▶ 성분코드 해소 ─┬─ 병용금기 성분쌍 있음 → critical
-(critical / caution / safe)                          ├─ 효능군중복 성분 있음 → caution
+위험 배너 표시           복약함 약품 ─▶ 성분코드 해소 ─┬─ 병용금기 / 알레르기 성분 충돌 /
+(critical / caution / safe)                          │  특정연령대금기 있음 → critical
+  │                                                  ├─ 효능군중복 / 노인주의 있음 → caution
   │                                                  └─ residual_interactions 폴백 항상 병합
   ▼ (사용자가 "AI 설명 보기" 탭)
   │ POST /analysis/guide ─────────▶ AiGuideService.generate_guide
@@ -68,8 +69,14 @@ POST /drugs/ocr ─▶ 서버 OCR(Tesseract) ─▶ 후보 추출 ─▶ 매칭 
 | 조건 | 등급 |
 |---|---|
 | `dur_ingredient_contraindications`에 성분쌍 존재 | **critical** |
-| 병용금기 없고 `dur_ingredient_effect_groups` 효능군중복 존재 | **caution** |
-| 둘 다 없음 | **safe** |
+| 사용자 알레르기 성분과 겹침 (`users.allergy_info`, 2026-09-12) | **critical** |
+| 특정연령대금기 해당 (`dur_ingredient_age_caution`, 출생연도 등록 시) | **critical** |
+| 위 셋 없고 `dur_ingredient_effect_groups` 효능군중복 존재 | **caution** |
+| 위 없고 노인주의 해당(만 65세 이상, 출생연도 등록 시) | **caution** |
+| 아무것도 없음 | **safe** |
+
+알레르기·연령대 판정은 `quick_check`가 `user_id`를 받았을 때만 동작하고(비로그인
+경로 없음), 출생연도·알레르기를 등록 안 했으면 해당 검사만 조용히 스킵된다.
 
 성분코드가 해소되지 않는 약이 낀 217쌍만 소형 `residual_interactions`에 폴백으로 두고
 **항상 함께 조회·병합**한다. 구 품목쌍 테이블 `drug_interactions`(331K행·227MB)는
@@ -108,10 +115,11 @@ POST /drugs/ocr ─▶ 서버 OCR(Tesseract) ─▶ 후보 추출 ─▶ 매칭 
 
 | 파일 | 왜 중요한가 |
 |---|---|
-| [`backend/app/services/analysis_service.py`](backend/app/services/analysis_service.py) | `quick_check()` — 이 앱의 본체. 규칙 기반 위험도 판정, AI 미관여 |
+| [`backend/app/services/analysis_service.py`](backend/app/services/analysis_service.py) | `quick_check()` — 이 앱의 본체. 규칙 기반 위험도 판정(DUR+알레르기+연령대), AI 미관여 |
 | [`backend/app/services/drug_service.py`](backend/app/services/drug_service.py) | OCR 텍스트 → DB 약품 4단계 매칭 알고리즘 |
 | [`backend/app/services/ai_guide_service.py`](backend/app/services/ai_guide_service.py) | 판정을 바꾸지 않는 "첨언" 역할, 로컬 LLM 프롬프트 설계·폴백 |
 | [`backend/app/core/encryption.py`](backend/app/core/encryption.py) | "누가 무슨 약을 먹는지"도 민감정보로 보고 통째 암호화 |
+| [`backend/app/services/public_data_service/`](backend/app/services/public_data_service/) | 공공데이터 동기화(`sync.py`가 호출) — 책임별 믹스인 9개 파일로 분할 |
 
 ### 디렉토리
 
@@ -119,18 +127,20 @@ POST /drugs/ocr ─▶ 서버 OCR(Tesseract) ─▶ 후보 추출 ─▶ 매칭 
 backend/
   app/
     api/v1/          auth · users · drugs · medicine-box · analysis (엔드포인트 17개)
-    services/        비즈니스 로직 (위 표 참고)
+    services/        비즈니스 로직 (위 표 참고) + public_data_service/(패키지)
     core/            encryption · config · security
     models/ schemas/ db/
-  alembic/           마이그레이션 0001~0008
-  sync.py            공공데이터 동기화 CLI (overview · dur_contraindications · efcy_dplct · …)
-  tests/             pytest
+  alembic/           마이그레이션 0001~0009 + ce94face11b4(출생연도·연령대 규칙)
+  sync.py            공공데이터 동기화 CLI (overview · dur_contraindications · efcy_dplct ·
+                     dur_age_caution · dur_extra_codes · identification · approval · …)
+  tests/             pytest (52개)
 front_app/
   lib/
-    core/            api · models · notifications · storage · theme · widgets
-    features/        auth · camera · home · search
+    core/            api · models · notifications(fcm·복약알림 스케줄러) · storage · theme · widgets
+    features/        auth · camera · home(+widgets/ 9개 파일) · profile(건강정보·알레르기·출생연도) · search
 docs/
   project-status.md  전체 진행 현황 + 시스템 커버리지 명세
+  개발일지.md         회차별 개발 서사
   deploy-tailscale.md · deploy-web-vercel.md
 archive/ml/          서빙에서 제외한 링크 예측 모델 실험 (AUROC 0.48)
 ```
@@ -171,15 +181,21 @@ GPU가 없는 환경에서는 `/analysis/guide`가 안전한 폴백 문구로만
 
 ## 시스템 커버리지 한계 (의도적으로 명시)
 
-`quick_check`는 DUR **병용금기·효능군중복주의**만 탐지한다. 병용주의(별도 등급),
-특정연령대금기·노인주의·용량주의·투여기간주의는 API에 엔드포인트와 `INGR_CODE`가
-존재하지만 아직 미적재다 — 연령 데이터 스키마 설계가 선행돼야 하는 **데이터 커버리지의
-한계이지 코드 버그가 아니다.** 예: 와파린은 국내 DUR 병용금기 DB에 등록된 상호작용이
-0건이라 타이레놀×와파린은 탐지되지 않는다. 상세는
+`quick_check`는 DUR **병용금기·효능군중복주의**에 더해(2026-09-12부터) 로그인
+사용자의 **알레르기 성분 충돌**·**특정연령대금기·노인주의**까지 탐지한다. 다만
+특정연령대금기는 실측상 한계가 있다 — 원본 API(`getSpcifyAgrdeTabooInfoList03`)
+응답에 나이 기준을 담은 구조화 필드가 없고, 자유 텍스트에서 숫자 패턴("OO세 미만")이
+파싱되는 행은 **3.6%뿐**이라 나머지는 판정에서 조용히 스킵된다. 병용주의(별도 등급),
+용량주의·투여기간주의는 API에 엔드포인트와 `INGR_CODE`가 존재하지만 아직 미적재다 —
+**데이터 커버리지의 한계이지 코드 버그가 아니다.** 예: 와파린은 국내 DUR 병용금기
+DB에 등록된 상호작용이 0건이라 타이레놀×와파린은 탐지되지 않는다. 상세는
 [docs/project-status.md](docs/project-status.md) "시스템 커버리지 명세" 참고.
 
-미구현(초기 기획엔 있었으나 코드엔 없음): 낱알 이미지 인식, 복약 알림, AI 월간 리포트,
-가족 공유, 응급 모드, 대체약 추천, 규칙 기반 알레르기 충돌 검사.
+미구현(초기 기획엔 있었으나 코드엔 없음): AI 월간 리포트, 가족 공유, 응급 모드,
+대체약 추천, DUR 병용주의·용량주의·투여기간주의. **낱알 이미지 인식은 필터
+(모양·색상·각인) 방식으로 판별력까지 검증했으나(각인 입력 시 90.4%가 후보 1건으로
+좁혀짐) "사진 찍으면 자동 인식"이라는 기대와 맞지 않아 폐기 결정**(CLAUDE.md 참고).
+복약 알림(복용 시간)·규칙 기반 알레르기 충돌 검사는 2026-09-12 구현 완료.
 
 ---
 

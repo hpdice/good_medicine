@@ -1,6 +1,6 @@
 # 프로젝트 전체 현황
 
-> 기준일: 2026-09-09. **이 문서는 "지금 상태" 스냅샷만** — 날짜별 작업 서사(계획/문제/결론)는
+> 기준일: 2026-09-12. **이 문서는 "지금 상태" 스냅샷만** — 날짜별 작업 서사(계획/문제/결론)는
 > [개발일지.md](./개발일지.md).
 >
 > 배포 완료: 백엔드+Ollama는 국내 PC(`docker compose` + Tailscale Funnel), 프론트 웹은 Vercel,
@@ -12,12 +12,12 @@
 
 | 영역 | 진행률 | 상태 |
 |---|---|---|
-| 백엔드 코드 | 100% | ✅ 완료 |
+| 백엔드 코드 | 100% | ✅ 완료. 2026-09-12: `public_data_service.py`(1,114줄 단일 파일) → 책임별 9개 파일 패키지로 분할(믹스인 조합, `sync.py`/`drug_service.py` import 무변경) |
 | 인프라 (Docker) | 100% | ✅ 완료 (postgres·backend·ollama, backend는 호스트 8001. 배포 overlay는 tailscale 컨테이너 추가) |
-| DB 마이그레이션 | 100% | ✅ 완료 (0001~0009 — 성분 단위 전환·품목 테이블 폐기·risk_tags·복약정보 필드암호화) |
+| DB 마이그레이션 | 100% | ✅ 완료 (0001~0009 + `ce94face11b4` — 성분 단위 전환·품목 테이블 폐기·risk_tags·복약정보 필드암호화·출생연도·연령대 규칙 테이블) |
 | 데이터 적재 | 100% | ✅ 완료 + 품질 검증 통과 |
-| Flutter 앱 프론트엔드 | 100% | ✅ 완료. OCR은 서버 처리로 전환(`image_picker`, 웹 포함 전 플랫폼) |
-| 백엔드 E2E 테스트 | 핵심 플로우 완료 | ✅ **40개** 테스트 통과 (성분 전환·서버 OCR·복약정보 암호화 커버) |
+| Flutter 앱 프론트엔드 | 100% | ✅ 완료. OCR은 서버 처리로 전환(`image_picker`, 웹 포함 전 플랫폼). 2026-09-12: 복약 알림·내 정보(건강정보/알레르기/출생연도) 화면 추가 + `home_screen.dart`(865줄) → 177줄+위젯 9개 파일로 분할 |
+| 백엔드 E2E 테스트 | 핵심 플로우 완료 | ✅ **52개** 테스트 통과 (성분 전환·서버 OCR·복약정보 암호화·알레르기 충돌·연령대 규칙·복약 알림 필드 커버) |
 | AI 대응 가이드 (로컬 LLM) | 완료 | ✅ Ollama + Qwen2.5 14B. 배포도 로컬 PC(GPU)라 **풀 동작** — Funnel 경유 실측: `is_ai_generated=true`, 308자 실제 생성 |
 | FCM 푸시 알림 | 완료 | ✅ Firebase 프로젝트(`good-medicine-app`) 연동, 디버그 APK 빌드 검증 완료 |
 | 배포 | 백엔드 국내 PC · 프론트 Vercel | ✅ 백엔드(API): 로컬 `docker compose` + Tailscale Funnel 컨테이너(`goodmedicine.tail9f1768.ts.net/api/v1/`). 프론트(웹): `git push` → GitHub Actions → Vercel(`goodmedicine-hpdice.vercel.app`). **개인정보는 백엔드·DB(국내 PC)에만.** 아래 참고 |
@@ -37,6 +37,7 @@ drugs 전체            :  35,487건
 drug_ingredients                    : 24,800건  ← 성분 단위 판정 조인 브리지 (drugs의 61% 해소)
 dur_ingredient_contraindications    :    357건  ← DUR 병용금기 (성분쌍, 정식 경로)
 dur_ingredient_effect_groups        :    259건  ← DUR 효능군중복주의 (성분 단위)
+dur_ingredient_age_caution          :    203건  ← 특정연령대금기(123)+노인주의(80), 2026-09-12 신규
 residual_interactions               :    217건  ← 성분코드 미해소 약이 낀 잔여 폴백
 ```
 
@@ -84,20 +85,21 @@ residual_interactions               :    217건  ← 성분코드 미해소 약�
 | POST /medicine-box | 복약 약품 추가 (중복 방지, 병용금기 시 FCM 발송) | JWT |
 | PATCH /medicine-box/{id} | 복약 정보 수정 | JWT |
 | DELETE /medicine-box/{id} | 복약 약품 삭제 | JWT |
-| POST /analysis/quick-check | 병용금기·효능군중복 즉시 확인 | Rate Limit 60회/분 |
+| POST /analysis/quick-check | 병용금기·효능군중복·알레르기 충돌·연령대 규칙 즉시 확인 | JWT · Rate Limit 60회/분 |
 | POST /analysis/guide | quick-check 판정 결과에 로컬 LLM 설명(AI 첨언) 추가 | Rate Limit 10회/분 |
 
 ### 보안
 - JWT Access Token 30분 + Single-use Refresh Token 7일 (모든 토큰에 `jti` 고유값 포함)
-- AES-256-GCM 필드 암호화 (건강정보·알레르기, **복약함 전체 payload**(drug_id·용량·메모 등), 분석이력 drug_ids·findings·AI 가이드) — "누가 무슨 약을 먹는지"도 민감정보로 취급. 복호화 실패 시 필드별 격리(계정 전체 500 방지)
+- AES-256-GCM 필드 암호화 (건강정보·알레르기·출생연도, **복약함 전체 payload**(drug_id·용량·복용시각·알림설정·메모 등), 분석이력 drug_ids·findings·AI 가이드) — "누가 무슨 약을 먹는지"도 민감정보로 취급. 복호화 실패 시 필드별 격리(계정 전체 500 방지)
 - Rate Limiting (login, quick-check, analysis/guide)
 - 보안 헤더 (X-Frame-Options, X-Content-Type-Options, HSTS)
 - AuditLog (민감 작업 추적)
 - 회원 탈퇴: email/hashed_password/name tombstone 처리 (개인정보 삭제 + 이메일 재사용 가능)
 
 ### 테스트
-- `backend/tests/`: pytest + httpx(ASGITransport), 40개 E2E 테스트(스키마 1회 생성 + 테스트별 TRUNCATE), 운영 DB와 분리된 `drugtest_test_db` 사용
-- 커버리지: 인증(회원가입/로그인/리프레시 단일사용/72바이트 초과 비밀번호 거부/탈퇴 후 재가입), 약품검색, 약품명 매칭(성분명 폴백·정밀매칭 우선순위 회귀), 복약함(추가/중복거부/삭제), quick-check 3단계(critical/caution/safe), AI 가이드(생성·암호화저장·Ollama 다운 시 폴백, Ollama는 mock), 사용자 정보(건강정보 왕복/복호화 손상 격리)
+- `backend/tests/`: pytest + httpx(ASGITransport), 52개 E2E 테스트(스키마 1회 생성 + 테스트별 TRUNCATE), 운영 DB와 분리된 `drugtest_test_db` 사용
+- 커버리지: 인증(회원가입/로그인/리프레시 단일사용/72바이트 초과 비밀번호 거부/탈퇴 후 재가입), 약품검색, 약품명 매칭(성분명 폴백·정밀매칭 우선순위 회귀), 복약함(추가/중복거부/삭제/복약 알림 필드 왕복·형식 검증), quick-check 3단계(critical/caution/safe) + 알레르기 충돌(정확·부분일치·미등록 스킵) + 연령대 규칙(특정연령대금기 경계값·파싱 실패 스킵·노인주의·미등록 스킵), AI 가이드(생성·암호화저장·Ollama 다운 시 폴백, Ollama는 mock), 사용자 정보(건강정보 왕복/복호화 손상 격리)
+- Flutter: `flutter test` — `MedicationReminderService.computeSchedule`/`stableReminderId` 순수 함수 단위 테스트 9개(만료 처리·id 안정성)
 
 ## AI 대응 가이드 — 로컬 LLM
 
@@ -109,6 +111,10 @@ AI는 그 결과를 사람이 읽을 설명으로 풀어쓰는 **보조("첨언"
 - **인프라**: docker-compose `ollama` 서비스, GPU passthrough(nvidia, RTX 4070 12GB).
 - **RAG**: 임베딩이 아니라 구조화 조회 — quick_check가 찾은 `drug_id`로 `get_drugs_by_ids()` 재사용,
   복호화된 건강정보/알레르기도 컨텍스트에 포함.
+- 2026-09-12: `quick_check`가 `user_id`를 받아 알레르기 충돌·연령대 규칙까지 판정하도록
+  확장됨에 따라 `/guide`도 동일하게 `user_id`를 전달 — AI 가이드가 참고하는 위험도 스냅샷에
+  이 두 신규 판정 결과가 자동으로 포함된다(AI 자체가 이 판정을 만드는 게 아니라 여전히
+  `quick_check`의 확정 결과를 설명만 함).
 - **안전장치**: Ollama 무응답 시(`OllamaUnavailableError`) 판정은 그대로, 가이드만 안전한 폴백 문구.
 - **성능**(실측): 콜드스타트 87초~2분30초, 이후 요청 ~10~15초. `keep_alive:"30m"`,
   `OLLAMA_TIMEOUT_SECONDS=200`(콜드스타트 커버), 클라이언트 타임아웃 220초.
@@ -129,20 +135,26 @@ AI는 그 결과를 사람이 읽을 설명으로 풀어쓰는 **보조("첨언"
 - image_picker (사진 촬영/선택, 웹 포함 전 플랫폼) — OCR은 서버(`POST /drugs/ocr`, Tesseract)에서 처리
 - dio + flutter_secure_storage (HTTP 클라이언트, 토큰 저장)
 - go_router (라우팅) · provider (상태 관리)
-- firebase_core / firebase_messaging (FCM) + flutter_local_notifications (포그라운드 알림 표시)
+- firebase_core / firebase_messaging (FCM) + flutter_local_notifications (포그라운드 알림 표시 +
+  2026-09-12부터 복약 시각 예약 알림) + timezone(`zonedSchedule`용, 직접 의존성으로 승격)
 
 ### 프로젝트 구조
 ```
 front_app/lib/
 ├── core/
 │   ├── api/            api_client.dart
-│   ├── models/          auth_models, drug_models, medicine_box_models, analysis_models
-│   ├── notifications/   fcm_service.dart
+│   ├── models/          auth_models, drug_models, medicine_box_models, analysis_models, user_models
+│   ├── notifications/   fcm_service.dart, medication_reminder_service.dart(복약 알림 스케줄링)
 │   └── storage/         token_storage.dart
 └── features/
     ├── auth/            login_screen, register_screen, auth_provider
     ├── camera/          camera_screen, ocr_result_screen, camera_provider
-    ├── home/            home_screen, home_provider (3단계 위험 배너: critical/caution/safe)
+    ├── home/            home_screen(177줄, 2026-09-12 865줄→분할)·home_provider
+    │                    (배너: 병용금기·알레르기·연령금기=critical, 효능군중복·노인주의=caution)
+    │                    widgets/(9개: strip_banner·floating_error·empty_state·medicine_card·
+    │                    interaction_banner·finding_card·single_drug_risk_card·risk_badge·
+    │                    ai_guide_section·reminder_edit_sheet)
+    ├── profile/         profile_screen, profile_provider (건강정보·알레르기·출생연도 입력, 2026-09-12 신규)
     └── search/          search_screen, search_provider
 ```
 
@@ -186,17 +198,23 @@ front_app/lib/
   (`getUsjntTabooInfoList03`·`getEfcyDplctInfoList03`) 응답의 `INGR_CODE`/
   `MIXTURE_INGR_CODE`에서 캡처(`DURIrdntInfoService`는 폐기 —
   `NO_OPENAPI_SERVICE_ERROR`). 이 sweep은 이제 성분 테이블만 채운다.
-- 해소율 보강: `sync.py dur_extra_codes`(연령/노인/임부/용량/투여기간 엔드포인트의
-  `(ITEM_SEQ, INGR_CODE)` 매핑, 판정 미관여) + `sync.py build_drug_ingredients`
+- 해소율 보강: `sync.py dur_extra_codes`(임부/용량/투여기간 엔드포인트의
+  `(ITEM_SEQ, INGR_CODE)` 매핑, 판정 미관여) + `sync.py dur_age_caution`(특정연령대금기·
+  노인주의, 판정 규칙까지 채움) + `sync.py build_drug_ingredients`
   (`item_name` 괄호·`main_item_ingr` 이름 매칭). 현재 해소율 **61%**
   (미해소 39%는 DUR 상호작용이 아예 없는 약이 대부분).
+- **알레르기 충돌**(2026-09-12): `users.allergy_info`를 `drug_ingredients.ingr_kor`
+  (+ 미해소 약은 `drugs.ingr_name` JSONB)와 대소문자·공백 무시 양방향 부분일치로 대조.
+  DUR 데이터가 아니라 사용자 프로필 기반이라 `quick_check`가 `user_id`를 받아야 동작.
 
 | 구분 | 탐지 여부 | 근거 |
 |---|---|---|
 | DUR 병용금기 (contraindicated → critical) | ✅ 탐지 | 성분쌍 `dur_ingredient_contraindications` (+ 미해소 약 residual 폴백) |
 | DUR 효능군중복주의 (duplicate_effect_group → caution) | ✅ 탐지 | 성분 `dur_ingredient_effect_groups`(dur_seq 묶음) (+ residual 폴백) |
-| DUR 병용주의(caution 등급) | ❌ 미탐지 | 품목 단위 공개 API 미제공, `DURIrdntInfoService`도 폐기 |
-| 특정연령대금기·노인주의·용량주의·투여기간주의 | ❌ 미탐지 | `DURPrdlstInfoService03`에 엔드포인트·`INGR_CODE` 있으나 미적재 — 연령 데이터·용량/기간 구조화 선행 필요 |
+| 알레르기 성분 충돌 (allergy_conflict → critical) | ✅ 탐지 (2026-09-12) | 사용자 프로필 `allergy_info` 대 성분명 대조. 사용자가 알레르기 미등록이면 스킵 |
+| 특정연령대금기 (age_taboo → critical) | ⚠️ 부분 탐지 (2026-09-12) | `dur_ingredient_age_caution`. 실측상 원본 API 응답의 나이 기준 중 숫자로 파싱되는 건 3.6%뿐이라, 나머지(범주어·언급없음)는 스킵됨. 사용자가 출생연도 미등록이면 전체 스킵 |
+| 노인주의 (elderly_caution → caution) | ✅ 탐지 (2026-09-12) | `dur_ingredient_age_caution`, 고정 기준 만 65세 이상. 사용자가 출생연도 미등록이면 스킵 |
+| DUR 병용주의(caution 등급)·용량주의·투여기간주의 | ❌ 미탐지 | 병용주의는 품목 단위 공개 API 미제공(`DURIrdntInfoService`도 폐기); 용량·투여기간주의는 API는 있으나 판정 규칙 미적재(성분코드 매핑만 수확 중) |
 | DUR 미커버 조합의 AI 추정 위험 | ❌ 의도적 미제공 | ML 실험 결과 신뢰도 있는 예측 불가능함을 실측 확인, 서빙에서 제외 (`archive/ml/README.md`) |
 
 > **주요 사실:** 와파린은 한국 DUR 병용금기 DB에 등록된 상호작용이 0건이다
@@ -216,10 +234,11 @@ front_app/lib/
 
 | API | 건수 | 비고 |
 |---|---|---|
-| `getSpcifyAgrdeTabooInfoList03` (특정연령대금기) | 2,659건 | 사용자 연령 데이터 필요 |
 | `getCpctyAtentInfoList03` (용량주의) | 6,622건 | — |
 | `getMdctnPdAtentInfoList03` (투여기간주의) | 633건 | — |
-| `getOdsnAtentInfoList03` (노인주의) | 1,982건 | 사용자 연령 데이터 필요 |
+
+> `getSpcifyAgrdeTabooInfoList03`(특정연령대금기)·`getOdsnAtentInfoList03`(노인주의)는
+> 2026-09-12 `sync.py dur_age_caution`으로 적재 완료 — 위 "quick-check가 탐지하는 범위" 참고.
 
 ---
 
@@ -262,10 +281,11 @@ PC 상시 가동 부담을 덜려면 한국 리전 상시 서버(Oracle Cloud Al
 | 작업 | 우선순위 | 비고 |
 |---|---|---|
 | 한국 리전 상시 서버 탐색 | 낮음 | Oracle Cloud Free 서울/춘천, 국내 VPS. 향후 과제 |
-| 시연 영상 녹화 | 중간 | 라이브 시연 백업. 사진 선택→OCR→복약함→quick-check→AI 가이드 전체 흐름 |
+| 시연 영상 녹화 | 중간 | 라이브 시연 백업. 사진 선택→OCR→복약함→quick-check→AI 가이드 전체 흐름. 2026-09-12 추가 기능(복약 알림·알레르기·연령대 규칙) 반영해 갱신 필요 |
 | `gh` CLI 인증 | 낮음 | GitHub Release로 APK 배포 중인데 `gh auth login` 미완료 — 매번 웹에서 수동 업로드 중. 인증하면 자동화 가능 |
-| 특정연령대금기·노인주의 등 4개 API 적재 | 낮음 | 사용자 연령 수집 스키마·동의 흐름 설계 선행 필요 |
-| 복합제 기반 안전 성분쌍(341개) 활용 | 낮음 | 규모가 작아 실질 효과 낮음, 향후 검토 |
+| 낱알 이미지 인식 | 폐기 | 2026-09-12 검증: 필터(모양·색상·각인) 자체는 판별력 있음(각인 입력 시 90.4%가 후보 1건) 확인했으나, 이건 "사진 찍으면 인식"이 아니라 "약을 보고 직접 입력"하는 흐름이라 원래 기대한 사용성과 안 맞아 폐기 결정. 상세는 CLAUDE.md 참고 |
+| 복약 알림 실기기 검증 | 낮음 | 백엔드·Flutter 단위 테스트·`flutter build apk --debug` 빌드는 통과했으나, 실기기/에뮬레이터에서 알림이 실제로 뜨는지·재부팅 후 유지되는지는 미검증 |
+| DUR 용량주의·투여기간주의 적재 | 낮음 | 성분코드 매핑만 `sync.py dur_extra_codes`로 수확 중, 판정 규칙 미적재 |
 
 ---
 

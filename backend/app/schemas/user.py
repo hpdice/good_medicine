@@ -30,6 +30,7 @@ class UserUpdate(BaseModel):
     phone_number: str | None = Field(default=None, max_length=20)
     health_conditions: list[str] | None = None
     allergy_info: list[str] | None = None
+    birth_year: int | None = Field(default=None, ge=1900, le=2100)
     fcm_token: str | None = Field(default=None, max_length=512)
 
 
@@ -47,6 +48,7 @@ class UserResponse(BaseModel):
 class UserWithHealthResponse(UserResponse):
     health_conditions: list[str] | None = None
     allergy_info: list[str] | None = None
+    birth_year: int | None = None
 
 
 class TokenResponse(BaseModel):

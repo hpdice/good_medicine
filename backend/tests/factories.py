@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.drug import Drug
 from app.models.drug_ingredient import DrugIngredient
 from app.models.dur_ingredient_rule import (
+    DurIngredientAgeCaution,
     DurIngredientContraindication,
     DurIngredientEffectGroup,
 )
@@ -31,6 +32,27 @@ async def register_and_login(client: AsyncClient, email: str | None = None) -> s
     )
     assert login_res.status_code == 200, login_res.text
     return login_res.json()["access_token"]
+
+
+async def register_and_login_with_profile(
+    client: AsyncClient,
+    allergy_info: list[str] | None = None,
+    birth_year: int | None = None,
+    email: str | None = None,
+) -> str:
+    """register_and_login + PATCH /users/me로 알레르기·출생연도까지 채운 토큰 반환."""
+    token = await register_and_login(client, email=email)
+    body = {}
+    if allergy_info is not None:
+        body["allergy_info"] = allergy_info
+    if birth_year is not None:
+        body["birth_year"] = birth_year
+    if body:
+        res = await client.patch(
+            "/users/me", json=body, headers={"Authorization": f"Bearer {token}"}
+        )
+        assert res.status_code == 200, res.text
+    return token
 
 
 async def make_drug(
@@ -122,3 +144,20 @@ async def make_ingr_effect_group(
             ingr_code=code, dur_seq=dur_seq, effect_name=effect_name,
         ))
     await session.commit()
+
+
+async def make_ingr_age_caution(
+    session: AsyncSession, ingr_code: str, rule_type: str,
+    ingr_kor: str = "테스트성분", prohibit_content: str | None = "테스트 연령 규칙",
+    age_threshold: int | None = None, age_unit: str | None = None,
+    age_direction: str | None = None,
+) -> DurIngredientAgeCaution:
+    """rule_type: age_taboo | elderly_caution."""
+    row = DurIngredientAgeCaution(
+        ingr_code=ingr_code, ingr_kor=ingr_kor, rule_type=rule_type,
+        prohibit_content=prohibit_content,
+        age_threshold=age_threshold, age_unit=age_unit, age_direction=age_direction,
+    )
+    session.add(row)
+    await session.commit()
+    return row

@@ -20,6 +20,9 @@ class User(Base):
     # 민감 건강정보: AES-256-GCM 암호화 후 저장
     health_conditions_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     allergy_info_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 출생연도(만 나이 계산용, DUR 특정연령대금기·노인주의 판정) — 계정 소유자 본인이 아니라
+    # 보호자가 관리하는 대상(자녀·부모 등)의 나이일 수 있어 건강정보와 함께 암호화한다.
+    birth_year_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # 개인정보보호법(PIPA) 동의 이력
     privacy_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

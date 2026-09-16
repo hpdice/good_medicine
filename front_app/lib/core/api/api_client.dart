@@ -108,3 +108,13 @@ class ApiClient {
     return dio;
   }
 }
+
+/// Dio 에러를 "서버가 보낸 detail 메시지" 우선으로 사람이 읽을 문자열로 바꾼다.
+/// 여러 Provider가 거의 동일한 `'실패 (${e.response?.statusCode ?? "네트워크 오류"})'`
+/// 패턴을 반복해 갖고 있던 것을 하나로 모은 것.
+String describeDioError(DioException e, String fallback) {
+  final data = e.response?.data;
+  final detail = data is Map ? data['detail'] : null;
+  if (detail is String && detail.isNotEmpty) return detail;
+  return '$fallback (${e.response?.statusCode ?? '네트워크 오류'})';
+}
