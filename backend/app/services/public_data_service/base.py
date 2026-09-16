@@ -29,6 +29,11 @@ class _SyncBase:
         self._seen_ingr_contra: set[tuple] = set()
         self._seen_ingr_effect: set[tuple] = set()
         self._seen_ingr_age: set[tuple] = set()
+        # item_seq -> Drug — 같은 품목이 병용금기 수십~수백 쌍에 반복 등장하므로
+        # (예: 흔한 진통제 한 품목이 수백 개 다른 품목과 쌍을 이룸) 캐시 없이는
+        # _find_or_create_drug_from_dur가 매번 DB 왕복한다(796,842행 sweep에서
+        # 실측: 이게 가장 큰 시간 비중을 차지함).
+        self._drug_by_seq: dict[str, Drug] = {}
 
     async def _emit(self, **kwargs) -> None:
         if self._progress_cb:
@@ -61,15 +66,20 @@ class _SyncBase:
     #                        다중 엔드포인트형(2곳이 쓰던 걸 통합)            #
     # ------------------------------------------------------------------ #
 
-    async def _run_simple_paginated_sync(self, url: str, item_handler, source: str, log_label: str) -> int:
+    async def _run_simple_paginated_sync(
+        self, url: str, item_handler, source: str, log_label: str, page_size: int | None = None,
+    ) -> int:
         """단일 엔드포인트를 totalCount까지 순회하며 `item_handler(item)`을 호출한다.
         `_sync_drug_overview`/`_sync_efcy_dplct`/`sync_drug_approval`이 각자 복붙해
-        갖고 있던 거의 동일한 루프를 추출한 것(로직 변경 없음)."""
+        갖고 있던 거의 동일한 루프를 추출한 것(로직 변경 없음). `page_size`는 검증된
+        호출부만 기본값(100)보다 키워서 넘긴다 — 서비스마다 상한이 달라서 전역으로
+        올리면 안전하지 않다(실측: DUR 계열은 500까지 됨, 그 이상은 빈 응답)."""
+        size = page_size or self.PAGE_SIZE
         count = 0
         page = 1
         async with httpx.AsyncClient(timeout=30) as client:
             while True:
-                params = {"serviceKey": self._api_key, "pageNo": page, "numOfRows": self.PAGE_SIZE, "type": "json"}
+                params = {"serviceKey": self._api_key, "pageNo": page, "numOfRows": size, "type": "json"}
                 data = await self._fetch_page(client, url, params)
                 if data is None:
                     page += 1
@@ -88,7 +98,7 @@ class _SyncBase:
                 logger.info(f"Synced {log_label} page {page} ({count}/{total})")
                 await self._emit(source=source, page=page, count=count, total=total)
 
-                if count >= total or len(items) < self.PAGE_SIZE:
+                if count >= total or len(items) < size:
                     break
                 page += 1
                 await asyncio.sleep(0.5)
@@ -96,12 +106,14 @@ class _SyncBase:
         return count
 
     async def _run_multi_endpoint_sync(
-        self, ops: dict, item_handler, *, error_label: str, source_prefix: str, retry_hint: str,
+        self, ops: dict, item_handler, *, error_label: str, source_prefix: str,
+        retry_hint: str, page_size: int | None = None,
     ) -> int:
         """`ops`: {label: (엔드포인트 op, item_handler에 넘길 부가값)}을 순회하며 각각
         totalCount까지 페이지를 돈다. 연속 3회 응답 실패 시 할당량 초과로 보고
         RuntimeError. `sync_dur_age_caution`/`sync_dur_extra_ingredient_codes`가
         각자 갖고 있던 거의 동일한 루프를 추출한 것(로직 변경 없음)."""
+        size = page_size or self.PAGE_SIZE
         processed = 0
         for label, (op, extra) in ops.items():
             url = f"{settings.DUR_PRODUCT_API_URL}/{op}"
@@ -112,7 +124,7 @@ class _SyncBase:
                 while True:
                     params = {
                         "serviceKey": self._api_key, "pageNo": page,
-                        "numOfRows": self.PAGE_SIZE, "type": "json",
+                        "numOfRows": size, "type": "json",
                     }
                     data = await self._fetch_page(client, url, params)
                     if data is None:
@@ -140,7 +152,7 @@ class _SyncBase:
                     logger.info(f"{error_label} [{label}] page {page} ({ep_count}/{total})")
                     await self._emit(source=f"{source_prefix}:{label}", page=page, count=ep_count, total=total)
 
-                    if len(items) < self.PAGE_SIZE:
+                    if len(items) < size:
                         break
                     page += 1
                     await asyncio.sleep(0.5)
@@ -166,15 +178,21 @@ class _SyncBase:
         etc_otc_name: str | None,
     ) -> Drug:
         """item_seq로 조회하고 없으면 DUR 데이터로 최소 Drug 레코드를 생성한다."""
+        if seq and seq in self._drug_by_seq:
+            return self._drug_by_seq[seq]
+
         if seq:
             drug = await self.db.scalar(select(Drug).where(Drug.item_seq == seq))
             if drug:
+                self._drug_by_seq[seq] = drug
                 return drug
 
         drug = await self._find_drug_by_name(name)
         if drug:
             if seq and not drug.item_seq:
                 drug.item_seq = seq
+            if seq:
+                self._drug_by_seq[seq] = drug
             return drug
 
         permit_date: date | None = None
@@ -197,6 +215,8 @@ class _SyncBase:
         )
         self.db.add(drug)
         await self.db.flush()
+        if seq:
+            self._drug_by_seq[seq] = drug
         return drug
 
     async def _upsert_drug_ingredient(

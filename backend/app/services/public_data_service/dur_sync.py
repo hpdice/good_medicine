@@ -22,6 +22,13 @@ from .helpers import _clean, _parse_age_criteria
 class DurSyncMixin:
     CHECKPOINT_FILE = "/tmp/dur_contraindications_checkpoint.txt"
 
+    # DUR 계열(DURPrdlstInfoService03) 엔드포인트는 전부 numOfRows=500까지 실측
+    # 확인됨(그 이상은 빈 응답) — 기본 PAGE_SIZE(100, 다른 API 서비스 공용)보다
+    # 5배 커서 페이지 수·sleep 총량이 그만큼 준다. 체크포인트는 페이지 "번호"만
+    # 저장하므로, 이 값을 바꾸면 진행 중이던 이전 체크포인트와 어긋난다 — 바꿀 땐
+    # 먼저 체크포인트 파일이 없는(=완료됐거나 시작 전) 상태인지 확인할 것.
+    DUR_PAGE_SIZE = 500
+
     # 특정연령대금기·노인주의는 판정 규칙(dur_ingredient_age_caution)까지 채우는
     # sync_dur_age_caution()으로 옮겼다 — 이 딕셔너리에는 성분코드 매핑만 필요한
     # 나머지(임부금기·용량주의·투여기간주의)만 남긴다. 값은 (엔드포인트, 부가값) —
@@ -76,7 +83,7 @@ class DurSyncMixin:
         consecutive_failures = 0
         async with httpx.AsyncClient(timeout=30) as client:
             while True:
-                params = {"serviceKey": self._api_key, "pageNo": page, "numOfRows": self.PAGE_SIZE, "type": "json"}
+                params = {"serviceKey": self._api_key, "pageNo": page, "numOfRows": self.DUR_PAGE_SIZE, "type": "json"}
                 data = await self._fetch_page(client, url, params)
                 if data is None:
                     consecutive_failures += 1
@@ -97,7 +104,7 @@ class DurSyncMixin:
                         .get("cmmMsgHeader", {})
                         .get("errMsg")
                     )
-                    expected_last_page = -(-total // self.PAGE_SIZE) if total else 0
+                    expected_last_page = -(-total // self.DUR_PAGE_SIZE) if total else 0
                     if err or (expected_last_page and page < expected_last_page):
                         self._save_checkpoint(page)
                         raise RuntimeError(
@@ -117,7 +124,7 @@ class DurSyncMixin:
                 logger.info(f"Synced DUR contraindications page {page} ({count}/{total})")
                 await self._emit(source="dur_contraindications", page=page, count=count, total=total)
 
-                if len(items) < self.PAGE_SIZE:
+                if len(items) < self.DUR_PAGE_SIZE:
                     break
                 page += 1
                 await asyncio.sleep(1.5)
@@ -260,6 +267,7 @@ class DurSyncMixin:
         url = f"{settings.DUR_PRODUCT_API_URL}/getEfcyDplctInfoList03"
         return await self._run_simple_paginated_sync(
             url, self._upsert_efcy_dplct, source="efcy_dplct", log_label="효능군중복",
+            page_size=self.DUR_PAGE_SIZE,
         )
 
     async def _upsert_efcy_dplct(self, item: dict) -> None:
@@ -302,7 +310,7 @@ class DurSyncMixin:
         return await self._run_multi_endpoint_sync(
             self.AGE_CAUTION_OPS, self._handle_age_caution_item,
             error_label="DUR age caution", source_prefix="dur_age_caution",
-            retry_hint="sync.py dur_age_caution",
+            retry_hint="sync.py dur_age_caution", page_size=self.DUR_PAGE_SIZE,
         )
 
     async def _handle_age_caution_item(self, item: dict, rule_type: str) -> None:
@@ -340,7 +348,7 @@ class DurSyncMixin:
         return await self._run_multi_endpoint_sync(
             self.DUR_EXTRA_CODE_OPS, self._handle_extra_code_item,
             error_label="DUR extra codes", source_prefix="dur_extra",
-            retry_hint="sync.py dur_extra_codes",
+            retry_hint="sync.py dur_extra_codes", page_size=self.DUR_PAGE_SIZE,
         )
 
     async def _handle_extra_code_item(self, item: dict, extra) -> None:
