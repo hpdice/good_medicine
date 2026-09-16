@@ -48,6 +48,7 @@ class HomeProvider extends ChangeNotifier {
     try {
       await ApiClient.dio.delete('medicine-box/$entryId');
       _entries = _entries.where((e) => e.id != entryId).toList();
+      notifyListeners(); // 목록에서 즉시 제거 — 위험도 재판정은 뒤이어 비동기로 갱신
       await _autoCheck();
       await MedicationReminderService.reschedule(_entries);
       notifyListeners();
