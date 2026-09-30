@@ -1,10 +1,11 @@
 [tool.poetry]
+# 배포용 라이브러리가 아니라 애플리케이션이라 패키지로 빌드하지 않는다(Poetry 1.8+ 애플리케이션 모드).
+# 의존성 관리만 쓰고, 설치는 항상 `poetry install --no-root`.
+package-mode = false
 name = "drugtest-backend"
 version = "0.1.0"
-description = "AI 의약품 상호작용 분석 플랫폼 백엔드"
+description = "굿메디슨 — AI 의약품 상호작용 분석 플랫폼 백엔드"
 authors = ["drugtest"]
-readme = "README.md"
-packages = [{include = "app"}]
 
 [tool.poetry.dependencies]
 python = "^3.11"

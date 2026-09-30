@@ -1,0 +1,21 @@
+# 편집기 공통 규칙 (VS Code 는 EditorConfig 확장, JetBrains 는 기본 지원)
+root = true
+
+[*]
+charset = utf-8
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{dart,yml,yaml,json,md,html,css}]
+indent_size = 2
+
+[*.md]
+# 마크다운의 줄 끝 공백 두 칸은 줄바꿈 의미가 있어 지우지 않는다
+trim_trailing_whitespace = false
+
+[*.ps1]
+# Windows PowerShell 5.1 은 BOM 없는 UTF-8 의 한글을 깨뜨린다
+charset = utf-8-bom
+end_of_line = crlf

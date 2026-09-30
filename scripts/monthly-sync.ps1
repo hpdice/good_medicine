@@ -17,6 +17,9 @@
 실행:
   powershell -ExecutionPolicy Bypass -File C:\Dev\drugTest\scripts\monthly-sync.ps1
   powershell -ExecutionPolicy Bypass -File C:\Dev\drugTest\scripts\monthly-sync.ps1 -Only dur_age_caution   (일부만)
+  # 병용금기 전체 재수집처럼 할당량을 여러 번 넘길 긴 작업 (쉼표로 여러 단계, 재시도 횟수 늘림):
+  powershell -ExecutionPolicy Bypass -File C:\Dev\drugTest\scripts\monthly-sync.ps1 -Only dur_contraindications,build_drug_ingredients -QuotaRetries 24
+  (중간에 강제로 멈추려면 scripts\stop-dur-ingr-sync.ps1 — 체크포인트는 남아 다음 실행이 이어받는다)
   매월 자동 실행 등록은 docs/operations.md 참고. 로그: D:\drugTest\sync-logs\
 #>
 param(
@@ -34,7 +37,8 @@ $container = "drugtest-backend-1"
 $checkpoint = "/var/lib/goodmedicine/dur_contraindications_checkpoint.txt"
 $steps = @("overview", "approval", "dur_contraindications", "efcy_dplct",
            "dur_age_caution", "dur_extra_codes", "build_drug_ingredients")
-if ($Only) { $steps = $Only }
+# -File 로 실행하면 "-Only a,b" 가 배열이 아니라 문자열 하나로 넘어오므로 쉼표로 직접 나눈다.
+if ($Only) { $steps = @($Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
 
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $logFile = Join-Path $LogDir ("sync-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".log")
