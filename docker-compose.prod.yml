@@ -27,8 +27,14 @@ services:
       - tailscale_state:/var/lib/tailscale
       - ./infrastructure/tailscale/serve.json:/config/serve.json:ro
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
 volumes:
   tailscale_state:

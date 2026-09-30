@@ -1,16 +1,19 @@
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.router import api_router
 from app.config import settings
 from app.core.logging import logger, setup_logging
 from app.core.rate_limit import limiter
-from app.db.session import engine
+from app.db.session import engine, get_db
 from app.services import fcm_service
 from app.services.ollama_client import OllamaClient
 
@@ -85,5 +88,15 @@ app.include_router(api_router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["system"])
-async def health_check():
-    return {"status": "ok"}
+async def health_check(db: AsyncSession = Depends(get_db)):
+    """외부 감시용. DB에 실제로 질의해 보고 실패하면 503.
+
+    이전엔 DB가 죽어도 항상 ok를 반환해 감시 도구가 장애를 알 수 없었다. 로컬 LLM(AI 설명)은
+    판정과 무관한 보조 기능이라 여기서 확인하지 않는다 — Ollama가 없어도 서비스는 정상이다.
+    """
+    try:
+        await db.execute(text("SELECT 1"))
+    except Exception:
+        logger.exception("헬스체크: DB 질의 실패")
+        return JSONResponse(status_code=503, content={"status": "unavailable", "db": "down"})
+    return {"status": "ok", "db": "ok"}

@@ -1,3 +1,10 @@
+# 컨테이너 로그 용량 상한 — Docker 기본(json-file)은 무제한이라 오래 켜 두면 디스크를 채운다.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -17,6 +24,7 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
+    logging: *default-logging
 
   backend:
     build:
@@ -33,13 +41,22 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # /health 는 DB 질의까지 확인한다(실패 시 503). slim 이미지에 curl 이 없어 python 으로 호출.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
+    logging: *default-logging
     # 개발용 소스 바인드마운트(./backend:/app)는 docker-compose.override.yml 에 있다(자동 로드).
     # 원격 시연/배포는 `-f docker-compose.yml -f docker-compose.prod.yml` 로 override 를 배제하고
     # Tailscale Funnel 컨테이너를 함께 띄운다. (프론트 웹은 Vercel 이 별도 호스팅)
 
   ollama:
-    image: ollama/ollama:latest
+    # latest 는 받을 때마다 버전이 바뀐다 — 동작이 검증된 버전으로 고정(2026-09-30 기준 사용 중이던 버전).
+    image: ollama/ollama:0.32.6
     volumes:
       - ollama_data:/root/.ollama
     ports:
@@ -53,6 +70,7 @@ services:
               count: 1
               capabilities: [gpu]
     restart: unless-stopped
+    logging: *default-logging
 
 volumes:
   ollama_data:
