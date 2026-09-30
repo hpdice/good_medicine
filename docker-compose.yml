@@ -39,8 +39,13 @@ services:
     volumes:
       # 공공데이터 동기화 체크포인트·마지막 성공 시각 (컨테이너 재생성에도 유지)
       - sync_state:/var/lib/goodmedicine
+      # 런타임 비밀 파일(Firebase 서비스 계정 키 등) — 이미지에는 넣지 않고 읽기 전용으로 연결.
+      # 이전엔 키가 backend/ 에 있어 개발 모드(소스 바인드마운트)에서만 보였고, 배포 모드에선
+      # 파일이 없어 FCM 푸시가 조용히 꺼져 있었다(2026-09-30 발견).
+      - ./secrets:/run/secrets:ro
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      FIREBASE_CREDENTIALS_JSON: /run/secrets/firebase-service-account.json
     depends_on:
       postgres:
         condition: service_healthy

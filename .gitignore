@@ -95,12 +95,14 @@ media/
 # =====================
 *.pem
 *.crt
-secrets/
+# 런타임 비밀 파일은 secrets/ 에 모은다 (안내 문서만 커밋)
+secrets/*
+!secrets/README.md
 
 # =====================
 # Firebase (FCM)
 # =====================
-backend/firebase-service-account*.json
+**/firebase-service-account*.json
 front_app/ios/Runner/GoogleService-Info.plist
 
 # =====================

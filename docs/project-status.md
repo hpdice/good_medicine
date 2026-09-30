@@ -266,7 +266,9 @@ front_app/lib/
 ## FCM 푸시
 
 - Firebase 프로젝트 `good-medicine-app`, Android 패키지명 `com.goodmedicine.good_medicine`.
-- `backend/firebase-service-account.json`, `front_app/android/app/google-services.json` (둘 다 gitignore).
+- 서버 키 `secrets/firebase-service-account.json` — gitignore, 이미지에 넣지 않고 compose가 `/run/secrets`로 읽기 전용 연결.
+  (2026-09-30 이전엔 `backend/`에 있어 개발 모드에서만 보였고, **배포 모드에선 파일이 없어 푸시가 꺼져 있었다** — 수정.)
+- 앱 설정 `front_app/android/app/google-services.json` — 클라이언트용 공개 설정이라 CI APK 빌드를 위해 커밋.
 - 복약함에 병용금기 약 추가 시 `fcm_service.py`가 발송. 포그라운드는 `flutter_local_notifications`로 표시.
 - `users.fcm_token` 없으면 조용히 스킵(에러 아님).
 
@@ -351,9 +353,8 @@ docker exec drugtest-backend-1 python sync.py dur_contraindications
 docker exec drugtest-backend-1 python sync.py efcy_dplct
 docker exec drugtest-backend-1 python sync.py fill_ingr
 
-# ML 실험 재현 (연구용, 서빙에는 미포함)
-poetry install --with ml
-poetry run python ml/train_ddi_model.py
+# ML 실험(연구용, 서빙 미포함) — 학습 데이터 테이블이 0006에서 삭제돼 현재 코드로는 재현 불가.
+# 기록과 당시 실행 방법은 archive/ml/README.md
 ```
 
 ---

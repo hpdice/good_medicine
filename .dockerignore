@@ -19,10 +19,11 @@ infrastructure
 *.md
 docker-compose*.yml
 
-# --- 시크릿 (절대 이미지에 넣지 않음) ---
+# --- 시크릿 (절대 이미지에 넣지 않음 — 실행 시 secrets/ 를 읽기 전용으로 연결) ---
+secrets
 **/.env
 **/.env.*
-backend/firebase-service-account*.json
+**/firebase-service-account*.json
 
 # --- Python 부산물 ---
 **/__pycache__/
