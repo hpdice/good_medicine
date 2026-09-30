@@ -133,14 +133,14 @@ backend/
   alembic/           마이그레이션 0001~0009 + ce94face11b4(출생연도·연령대 규칙)
   sync.py            공공데이터 동기화 CLI (overview · dur_contraindications · efcy_dplct ·
                      dur_age_caution · dur_extra_codes · identification · approval · …)
-  tests/             pytest (52개)
+  tests/             pytest (61개)
 front_app/
   lib/
     core/            api · models · notifications(fcm·복약알림 스케줄러) · storage · theme · widgets
     features/        auth · camera · home(+widgets/ 9개 파일) · profile(건강정보·알레르기·출생연도) · search
 docs/
   project-status.md  전체 진행 현황 + 시스템 커버리지 명세
-  개발일지.md         회차별 개발 서사
+  개발일지.md         의사결정·문제 해결 기록 (포트폴리오용)
   deploy-tailscale.md · deploy-web-vercel.md
 archive/ml/          서빙에서 제외한 링크 예측 모델 실험 (AUROC 0.48)
 ```

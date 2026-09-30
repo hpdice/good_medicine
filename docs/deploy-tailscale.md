@@ -57,7 +57,7 @@ cd C:\Dev\drugTest
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
 - 백엔드 단일 스테이지 이미지라 빌드 ~30초.
-- 일반 개발은 `docker compose up -d` (override 자동 로드 → tailscale 미기동, 소스 라이브 리로드).
+- 일반 개발은 `docker compose up -d` (override 자동 로드 → tailscale 미기동, 소스 바인드마운트 — 코드 변경 후 `docker compose restart backend`).
 
 ### 3. tailscale 노드 인증 (최초 1회만)
 

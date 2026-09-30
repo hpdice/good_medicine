@@ -17,7 +17,7 @@
 | DB 마이그레이션 | 100% | ✅ 완료 (0001~0009 + `ce94face11b4` + `0010` — 성분 단위 전환·품목 테이블 폐기·risk_tags·복약정보 필드암호화·출생연도·연령대 규칙 테이블·낱알식별 죽은 컬럼/인덱스 제거) |
 | 데이터 적재 | 100% | ✅ 완료 + 품질 검증 통과 |
 | Flutter 앱 프론트엔드 | 100% | ✅ 완료. OCR은 서버 처리로 전환(`image_picker`, 웹 포함 전 플랫폼). 2026-09-12: 복약 알림·내 정보(건강정보/알레르기/출생연도) 화면 추가 + `home_screen.dart`(865줄) → 177줄+위젯 9개 파일로 분할 |
-| 백엔드 E2E 테스트 | 핵심 플로우 완료 | ✅ **52개** 테스트 통과 (성분 전환·서버 OCR·복약정보 암호화·알레르기 충돌·연령대 규칙·복약 알림 필드 커버) |
+| 백엔드 E2E 테스트 | 핵심 플로우 완료 | ✅ **61개** 테스트 통과 (2026-09-30: 탈퇴 처리·Rate Limit 키 회귀 9개 추가 / 성분 전환·서버 OCR·복약정보 암호화·알레르기 충돌·연령대 규칙·복약 알림 필드 커버) |
 | AI 대응 가이드 (로컬 LLM) | 완료 | ✅ Ollama + Qwen2.5 14B. 배포도 로컬 PC(GPU)라 **풀 동작** — Funnel 경유 실측: `is_ai_generated=true`, 308자 실제 생성 |
 | FCM 푸시 알림 | 완료 | ✅ Firebase 프로젝트(`good-medicine-app`) 연동, 디버그 APK 빌드 검증 완료 |
 | 배포 | 백엔드 국내 PC · 프론트 Vercel | ✅ 백엔드(API): 로컬 `docker compose` + Tailscale Funnel 컨테이너(`goodmedicine.tail9f1768.ts.net/api/v1/`). 프론트(웹): `git push` → GitHub Actions → Vercel(`goodmedicine-hpdice.vercel.app`). **개인정보는 백엔드·DB(국내 PC)에만.** 아래 참고 |
@@ -93,13 +93,13 @@ residual_interactions               :    217건  ← 성분코드 미해소 약�
 ### 보안
 - JWT Access Token 30분 + Single-use Refresh Token 7일 (모든 토큰에 `jti` 고유값 포함)
 - AES-256-GCM 필드 암호화 (건강정보·알레르기·출생연도, **복약함 전체 payload**(drug_id·용량·복용시각·알림설정·메모 등), 분석이력 drug_ids·findings·AI 가이드) — "누가 무슨 약을 먹는지"도 민감정보로 취급. 복호화 실패 시 필드별 격리(계정 전체 500 방지)
-- Rate Limiting (login, quick-check, analysis/guide)
+- Rate Limiting — 로그인은 실제 클라이언트 IP, quick-check·guide·OCR은 로그인 사용자 단위(2026-09-30: 전 사용자가 Tailscale 프록시 IP 하나를 공유하던 문제 수정). 상세 `docs/operations.md`
 - 보안 헤더 (X-Frame-Options, X-Content-Type-Options, HSTS)
 - AuditLog (민감 작업 추적)
 - 회원 탈퇴: email/hashed_password/name tombstone 처리 (개인정보 삭제 + 이메일 재사용 가능)
 
 ### 테스트
-- `backend/tests/`: pytest + httpx(ASGITransport), 52개 E2E 테스트(스키마 1회 생성 + 테스트별 TRUNCATE), 운영 DB와 분리된 `drugtest_test_db` 사용
+- `backend/tests/`: pytest + httpx(ASGITransport), 61개 E2E 테스트(스키마 1회 생성 + 테스트별 TRUNCATE), 운영 DB와 분리된 `drugtest_test_db` 사용
 - 커버리지: 인증(회원가입/로그인/리프레시 단일사용/72바이트 초과 비밀번호 거부/탈퇴 후 재가입), 약품검색, 약품명 매칭(성분명 폴백·정밀매칭 우선순위 회귀), 복약함(추가/중복거부/삭제/복약 알림 필드 왕복·형식 검증), quick-check 3단계(critical/caution/safe) + 알레르기 충돌(정확·부분일치·미등록 스킵) + 연령대 규칙(특정연령대금기 경계값·파싱 실패 스킵·노인주의·미등록 스킵), AI 가이드(생성·암호화저장·Ollama 다운 시 폴백, Ollama는 mock), 사용자 정보(건강정보 왕복/복호화 손상 격리)
 - Flutter: `flutter test` — `MedicationReminderService.computeSchedule`/`stableReminderId` 순수 함수 단위 테스트 9개(만료 처리·id 안정성)
 
@@ -214,7 +214,7 @@ front_app/lib/
   (`item_name` 괄호·`main_item_ingr` 이름 매칭). 현재 해소율 **61.5%**
   (미해소 38.5%는 DUR 상호작용이 아예 없는 약이 대부분 — 2026-09-17 실측: 아목시실린·
   헤파린·포도당 등 흔한 성분도 국내 DUR 룰 자체에 없는 경우가 많음, 코드로 해결 불가).
-- **2026-09-17 매칭 개선 시도 3건 전부 실측에서 막힘**(상세는 개발일지 24회차):
+- **2026-09-17 매칭 개선 시도 3건 전부 실측에서 막힘**(상세는 개발일지 6장 F3~F5):
   HIRA 주성분코드 크로스워크(97.2%가 영문이라 한글 DUR 성분명과 매칭 0건),
   성분명 부분문자열 매칭 확장(223건 추가 해소되나 실제 오매칭 발견돼 폐기 —
   "우레아→히드록시우레아" 등), DUR 품목쌍 residual 실시간 캡처(엔드포인트가
@@ -278,7 +278,7 @@ front_app/lib/
 백엔드·DB는 전부 국내(내 PC).** 프론트엔 개인정보가 없어 Vercel(해외) 무방.
 
 - **백엔드(API 전용, 웹 서빙 안 함)**
-  - 개발: `docker compose up -d` — `docker-compose.override.yml` 자동 로드(소스 바인드마운트 라이브 리로드).
+  - 개발: `docker compose up -d` — `docker-compose.override.yml` 자동 로드(소스 바인드마운트 — 재빌드는 불필요하지만 uvicorn `--reload`가 없어 코드 변경 후 `docker compose restart backend` 필요. pytest는 매번 새 프로세스라 재시작 없이 새 코드로 돈다).
   - 배포: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build`
     → override 배제 + `tailscale` 컨테이너 추가. 단일 스테이지 이미지라 빌드 ~30초.
   - 외부 노출: **`tailscale` 컨테이너**(userspace, 노드명 `goodmedicine`,
@@ -299,8 +299,16 @@ PC 상시 가동 부담을 덜려면 한국 리전 상시 서버(Oracle Cloud Al
 
 ## 남은 작업
 
+> 2026-09-30 운영 점검: Rate Limit 전역 공유·탈퇴 후 데이터 잔존/토큰 유효·백업 부재를 수정(백업은 매일 04:00
+> 자동 + 복원 검증). 운영 절차와 남은 운영 과제는 **[operations.md](./operations.md)**.
+
 | 작업 | 우선순위 | 비고 |
 |---|---|---|
+| 암호화 키 별도 보관 확인 | **높음** | `FIELD_ENCRYPTION_KEY`를 잃으면 백업이 있어도 건강정보 복구 불가. operations.md 3절 |
+| 백업 외부 사본 (국내 매체) | 높음 | 지금 백업은 운영 데이터와 같은 D: 드라이브 |
+| 용량 매칭 결함(P11)·동시 추가 중복(P12)·앱 부분 실패 무통지(O11) | 높음 | 2026-09-30 실측 발견. 학습 목적으로 직접 수정 예정(docs/study) — 시연 영상 전 반영 |
+| 헬스체크 DB 확인 + 외부 감시, CI 백엔드 테스트, 버전 고정(poetry.lock·ollama 태그) | 중간 | operations.md 6절 |
+| 계정 복구(비밀번호 재설정)·개인정보 처리방침·APK 정식 서명 | 출시 전 | 현재 CI APK는 디버그 키 서명 |
 | 한국 리전 상시 서버 탐색 | 낮음 | Oracle Cloud Free 서울/춘천, 국내 VPS. 향후 과제 |
 | 시연 영상 녹화 | 중간 | 라이브 시연 백업. 사진 선택→OCR→복약함→quick-check→AI 가이드 전체 흐름. 2026-09-12 추가 기능(복약 알림·알레르기·연령대 규칙) 반영해 갱신 필요 |
 | `gh` CLI 인증 | 낮음 | GitHub Release로 APK 배포 중인데 `gh auth login` 미완료 — 매번 웹에서 수동 업로드 중. 인증하면 자동화 가능 |
