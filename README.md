@@ -104,8 +104,9 @@ POST /drugs/ocr ─▶ 서버 OCR(Tesseract) ─▶ 후보 추출 ─▶ 매칭 
 | OCR | Tesseract (kor+eng), 이미지 미저장 — 메모리 처리 후 폐기 |
 | LLM | Ollama + `qwen2.5:14b-instruct` (GPU passthrough, 외부 API 미사용) |
 | 보안 | JWT(AT 30분 / 단일사용 RT 7일), bcrypt, AES-256-GCM 필드 암호화, Rate Limiting |
-| 인프라 | Docker Compose / Tailscale Funnel(백엔드 외부 노출) / Vercel(웹) / GitHub Actions(APK·웹 CI) |
-| 테스트 | pytest-asyncio + httpx(ASGITransport), 격리 테스트 DB, Ollama mock |
+| 인프라 | Docker Compose / Tailscale Funnel(백엔드 외부 노출) / Vercel(웹) / GitHub Actions(백엔드 테스트·APK·웹) |
+| 테스트 | pytest-asyncio + httpx(ASGITransport), 격리 테스트 DB, Ollama mock — 68개, push 시 CI 실행 |
+| 운영 | 매일 DB 백업(복원 검증), 월간 공공데이터 갱신(품질 게이트), DB 확인 헬스체크 — [운영 런북](docs/operations.md) |
 
 ---
 
@@ -124,41 +125,57 @@ POST /drugs/ocr ─▶ 서버 OCR(Tesseract) ─▶ 후보 추출 ─▶ 매칭 
 ### 디렉토리
 
 ```
-backend/
+backend/                 FastAPI 백엔드 (Docker 이미지에는 이 폴더만 들어간다)
   app/
-    api/v1/          auth · users · drugs · medicine-box · analysis (엔드포인트 17개)
-    services/        비즈니스 로직 (위 표 참고) + public_data_service/(패키지)
-    core/            encryption · config · security
+    api/v1/              auth · users · drugs · medicine-box · analysis (엔드포인트 17개)
+    services/            비즈니스 로직 (위 표 참고) + public_data_service/(공공데이터 동기화 패키지)
+    core/                encryption · security · rate_limit · logging
     models/ schemas/ db/
-  alembic/           마이그레이션 0001~0009 + ce94face11b4(출생연도·연령대 규칙)
-  sync.py            공공데이터 동기화 CLI (overview · dur_contraindications · efcy_dplct ·
-                     dur_age_caution · dur_extra_codes · identification · approval · …)
-  tests/             pytest (68개)
-front_app/
-  lib/
-    core/            api · models · notifications(fcm·복약알림 스케줄러) · storage · theme · widgets
-    features/        auth · camera · home(+widgets/ 9개 파일) · profile(건강정보·알레르기·출생연도) · search
-docs/
-  project-status.md  전체 진행 현황 + 시스템 커버리지 명세
-  개발일지.md         의사결정·문제 해결 기록 (포트폴리오용)
-  deploy-tailscale.md · deploy-web-vercel.md
-archive/ml/          서빙에서 제외한 링크 예측 모델 실험 (AUROC 0.48)
+  alembic/               마이그레이션 0001~0010 + ce94face11b4(출생연도·연령대 규칙)
+  sync.py                공공데이터 동기화 CLI (status · overview · approval · dur_contraindications ·
+                         efcy_dplct · dur_age_caution · dur_extra_codes · build_drug_ingredients · …)
+  validate_db.py         데이터 품질 게이트 (치명 문제 시 종료 코드 1)
+  seed/                  DB 완전 초기화 시 복원하는 잔여 폴백 데이터
+  tests/                 pytest 68개
+front_app/               Flutter 앱 (Android · Web)
+  lib/core/              api · models · notifications(FCM·복약 알림) · storage · theme · widgets
+  lib/features/          auth · camera · home · profile · search
+docs/                    문서 (아래 "상세 문서")
+scripts/                 운영 스크립트 (PowerShell, Windows 작업 스케줄러가 실행)
+  backup-db.ps1          DB 백업 + 임시 DB 복원 검증 (매일)
+  monthly-sync.ps1       백업 → 공공데이터 동기화 → 품질 게이트 (매월)
+  stop-dur-ingr-sync.ps1 실행 중인 병용금기 동기화 강제 종료
+infrastructure/          postgres 초기화 SQL · Tailscale Funnel 설정
+secrets/                 런타임 비밀 파일 (README만 커밋, 컨테이너에 읽기 전용 연결)
+archive/ml/              서빙에서 제외한 링크 예측 모델 실험 기록 (AUROC 0.48)
+docker-compose.yml       postgres · backend · ollama   (+ .override.yml 개발 / .prod.yml 배포)
+.github/workflows/       backend-tests · deploy-web(Vercel) · release-apk
 ```
 
 ### 상세 문서
 
-- **[docs/project-status.md](docs/project-status.md)** — 진행 현황, 배포, 시스템 커버리지 명세
-- **[docs/개발일지.md](docs/개발일지.md)** — 개발 일지
-- **[archive/ml/README.md](archive/ml/README.md)** — ML 링크 예측을 왜 서빙에서 뺐는가
+| 문서 | 내용 |
+|---|---|
+| **[docs/개발일지.md](docs/개발일지.md)** | 의사결정·문제 해결·실패 기록 (포트폴리오용, [PDF](docs/개발일지.pdf)) |
+| **[docs/project-status.md](docs/project-status.md)** | 지금 상태 — 진행 현황, 시스템 커버리지 명세, 남은 작업 |
+| **[docs/operations.md](docs/operations.md)** | 운영 런북 — 백업·복원, 암호화 키 보관, 월간 갱신, 감시 |
+| [docs/deploy-tailscale.md](docs/deploy-tailscale.md) · [docs/deploy-web-vercel.md](docs/deploy-web-vercel.md) | 백엔드(국내 PC + Tailscale Funnel) · 웹(Vercel) 배포 절차 |
+| [archive/ml/README.md](archive/ml/README.md) | ML 링크 예측을 왜 서빙에서 뺐는가 |
 
 ---
 
 ## 로컬 실행
 
 ```cmd
-:: 전체 서비스 (PostgreSQL + FastAPI + Ollama)
+:: 처음 한 번 — 설정 파일 준비
+copy .env.example .env                  :: 값 채우기 (SECRET_KEY, FIELD_ENCRYPTION_KEY 등)
+:: (선택) FCM 푸시: secrets\firebase-service-account.json 배치 — secrets\README.md
+
+:: 전체 서비스 (PostgreSQL + FastAPI + Ollama) — 개발 모드
 cd C:\Dev\drugTest
 docker compose up -d
+:: 코드 변경 후 반영 (--reload 없음)
+docker compose restart backend
 
 :: 마이그레이션 + 공공데이터 동기화 (완전 초기화 시)
 docker exec -it drugtest-backend-1 alembic upgrade head
@@ -185,7 +202,7 @@ GPU가 없는 환경에서는 `/analysis/guide`가 안전한 폴백 문구로만
 사용자의 **알레르기 성분 충돌**·**특정연령대금기·노인주의**까지 탐지한다. 다만
 특정연령대금기는 실측상 한계가 있다 — 원본 API(`getSpcifyAgrdeTabooInfoList03`)
 응답에 나이 기준을 담은 구조화 필드가 없고, 자유 텍스트에서 숫자 패턴("OO세 미만")이
-파싱되는 행은 **3.6%뿐**이라 나머지는 판정에서 조용히 스킵된다. 병용주의(별도 등급),
+파싱되는 행은 **3.6%뿐**이라 나머지는 판정에서 조용히 스킵된다(적재 123건 중 판정에 쓰이는 건 10건). 병용주의(별도 등급),
 용량주의·투여기간주의는 API에 엔드포인트와 `INGR_CODE`가 존재하지만 아직 미적재다 —
 **데이터 커버리지의 한계이지 코드 버그가 아니다.** 예: 와파린은 국내 DUR 병용금기
 DB에 등록된 상호작용이 0건이라 타이레놀×와파린은 탐지되지 않는다. 상세는
@@ -194,7 +211,7 @@ DB에 등록된 상호작용이 0건이라 타이레놀×와파린은 탐지되�
 미구현(초기 기획엔 있었으나 코드엔 없음): AI 월간 리포트, 가족 공유, 응급 모드,
 대체약 추천, DUR 병용주의·용량주의·투여기간주의. **낱알 이미지 인식은 필터
 (모양·색상·각인) 방식으로 판별력까지 검증했으나(각인 입력 시 90.4%가 후보 1건으로
-좁혀짐) "사진 찍으면 자동 인식"이라는 기대와 맞지 않아 폐기 결정**(CLAUDE.md 참고).
+좁혀짐) "사진 찍으면 자동 인식"이라는 기대와 맞지 않아 폐기 결정**([개발일지](docs/개발일지.md) F2).
 복약 알림(복용 시간)·규칙 기반 알레르기 충돌 검사는 2026-09-12 구현 완료.
 
 ---
@@ -207,4 +224,5 @@ DB에 등록된 상호작용이 0건이라 타이레놀×와파린은 탐지되�
 | 프론트 웹 | Vercel (`goodmedicine-hpdice.vercel.app`) | 프론트엔 개인정보 없음 → 해외 호스팅 무방 |
 | 모바일 APK | GitHub Actions 빌드 (`--dart-define=BASE_URL=…tail9f1768.ts.net/api/v1/`) | |
 
-PC가 켜져 있을 때만 백엔드 접속 가능(시연 영상 백업 보유).
+PC가 켜져 있을 때만 백엔드 접속 가능(시연 영상 백업 보유). 배포 모드 실행:
+`docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build` — 운영 절차는 [docs/operations.md](docs/operations.md).
