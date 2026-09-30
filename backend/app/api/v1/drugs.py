@@ -14,7 +14,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
 from app.core.logging import logger
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.db.session import get_db
 from app.dependencies import get_current_user_id
 from app.schemas.drug import (
@@ -48,7 +48,7 @@ async def match_drug_names(
 
 
 @router.post("/ocr", response_model=OcrMatchResponse)
-@limiter.limit(settings.OCR_RATE_LIMIT)
+@limiter.limit(settings.OCR_RATE_LIMIT, key_func=user_or_ip_key)
 async def ocr_match_drugs(
     request: Request,
     image: UploadFile = File(..., description="처방전·약봉투 사진 (jpg/png, 8MB 이하)"),

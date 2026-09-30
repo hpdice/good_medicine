@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.db.session import get_db
 from app.dependencies import get_current_user_id
 from app.schemas.analysis import (
@@ -20,7 +20,7 @@ router = APIRouter()
 
 
 @router.post("/quick-check", response_model=QuickCheckResponse)
-@limiter.limit(settings.DEFAULT_RATE_LIMIT)
+@limiter.limit(settings.DEFAULT_RATE_LIMIT, key_func=user_or_ip_key)
 async def quick_check(
     request: Request,
     body: QuickCheckRequest,
@@ -35,7 +35,7 @@ async def quick_check(
 
 
 @router.post("/guide", response_model=AnalysisGuideResponse)
-@limiter.limit(settings.ANALYSIS_RATE_LIMIT)
+@limiter.limit(settings.ANALYSIS_RATE_LIMIT, key_func=user_or_ip_key)
 async def generate_analysis_guide(
     request: Request,
     body: AnalysisGuideRequest,

@@ -1,12 +1,15 @@
 import uuid
 
+from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.encryption import get_encryptor
 from app.core.exceptions import NotFoundError
 from app.core.logging import logger
 from app.core.security import hash_password
-from app.models.user import User
+from app.models.analysis_result import AnalysisResult
+from app.models.medicine_box import MedicineBoxEntry
+from app.models.user import AuditLog, RefreshToken, User
 from app.schemas.user import UserUpdate
 
 
@@ -44,10 +47,25 @@ class UserService:
         return self._decrypt_user(user)
 
     async def delete_user(self, user_id: uuid.UUID) -> None:
-        """개인정보보호법: 탈퇴 시 민감 정보 즉시 삭제 (이메일 재사용 가능하도록 tombstone 처리)"""
+        """개인정보보호법: 탈퇴 시 민감 정보 즉시 삭제 (이메일 재사용 가능하도록 tombstone 처리)
+
+        사용자 행은 tombstone으로 남기므로(감사 로그 참조 보존) FK의 ON DELETE CASCADE가
+        발동하지 않는다. 그래서 복약함·분석 이력(암호화된 건강·복약 정보)을 여기서 직접
+        지우고, 남은 Refresh Token을 전부 폐기한다 — 이전엔 둘 다 빠져 탈퇴 후에도 데이터가
+        남고 옛 토큰으로 계속 접근할 수 있었다(2026-09-30 재현).
+        """
         user = await self.db.get(User, user_id)
         if not user:
             raise NotFoundError("사용자를 찾을 수 없습니다.")
+
+        await self.db.execute(delete(MedicineBoxEntry).where(MedicineBoxEntry.user_id == user_id))
+        await self.db.execute(delete(AnalysisResult).where(AnalysisResult.user_id == user_id))
+        await self.db.execute(
+            update(RefreshToken)
+            .where(RefreshToken.user_id == user_id, RefreshToken.is_revoked == False)  # noqa: E712
+            .values(is_revoked=True)
+        )
+        self.db.add(AuditLog(user_id=user_id, action="delete_account"))
 
         user.health_conditions_encrypted = None
         user.allergy_info_encrypted = None

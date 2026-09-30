@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     DEFAULT_RATE_LIMIT: str = "60/minute"
     ANALYSIS_RATE_LIMIT: str = "10/minute"
     OCR_RATE_LIMIT: str = "20/minute"
+    # X-Forwarded-For 를 믿어도 되는 직접 연결 상대(= 리버스 프록시)의 대역.
+    # backend 포트는 호스트 127.0.0.1 에만 열려 있어, 여기 닿는 건 compose 네트워크 안의
+    # tailscale 컨테이너와 호스트 로컬 프로세스(도커 게이트웨이 경유)뿐이다.
+    TRUSTED_PROXY_CIDRS: list[str] = [
+        "127.0.0.1/32", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+    ]
 
     # 처방전/약봉투 OCR — 이미지는 메모리에서만 처리하고 OCR 직후 폐기(디스크·DB 저장 없음).
     OCR_MAX_IMAGE_BYTES: int = 8 * 1024 * 1024  # 8MB 초과 업로드는 거부
