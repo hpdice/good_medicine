@@ -11,10 +11,11 @@ from app.models.drug import Drug
 from app.models.drug_ingredient import DrugIngredient
 from app.models.residual_interaction import ResidualInteraction
 
+from .base import _SyncBase
 from .helpers import _make_drug_key, _make_simple_name, _parse_main_ingr
 
 
-class MaintenanceMixin:
+class MaintenanceMixin(_SyncBase):
     async def fill_simple_names(self) -> int:
         rows = await self.db.execute(select(Drug).where(Drug.simple_name.is_(None)))
         drugs = rows.scalars().all()
@@ -32,7 +33,7 @@ class MaintenanceMixin:
         drugs = rows.scalars().all()
         count = 0
         for drug in drugs:
-            parsed = _parse_main_ingr(drug.main_item_ingr)
+            parsed = _parse_main_ingr(drug.main_item_ingr or "")
             if parsed:
                 drug.ingr_name = parsed
                 count += 1
@@ -131,11 +132,12 @@ class MaintenanceMixin:
 
         # item_seq → drug_id, 기존 쌍 집합을 각각 쿼리 1번으로 미리 로드 (N+1 방지)
         seqs = {e["seq1"] for e in entries} | {e["seq2"] for e in entries}
-        seq_to_id = dict(
-            (await self.db.execute(
+        seq_to_id = {
+            seq: drug_id
+            for seq, drug_id in (await self.db.execute(
                 select(Drug.item_seq, Drug.id).where(Drug.item_seq.in_(seqs))
             )).all()
-        )
+        }
         existing = {
             (frozenset((r.drug1_id, r.drug2_id)), r.interaction_type)
             for r in (await self.db.execute(

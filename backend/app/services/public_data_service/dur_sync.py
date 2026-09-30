@@ -17,10 +17,11 @@ from app.models.dur_ingredient_rule import (
     DurIngredientEffectGroup,
 )
 
+from .base import _SyncBase
 from .helpers import _clean, _parse_age_criteria
 
 
-class DurSyncMixin:
+class DurSyncMixin(_SyncBase):
     # 체크포인트는 SYNC_STATE_DIR(compose 의 sync_state 볼륨)에 둔다. 이전엔 컨테이너의
     # /tmp 였어서 `up --build` 등으로 컨테이너가 재생성되면 사라져, 7시간짜리 sweep 을
     # 처음부터 다시 받아야 했다.
@@ -33,7 +34,7 @@ class DurSyncMixin:
     # 5배 커서 페이지 수·sleep 총량이 그만큼 준다. 체크포인트는 페이지 "번호"만
     # 저장하므로, 이 값을 바꾸면 진행 중이던 이전 체크포인트와 어긋난다 — 바꿀 땐
     # 먼저 체크포인트 파일이 없는(=완료됐거나 시작 전) 상태인지 확인할 것.
-    DUR_PAGE_SIZE = 500
+    DUR_PAGE_SIZE: int = 500
 
     # 특정연령대금기·노인주의는 판정 규칙(dur_ingredient_age_caution)까지 채우는
     # sync_dur_age_caution()으로 옮겼다 — 이 딕셔너리에는 성분코드 매핑만 필요한

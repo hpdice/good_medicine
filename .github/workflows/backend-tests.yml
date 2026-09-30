@@ -62,7 +62,13 @@ jobs:
           poetry install --no-interaction --no-ansi --no-root --with dev
 
       - name: lint (실제 버그 규칙만 — 미사용/미정의 이름, 문법, import 순서)
-        run: ruff check --select F,E9,I app tests
+        run: ruff check --select F,E9,I app tests sync.py validate_db.py
+
+      - name: type check (pyright basic — VS Code Pylance 와 같은 엔진, 설정은 루트 pyrightconfig.json)
+        working-directory: .
+        # ubuntu-latest 에는 Node.js 가 기본 설치돼 있다. (PyPI 의 pyright 래퍼는 Node 를 따로 받는 과정이 불안정)
+        # 분석 대상 파이썬 환경은 위에서 의존성을 설치한 setup-python 인터프리터.
+        run: npx --yes pyright@1.1.390 --pythonpath "$(which python)"
 
       - name: pytest
         run: python -m pytest tests/ -q

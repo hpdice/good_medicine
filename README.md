@@ -188,6 +188,17 @@ docker exec drugtest-ollama-1 ollama pull qwen2.5:14b-instruct
 docker exec -e PYTHONPATH=/app -w /app drugtest-backend-1 python -m pytest tests/ -v
 ```
 
+**편집기(VS Code) 환경** — 백엔드 코드는 컨테이너에서 돌지만, 편집기의 타입 검사(Pylance)가 import를 찾으려면
+로컬 가상환경이 필요하다. 한 번만:
+
+```cmd
+cd backend
+poetry install --no-root --with dev      :: poetry.lock 그대로 설치 (lock 을 다시 만들지 말 것 — 이미지는 Poetry 1.8.3)
+```
+
+그다음 VS Code에서 `Python: Select Interpreter` → 방금 만든 `drugtest-backend-…` 환경 선택. 검사 기준은 루트의
+`pyrightconfig.json`(`backend/`를 import 기준으로, `archive/` 제외, basic 모드) — CI도 같은 설정으로 검사해 **오류 0건**을 유지한다.
+
 - Swagger UI: `http://localhost:8001/api/docs` (DEBUG=true 환경에서만)
 - 백엔드 호스트 포트는 **8001** (8000은 다른 프로젝트가 점유)
 - Flutter: `flutter run --dart-define=BASE_URL=http://10.0.2.2:8001/api/v1/` (끝 슬래시 필수)

@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+from typing import Any
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -16,14 +17,16 @@ class FieldEncryptor:
             raise ValueError("FIELD_ENCRYPTION_KEY must be 32 bytes (64 hex chars)")
         self._aesgcm = AESGCM(key_bytes)
 
-    def encrypt(self, data: dict | list | str) -> str:
+    def encrypt(self, data: Any) -> str:
+        """JSON 직렬화 가능한 값(dict·list·str·int 등)을 암호화한다."""
         nonce = os.urandom(12)
         plaintext = json.dumps(data, ensure_ascii=False).encode()
         ciphertext = self._aesgcm.encrypt(nonce, plaintext, None)
         combined = nonce + ciphertext
         return base64.b64encode(combined).decode()
 
-    def decrypt(self, encrypted: str) -> dict | list | str:
+    def decrypt(self, encrypted: str) -> Any:
+        """encrypt 의 역. 원래 넣은 JSON 값을 그대로 돌려준다(구조는 호출부가 안다)."""
         combined = base64.b64decode(encrypted.encode())
         nonce, ciphertext = combined[:12], combined[12:]
         plaintext = self._aesgcm.decrypt(nonce, ciphertext, None)

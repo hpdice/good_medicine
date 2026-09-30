@@ -152,13 +152,15 @@ class DrugService:
                 # (실측 2026-09-16: OCR이 '20mg'를 '2000'으로 긁어도, 그 숫자가 DB
                 # 쪽 용량 숫자로 시작/포함되면 우선한다).
                 if len(rows) > 1 and name_digits:
+                    target_digits: str = name_digits
+
                     def _dosage_rank(drug: Drug) -> int:
                         if drug.drug_key == normalized_key:
                             return 0
-                        key_digits_match = re.search(r'\d+', drug.drug_key)
+                        key_digits_match = re.search(r'\d+', drug.drug_key or "")
                         key_digits = key_digits_match.group() if key_digits_match else None
                         if key_digits and (
-                            name_digits.startswith(key_digits) or key_digits.startswith(name_digits)
+                            target_digits.startswith(key_digits) or key_digits.startswith(target_digits)
                         ):
                             return 1
                         return 2

@@ -1,0 +1,8 @@
+{
+  "include": ["backend"],
+  "exclude": ["**/__pycache__", "**/.venv", "backend/.pytest_cache", "backend/.ruff_cache"],
+  "ignore": ["archive"],
+  "executionEnvironments": [{ "root": "backend" }],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "basic"
+}

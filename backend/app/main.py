@@ -59,7 +59,8 @@ app = FastAPI(
 
 # Rate Limiting
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# slowapi 핸들러는 RateLimitExceeded 전용 시그니처라 Starlette 의 일반 핸들러 타입과 맞지 않는다(동작은 정상).
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # pyright: ignore[reportArgumentType]
 
 # CORS (허용 origin 화이트리스트 + 선택적 정규식 — Vercel 프리뷰 배포용)
 app.add_middleware(

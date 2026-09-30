@@ -1,11 +1,15 @@
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.medicine_box import MedicineBoxEntry
 
 
 class User(Base):
@@ -39,7 +43,7 @@ class User(Base):
     )
 
     # Relationships
-    medicine_box_entries: Mapped[list["MedicineBoxEntry"]] = relationship(  # noqa: F821
+    medicine_box_entries: Mapped[list["MedicineBoxEntry"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(

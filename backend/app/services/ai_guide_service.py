@@ -96,10 +96,12 @@ class AiGuideService:
         health_lines = []
         try:
             user = await UserService(self.db).get_user(user_id)
-            if getattr(user, "health_conditions", None):
-                health_lines.append(f"건강 상태: {', '.join(user.health_conditions)}")
-            if getattr(user, "allergy_info", None):
-                health_lines.append(f"알레르기: {', '.join(user.allergy_info)}")
+            conditions = getattr(user, "health_conditions", None)
+            allergies = getattr(user, "allergy_info", None)
+            if conditions:
+                health_lines.append(f"건강 상태: {', '.join(conditions)}")
+            if allergies:
+                health_lines.append(f"알레르기: {', '.join(allergies)}")
         except Exception:
             logger.warning("사용자 건강정보 조회 실패 — 컨텍스트 없이 가이드 생성 진행", exc_info=True)
 

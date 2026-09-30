@@ -172,7 +172,7 @@ async def cmd_status():
         )
         residual = await db.scalar(select(func.count()).select_from(ResidualInteraction))
 
-    resolve_pct = (di_drugs / total * 100) if total else 0
+    resolve_pct = ((di_drugs or 0) / total * 100) if total else 0
 
     print("\n===== 데이터 적재 현황 =====")
     print(f"  drugs 전체          : {total:>7,}건")

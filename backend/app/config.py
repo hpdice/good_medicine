@@ -79,4 +79,5 @@ class Settings(BaseSettings):
     OLLAMA_WARMUP_TIMEOUT_SECONDS: float = 500.0
 
 
-settings = Settings()
+# 필수 값은 환경변수/.env 에서 채워진다 — 검사기는 이를 알 수 없어 인자 누락으로 본다.
+settings = Settings()  # pyright: ignore[reportCallIssue]

@@ -1,11 +1,15 @@
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.user import User
 
 
 class MedicineBoxEntry(Base):
@@ -45,7 +49,7 @@ class MedicineBoxEntry(Base):
     )
 
     # Relationships
-    user: Mapped["User"] = relationship(back_populates="medicine_box_entries")  # noqa: F821
+    user: Mapped["User"] = relationship(back_populates="medicine_box_entries")
 
     __table_args__ = (
         Index("idx_medicine_box_user_current", "user_id", "is_current"),

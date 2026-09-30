@@ -5,10 +5,11 @@ from sqlalchemy import text
 
 from app.core.logging import logger
 
+from .base import _SyncBase
 from .helpers import _parse_tag_array
 
 
-class RiskTagsMixin:
+class RiskTagsMixin(_SyncBase):
     _RISK_TAG_SYSTEM = (
         "너는 의약품 병용금기 설명 문장에서 '환자에게 나타날 수 있는 위험/증상'만 뽑아내는 추출기다. "
         "문장에 없는 내용은 지어내지 마라. 효소 저해 같은 '기전'이 아니라 결과(출혈, 신독성, QT 연장 등)를 뽑아라."

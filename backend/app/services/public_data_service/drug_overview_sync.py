@@ -4,10 +4,11 @@ from sqlalchemy import select
 from app.config import settings
 from app.models.drug import Drug
 
+from .base import _SyncBase
 from .helpers import _clean, _make_drug_key, _make_simple_name, _parse_ingredients
 
 
-class DrugOverviewSyncMixin:
+class DrugOverviewSyncMixin(_SyncBase):
     async def _sync_drug_overview(self) -> int:
         url = f"{settings.DRUG_OVERVIEW_API_URL}/getDrbEasyDrugList"
         return await self._run_simple_paginated_sync(

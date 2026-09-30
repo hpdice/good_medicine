@@ -26,6 +26,9 @@ async def test_health_503_when_db_down(client):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             res = await ac.get("/health")
     finally:
-        app.dependency_overrides[get_db] = previous
+        if previous is None:
+            app.dependency_overrides.pop(get_db, None)
+        else:
+            app.dependency_overrides[get_db] = previous
     assert res.status_code == 503
     assert res.json()["db"] == "down"

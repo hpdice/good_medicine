@@ -41,7 +41,7 @@ async def validate() -> list[str]:
                 (SELECT count(*) FROM dur_ingredient_contraindications WHERE risk_tags IS NOT NULL) AS contra_tagged,
                 (SELECT count(*) FROM dur_ingredient_effect_groups) AS effect,
                 (SELECT count(*) FROM residual_interactions) AS residual
-        """))).fetchone()
+        """))).one()
         resolve_pct = row.di_drugs / row.total_drugs * 100 if row.total_drugs else 0
         print(f"  drugs 전체:               {row.total_drugs:>8,}건")
         print(f"  └ 효능정보(efcy):         {row.has_efcy:>8,}건")

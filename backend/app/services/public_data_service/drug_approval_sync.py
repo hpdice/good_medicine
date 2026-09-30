@@ -7,10 +7,11 @@ from sqlalchemy import select
 from app.config import settings
 from app.models.drug import Drug
 
+from .base import _SyncBase
 from .helpers import _clean, _make_drug_key, _make_simple_name
 
 
-class DrugApprovalSyncMixin:
+class DrugApprovalSyncMixin(_SyncBase):
     async def sync_drug_approval(self) -> int:
         url = f"{settings.DRUG_APPROVAL_API_URL}/getDrugPrdtPrmsnInq07"
         return await self._run_simple_paginated_sync(
