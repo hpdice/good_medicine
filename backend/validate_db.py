@@ -3,8 +3,12 @@
 
 사용법:
     docker exec -it drugtest-backend-1 python validate_db.py
+
+종료 코드: 치명적 문제(❌)가 하나라도 있으면 1 — 월간 자동 갱신(scripts/monthly-sync.ps1)이
+품질 게이트로 쓴다. ⚠️ 항목은 경고만 하고 실패로 보지 않는다.
 """
 import asyncio
+import sys
 
 from sqlalchemy import text
 
@@ -12,8 +16,15 @@ from app.db.session import AsyncSessionLocal
 
 SEP = "=" * 50
 
+# 규칙 수 하한 — 동기화가 규칙을 지우지는 않으므로, 이보다 적으면 DB가 비었거나 잘못 복원된 것.
+# (2026-09-30 기준: 약품 35,506 · 성분 병용금기 357 · 효능군 259)
+MIN_DRUGS = 30_000
+MIN_CONTRA_RULES = 300
+MIN_EFFECT_RULES = 200
 
-async def validate():
+
+async def validate() -> list[str]:
+    problems: list[str] = []
     async with AsyncSessionLocal() as db:
 
         print(f"\n{SEP}\n1. 기본 현황\n{SEP}")
@@ -40,6 +51,12 @@ async def validate():
         print(f"  성분 병용금기 규칙:       {row.contra:>8,}건  (risk_tags {row.contra_tagged:,}건)")
         print(f"  성분 효능군중복 규칙:     {row.effect:>8,}건")
         print(f"  residual_interactions:    {row.residual:>8,}건")
+        if row.total_drugs < MIN_DRUGS:
+            problems.append(f"약품 수 {row.total_drugs:,} < 하한 {MIN_DRUGS:,}")
+        if row.contra < MIN_CONTRA_RULES:
+            problems.append(f"병용금기 규칙 {row.contra:,} < 하한 {MIN_CONTRA_RULES:,}")
+        if row.effect < MIN_EFFECT_RULES:
+            problems.append(f"효능군 규칙 {row.effect:,} < 하한 {MIN_EFFECT_RULES:,}")
 
         print(f"\n{SEP}\n2. 성분 규칙 이상 데이터\n{SEP}")
 
@@ -47,11 +64,15 @@ async def validate():
             "SELECT count(*) FROM dur_ingredient_contraindications WHERE ingr_code_a = ingr_code_b"
         ))).scalar()
         print(f"  자기 자신 성분쌍:         {self_cnt:>8,}건  {'✅' if self_cnt == 0 else '❌ 문제'}")
+        if self_cnt:
+            problems.append(f"자기 자신 성분쌍 {self_cnt}건")
 
         unordered = (await db.execute(text(
             "SELECT count(*) FROM dur_ingredient_contraindications WHERE ingr_code_a > ingr_code_b"
         ))).scalar()
         print(f"  정규순서 위반(a>b):       {unordered:>8,}건  {'✅' if unordered == 0 else '❌ 문제'}")
+        if unordered:
+            problems.append(f"정규순서 위반 {unordered}건")
 
         dup = (await db.execute(text("""
             SELECT count(*) FROM (
@@ -60,6 +81,8 @@ async def validate():
             ) t
         """))).scalar()
         print(f"  중복 성분쌍:              {dup:>8,}건  {'✅' if dup == 0 else '❌ 문제'}")
+        if dup:
+            problems.append(f"중복 성분쌍 {dup}건")
 
         derived = (await db.execute(text(
             "SELECT count(*) FROM dur_ingredient_contraindications WHERE remark LIKE 'derived%'"
@@ -71,6 +94,8 @@ async def validate():
             LEFT JOIN drugs d ON d.id = di.drug_id WHERE d.id IS NULL
         """))).scalar()
         print(f"  drug_ingredients 고아행:  {orphan:>8,}건  {'✅' if orphan == 0 else '❌ 문제'}")
+        if orphan:
+            problems.append(f"drug_ingredients 고아행 {orphan}건")
 
         print(f"\n{SEP}\n3. drugs 테이블 이상 데이터\n{SEP}")
 
@@ -114,6 +139,16 @@ async def validate():
                 print(f"  {a} + {b}: ✅ {note[:44]}")
             else:
                 print(f"  {a} + {b}: ❌ 규칙 없음")
+                problems.append(f"알려진 병용금기 {a} + {b} 탐지 안 됨")
+
+    return problems
 
 
-asyncio.run(validate())
+problems = asyncio.run(validate())
+print(f"\n{SEP}")
+if problems:
+    print("품질 게이트 실패:")
+    for p in problems:
+        print(f"  ❌ {p}")
+    sys.exit(1)
+print("품질 게이트 통과")
