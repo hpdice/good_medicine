@@ -62,9 +62,10 @@ services:
     image: ollama/ollama:0.32.6
     volumes:
       - ollama_data:/root/.ollama
-    ports:
-      # 로컬호스트에만 바인딩 — 이 포트가 외부/LAN에 열리면 인증 없이 로컬 LLM을 쓸 수 있게 됨.
-      - "127.0.0.1:11434:11434"
+    # 호스트 포트는 열지 않는다. backend 는 compose 내부망(http://ollama:11434)으로만 호출하고,
+    # 호스트에서 모델을 다룰 땐 `docker exec drugtest-ollama-1 ollama ...` 를 쓴다.
+    # (2026-09-30: 127.0.0.1:11434 가 Windows 예약 포트 대역(11423-11522)에 걸려 컨테이너가 뜨지 못했다 —
+    #  이 대역은 재부팅마다 바뀔 수 있어 고정 호스트 포트는 재발 위험. 열지 않으면 LLM 무인증 노출 위험도 없다.)
     deploy:
       resources:
         reservations:

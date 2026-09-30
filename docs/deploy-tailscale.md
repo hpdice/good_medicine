@@ -19,7 +19,7 @@
   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
     ├─ backend   (FastAPI, API 전용)                     127.0.0.1:8001
     ├─ postgres  (약품 35,487 · DUR 규칙)               127.0.0.1:5432
-    ├─ ollama    (AI 가이드, GPU)                        127.0.0.1:11434
+    ├─ ollama    (AI 가이드, GPU)                        호스트 포트 없음 (내부망 ollama:11434)
     └─ tailscale (Funnel, userspace)  →  backend:8000  (compose 내부 네트워크)
 
   → https://goodmedicine.tail9f1768.ts.net/api/v1/   (고정 HTTPS, 재부팅해도 유지)
