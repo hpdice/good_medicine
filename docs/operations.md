@@ -71,7 +71,8 @@ docker exec drugtest-backend-1 python validate_db.py          # 품질 검증
 | 개발 모드 (`docker compose up -d`) | 소스는 바인드마운트돼 있지만 **uvicorn `--reload`가 없다** → `docker compose restart backend` |
 | 배포 모드 (Tailscale 포함) | `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build` (소스가 이미지에 구워짐) |
 | 마이그레이션이 추가됐을 때 | 반영 직후 `docker exec drugtest-backend-1 alembic upgrade head` — **자동으로 돌지 않는다** |
-| 반영 전 확인 | `docker exec -e PYTHONPATH=/app -w /app drugtest-backend-1 python -m pytest tests/ -q` (CI에서 안 돈다) |
+| 반영 전 확인 | `docker exec -e PYTHONPATH=/app -w /app drugtest-backend-1 python -m pytest tests/ -q` (push하면 CI에서도 돈다) |
+| Dockerfile·compose 가 바뀌었을 때 | `docker compose build backend` 후 `up -d` (개발) / 배포는 `--build` |
 
 ## 5. 운영 정책 (2026-09-30 변경)
 
@@ -105,15 +106,54 @@ docker exec drugtest-backend-1 python validate_db.py          # 품질 검증
 > 감사 로그의 **보관 기간**은 아직 정하지 않았다. 개인정보 처리방침을 만들 때 기간을 정하고 그보다 오래된 행을
 > 지우는 작업이 필요하다.
 
-## 6. 남은 운영 과제
+## 6. 공공데이터 월간 갱신
 
-| 과제 | 우선순위 | 비고 |
+**자동**: 작업 스케줄러 `GoodMedicine-Monthly-Sync` — 매월 1일 02:00(놓치면 부팅 후), 최대 12시간.
+`scripts/monthly-sync.ps1`: 헬스체크 → **백업(복원 검증)** → 동기화 7단계 → 위험 태그 → **품질 게이트**.
+한 단계라도 실패하면 멈추고 종료 코드 1. 로그: `D:\drugTest\sync-logs\sync-*.log`(최근 24개).
+
+```powershell
+# 수동 실행 (전체 / 일부)
+powershell -ExecutionPolicy Bypass -File C:\Dev\drugTest\scripts\monthly-sync.ps1
+powershell -ExecutionPolicy Bypass -File C:\Dev\drugTest\scripts\monthly-sync.ps1 -Only dur_age_caution
+# 이번 달 자동 실행 건너뛰기 / 해제
+Disable-ScheduledTask -TaskName GoodMedicine-Monthly-Sync     # 다시 켤 땐 Enable-ScheduledTask
+Unregister-ScheduledTask -TaskName GoodMedicine-Monthly-Sync -Confirm:$false
+# 데이터가 얼마나 최신인가 — 소스별 마지막 성공 시각
+docker exec drugtest-backend-1 python sync.py status
+```
+
+- **실패한 페이지는 건너뛰지 않는다**(2026-09-30 수정 전엔 건너뛰고 "완료"로 끝났다). DUR 병용금기는 실패 페이지를
+  체크포인트(`sync_state` 볼륨 `/var/lib/goodmedicine/`)로 남겨, 재실행하면 거기서 이어받는다. 월간 스크립트는
+  할당량 초과로 멈추면 60분 뒤 최대 3번 이어서 재시도한다.
+- **품질 게이트**(`validate_db.py`): 자기참조·정규순서 위반·중복 쌍·고아 행·규칙 수 하한(약품 30,000 · 병용금기 300 ·
+  효능군 200)·알려진 금기 쌍 3개 탐지 여부. 하나라도 걸리면 실패 → 직전 백업으로 복원 검토(2절).
+- 원천이 금기 사유 문장을 고치면 반영되고, 그 규칙의 `risk_tags`는 비워져 다음 `extract_risk_tags`에서 다시 뽑힌다.
+- 동기화 중에도 서비스는 계속 동작한다(판정은 읽기만). 다만 공공 API 일일 할당량을 쓰므로 같은 날 수동 동기화는 피한다.
+
+## 7. 외부 감시 (사람이 설정해야 함)
+
+`/health`는 이제 DB까지 확인해 장애 시 **503**을 준다. 하지만 PC가 꺼지면 PC 안의 무엇도 알릴 수 없으므로,
+**PC 밖의 무료 감시 서비스**(예: UptimeRobot, Better Stack 등)에 아래 주소를 5분 간격으로 등록하고 알림(메일·앱)을 켠다.
+
+```
+https://goodmedicine.tail9f1768.ts.net/health      → 200 {"status":"ok","db":"ok"} 이 정상
+```
+
+> 감시 서비스에는 URL만 알려주며 개인정보는 오가지 않는다.
+
+## 8. 남은 운영 과제
+
+| 과제 | 상태 | 비고 |
 |---|---|---|
-| 백업 외부 사본 (국내 매체) | 높음 | 1절 경고 |
-| 암호화 키 별도 보관 확인 | **높음** | 3절 — 사람이 해야 함 |
-| 헬스체크에 DB 연결 확인 추가 + 외부에서 주기적으로 감시 | 중간 | 지금 `/health`는 항상 `ok`. PC가 꺼져도 알 수 없음 |
-| CI에서 백엔드 테스트 실행 | 중간 | 현재 웹·APK 빌드만 |
-| 버전 고정: `poetry.lock` 커밋, `ollama/ollama` 이미지 태그 | 중간 | 지금은 빌드할 때마다 의존성이 달라질 수 있음 |
-| Docker 로그 용량 제한 (`logging.options.max-size`) | 낮음 | |
-| 공공데이터 정기 갱신 + 마지막 동기화 시각 기록 | 중간 | 금기 규칙이 오래되면 안전 문제 |
+| DB 자동 백업 + 복원 검증 | ✅ 2026-09-30 | 1절 |
+| 헬스체크 DB 확인 · Docker healthcheck | ✅ 2026-09-30 | DB 장애 시 503 실측 |
+| CI 백엔드 테스트 | ✅ 2026-09-30 | `.github/workflows/backend-tests.yml` — 로컬에서 같은 절차 재현(통과). GitHub 첫 실행은 push 후 확인 |
+| 버전 고정 (`poetry.lock`, `ollama/ollama:0.32.6`) | ✅ 2026-09-30 | |
+| Docker 로그 용량 상한 (10MB × 5) | ✅ 2026-09-30 | |
+| 공공데이터 월간 갱신 · 누락 방지 · 마지막 동기화 기록 · 품질 게이트 | ✅ 2026-09-30 | 6절 |
+| **암호화 키 별도 보관** | ⬜ **사람** | 3절 — 가장 중요 |
+| **백업 외부 사본 (국내 매체)** | ⬜ 사람 | 1절 — 지금은 운영 데이터와 같은 D: |
+| **외부 감시 등록** | ⬜ 사람 | 7절 |
+| 운영 DB 복원 연습 | ⬜ | 2절 — 임시 DB 복원만 매일 검증 중 |
 | 계정 복구(비밀번호 재설정), 개인정보 처리방침, APK 정식 서명 | 출시 전 | [project-status.md](./project-status.md) "남은 작업" |

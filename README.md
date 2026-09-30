@@ -133,7 +133,7 @@ backend/
   alembic/           마이그레이션 0001~0009 + ce94face11b4(출생연도·연령대 규칙)
   sync.py            공공데이터 동기화 CLI (overview · dur_contraindications · efcy_dplct ·
                      dur_age_caution · dur_extra_codes · identification · approval · …)
-  tests/             pytest (61개)
+  tests/             pytest (68개)
 front_app/
   lib/
     core/            api · models · notifications(fcm·복약알림 스케줄러) · storage · theme · widgets

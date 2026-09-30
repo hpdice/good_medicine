@@ -17,7 +17,7 @@
 | DB 마이그레이션 | 100% | ✅ 완료 (0001~0009 + `ce94face11b4` + `0010` — 성분 단위 전환·품목 테이블 폐기·risk_tags·복약정보 필드암호화·출생연도·연령대 규칙 테이블·낱알식별 죽은 컬럼/인덱스 제거) |
 | 데이터 적재 | 100% | ✅ 완료 + 품질 검증 통과 |
 | Flutter 앱 프론트엔드 | 100% | ✅ 완료. OCR은 서버 처리로 전환(`image_picker`, 웹 포함 전 플랫폼). 2026-09-12: 복약 알림·내 정보(건강정보/알레르기/출생연도) 화면 추가 + `home_screen.dart`(865줄) → 177줄+위젯 9개 파일로 분할 |
-| 백엔드 E2E 테스트 | 핵심 플로우 완료 | ✅ **61개** 테스트 통과 (2026-09-30: 탈퇴 처리·Rate Limit 키 회귀 9개 추가 / 성분 전환·서버 OCR·복약정보 암호화·알레르기 충돌·연령대 규칙·복약 알림 필드 커버) |
+| 백엔드 E2E 테스트 | 핵심 플로우 완료 | ✅ **68개** 테스트 통과 (2026-09-30: 탈퇴 처리·Rate Limit 키·헬스체크·동기화 누락 회귀 16개 추가, CI에서도 실행 / 성분 전환·서버 OCR·복약정보 암호화·알레르기 충돌·연령대 규칙·복약 알림 필드 커버) |
 | AI 대응 가이드 (로컬 LLM) | 완료 | ✅ Ollama + Qwen2.5 14B. 배포도 로컬 PC(GPU)라 **풀 동작** — Funnel 경유 실측: `is_ai_generated=true`, 308자 실제 생성 |
 | FCM 푸시 알림 | 완료 | ✅ Firebase 프로젝트(`good-medicine-app`) 연동, 디버그 APK 빌드 검증 완료 |
 | 배포 | 백엔드 국내 PC · 프론트 Vercel | ✅ 백엔드(API): 로컬 `docker compose` + Tailscale Funnel 컨테이너(`goodmedicine.tail9f1768.ts.net/api/v1/`). 프론트(웹): `git push` → GitHub Actions → Vercel(`goodmedicine-hpdice.vercel.app`). **개인정보는 백엔드·DB(국내 PC)에만.** 아래 참고 |
@@ -99,7 +99,7 @@ residual_interactions               :    217건  ← 성분코드 미해소 약�
 - 회원 탈퇴: email/hashed_password/name tombstone 처리 (개인정보 삭제 + 이메일 재사용 가능)
 
 ### 테스트
-- `backend/tests/`: pytest + httpx(ASGITransport), 61개 E2E 테스트(스키마 1회 생성 + 테스트별 TRUNCATE), 운영 DB와 분리된 `drugtest_test_db` 사용
+- `backend/tests/`: pytest + httpx(ASGITransport), 68개 E2E 테스트(스키마 1회 생성 + 테스트별 TRUNCATE), 운영 DB와 분리된 `drugtest_test_db` 사용
 - 커버리지: 인증(회원가입/로그인/리프레시 단일사용/72바이트 초과 비밀번호 거부/탈퇴 후 재가입), 약품검색, 약품명 매칭(성분명 폴백·정밀매칭 우선순위 회귀), 복약함(추가/중복거부/삭제/복약 알림 필드 왕복·형식 검증), quick-check 3단계(critical/caution/safe) + 알레르기 충돌(정확·부분일치·미등록 스킵) + 연령대 규칙(특정연령대금기 경계값·파싱 실패 스킵·노인주의·미등록 스킵), AI 가이드(생성·암호화저장·Ollama 다운 시 폴백, Ollama는 mock), 사용자 정보(건강정보 왕복/복호화 손상 격리)
 - Flutter: `flutter test` — `MedicationReminderService.computeSchedule`/`stableReminderId` 순수 함수 단위 테스트 9개(만료 처리·id 안정성)
 
@@ -299,15 +299,16 @@ PC 상시 가동 부담을 덜려면 한국 리전 상시 서버(Oracle Cloud Al
 
 ## 남은 작업
 
-> 2026-09-30 운영 점검: Rate Limit 전역 공유·탈퇴 후 데이터 잔존/토큰 유효·백업 부재를 수정(백업은 매일 04:00
-> 자동 + 복원 검증). 운영 절차와 남은 운영 과제는 **[operations.md](./operations.md)**.
+> 2026-09-30 운영 점검: Rate Limit 전역 공유·탈퇴 후 데이터 잔존/토큰 유효·백업 부재·동기화 조용한 누락을 수정.
+> 자동화: DB 백업(매일 04:00, 복원 검증) · 공공데이터 월간 갱신(매월 1일 02:00, 품질 게이트) · CI 백엔드 테스트.
+> 운영 절차와 남은 운영 과제는 **[operations.md](./operations.md)**.
 
 | 작업 | 우선순위 | 비고 |
 |---|---|---|
 | 암호화 키 별도 보관 확인 | **높음** | `FIELD_ENCRYPTION_KEY`를 잃으면 백업이 있어도 건강정보 복구 불가. operations.md 3절 |
 | 백업 외부 사본 (국내 매체) | 높음 | 지금 백업은 운영 데이터와 같은 D: 드라이브 |
 | 용량 매칭 결함(P11)·동시 추가 중복(P12)·앱 부분 실패 무통지(O11) | 높음 | 2026-09-30 실측 발견. 학습 목적으로 직접 수정 예정(docs/study) — 시연 영상 전 반영 |
-| 헬스체크 DB 확인 + 외부 감시, CI 백엔드 테스트, 버전 고정(poetry.lock·ollama 태그) | 중간 | operations.md 6절 |
+| 외부 감시 등록 (UptimeRobot 등에 `/health`) | 중간 | 헬스체크·CI·버전 고정·로그 상한·월간 갱신은 2026-09-30 완료. operations.md 7·8절 |
 | 계정 복구(비밀번호 재설정)·개인정보 처리방침·APK 정식 서명 | 출시 전 | 현재 CI APK는 디버그 키 서명 |
 | 한국 리전 상시 서버 탐색 | 낮음 | Oracle Cloud Free 서울/춘천, 국내 VPS. 향후 과제 |
 | 시연 영상 녹화 | 중간 | 라이브 시연 백업. 사진 선택→OCR→복약함→quick-check→AI 가이드 전체 흐름. 2026-09-12 추가 기능(복약 알림·알레르기·연령대 규칙) 반영해 갱신 필요 |
