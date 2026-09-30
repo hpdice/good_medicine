@@ -24,7 +24,9 @@ RUN poetry install --no-interaction --no-ansi --no-root --with dev
 COPY backend/ .
 RUN poetry install --no-interaction --no-ansi --no-root --with dev
 
-RUN chown -R appuser:appuser /app
+# 동기화 상태(체크포인트·마지막 성공 시각) 디렉터리 — compose 의 sync_state 볼륨이 여기 마운트된다.
+# 이미지에 appuser 소유로 먼저 만들어 두면, 새 named volume 이 이 소유권을 이어받는다.
+RUN mkdir -p /var/lib/goodmedicine && chown -R appuser:appuser /app /var/lib/goodmedicine
 USER appuser
 
 EXPOSE 8000

@@ -29,7 +29,7 @@ function Invoke-InContainer([string]$shScript) {
 
 function Get-Checkpoint {
     try {
-        $v = Invoke-InContainer 'cat /tmp/dur_contraindications_checkpoint.txt 2>/dev/null'
+        $v = Invoke-InContainer 'cat /var/lib/goodmedicine/dur_contraindications_checkpoint.txt 2>/dev/null'
         return ($v | Out-String).Trim()
     } catch {
         return "ERR"

@@ -4,6 +4,7 @@
 캡처해 `drug_ingredients` + `dur_ingredient_*`(판정 규칙) 테이블을 채운다
 (구 DUR 성분정보 API `DURIrdntInfoService`는 폐기됨)."""
 import asyncio
+import os
 
 import httpx
 from sqlalchemy import select
@@ -20,7 +21,12 @@ from .helpers import _clean, _parse_age_criteria
 
 
 class DurSyncMixin:
-    CHECKPOINT_FILE = "/tmp/dur_contraindications_checkpoint.txt"
+    # 체크포인트는 SYNC_STATE_DIR(compose 의 sync_state 볼륨)에 둔다. 이전엔 컨테이너의
+    # /tmp 였어서 `up --build` 등으로 컨테이너가 재생성되면 사라져, 7시간짜리 sweep 을
+    # 처음부터 다시 받아야 했다.
+    @property
+    def CHECKPOINT_FILE(self) -> str:  # noqa: N802 — 기존 속성명 유지(스크립트·문서 호환)
+        return os.path.join(settings.SYNC_STATE_DIR, "dur_contraindications_checkpoint.txt")
 
     # DUR 계열(DURPrdlstInfoService03) 엔드포인트는 전부 numOfRows=500까지 실측
     # 확인됨(그 이상은 빈 응답) — 기본 PAGE_SIZE(100, 다른 API 서비스 공용)보다
@@ -54,17 +60,20 @@ class DurSyncMixin:
             return 1
 
     def _save_checkpoint(self, page: int) -> None:
+        # 저장 실패를 삼키면 "체크포인트 있음"이라 믿고 돌다가 끊겼을 때 처음부터 다시 받게 된다.
+        # 적재 자체는 계속하되 크게 남긴다.
         try:
+            os.makedirs(os.path.dirname(self.CHECKPOINT_FILE), exist_ok=True)
             with open(self.CHECKPOINT_FILE, "w") as f:
                 f.write(str(page))
-        except Exception:
-            pass
+        except OSError:
+            logger.error("체크포인트 저장 실패 (%s) — 중단 시 이어받기 불가", self.CHECKPOINT_FILE,
+                         exc_info=True)
 
     def _clear_checkpoint(self) -> None:
         try:
-            import os as _os
-            _os.remove(self.CHECKPOINT_FILE)
-        except Exception:
+            os.remove(self.CHECKPOINT_FILE)
+        except FileNotFoundError:
             pass
 
     # ------------------------------------------------------------------ #
@@ -80,18 +89,20 @@ class DurSyncMixin:
         if page > 1:
             logger.info(f"DUR 병용금기 체크포인트에서 재시작: 페이지 {page}")
 
-        consecutive_failures = 0
         async with httpx.AsyncClient(timeout=30) as client:
             while True:
                 params = {"serviceKey": self._api_key, "pageNo": page, "numOfRows": self.DUR_PAGE_SIZE, "type": "json"}
                 data = await self._fetch_page(client, url, params)
                 if data is None:
-                    consecutive_failures += 1
-                    if consecutive_failures >= 3:
-                        raise RuntimeError(f"연속 {consecutive_failures}회 페이지 요청 실패 — 일일 할당량 초과로 중단. 체크포인트: 페이지 {page}")
-                    page += 1
-                    continue
-                consecutive_failures = 0
+                    # _fetch_page 가 이미 재시도(429 대기·지수 백오프)를 다 쓴 상태. 이전엔 이 페이지를
+                    # 건너뛰고(page += 1) 계속해, 가끔 한 페이지씩 실패하면 그만큼 규칙이 빠진 채
+                    # "완료"로 끝났다(조용한 누락). 건너뛰지 않고 이 페이지를 체크포인트로 남긴 채
+                    # 중단한다 — 재실행하면 정확히 이 페이지부터 이어받는다.
+                    self._save_checkpoint(page)
+                    raise RuntimeError(
+                        f"DUR 병용금기 페이지 {page} 요청 실패(재시도 소진) — 건너뛰지 않고 중단. "
+                        f"체크포인트 유지, 재실행 시 페이지 {page}부터 이어서 진행."
+                    )
 
                 items = data.get("body", {}).get("items", [])
                 if not items:
@@ -130,6 +141,9 @@ class DurSyncMixin:
                 await asyncio.sleep(1.5)
 
         self._clear_checkpoint()
+        if self._updated_ingr_contra:
+            logger.warning("금기 사유 문장이 바뀐 성분쌍 규칙 %d건 갱신 (risk_tags 초기화 → extract_risk_tags 필요)",
+                           self._updated_ingr_contra)
         return count
 
     async def _upsert_dur_contraindication(self, item: dict) -> None:
@@ -204,6 +218,14 @@ class DurSyncMixin:
             )
         )
         if existing:
+            # 원천(식약처)이 금기 사유 문장을 고쳐 내려주면 반영한다 — 이전엔 "있으면 건너뜀"이라
+            # 한 번 적재된 문장이 영원히 갱신되지 않았다. 문장이 바뀌면 그 문장에서 뽑아 둔
+            # risk_tags 도 낡은 값이 되므로 비워 둔다(sync.py extract_risk_tags 가 NULL 만 다시 뽑음).
+            if prohibit_content and existing.prohibit_content != prohibit_content:
+                existing.prohibit_content = prohibit_content
+                existing.remark = remark
+                existing.risk_tags = None
+                self._updated_ingr_contra += 1
             return
         self.db.add(DurIngredientContraindication(
             ingr_code_a=code_a, ingr_code_b=code_b,

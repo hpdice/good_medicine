@@ -23,10 +23,12 @@ efcy_dplct 동기화가 이 테이블들을 채운다. dur_extra_codes는 판정
 0006 마이그레이션에서 residual_interactions로 축소·폐기됨.
 """
 import asyncio
+import json
 import logging
 import os
 import sys
 import time
+from datetime import datetime, timezone
 
 os.environ.setdefault("DEBUG", "false")
 os.environ["DEBUG"] = "false"
@@ -45,6 +47,36 @@ SOURCE_LABELS = {
     "dur_extra_codes": "DUR 기타 성분코드 매핑",
     "dur_age_caution": "DUR 특정연령대금기·노인주의",
 }
+
+
+def _state_file() -> str:
+    from app.config import settings
+    return os.path.join(settings.SYNC_STATE_DIR, "last_sync.json")
+
+
+def _load_state() -> dict:
+    try:
+        with open(_state_file(), encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _record_success(source: str, count: int, elapsed: float) -> None:
+    """소스별 마지막 **성공** 시각·건수를 남긴다 — 데이터가 얼마나 오래됐는지 알 수 있게.
+    (금기 규칙이 오래되면 새로 지정된 병용금기를 못 잡는다.)"""
+    state = _load_state()
+    state[source] = {
+        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "count": count,
+        "seconds": round(elapsed, 1),
+    }
+    try:
+        os.makedirs(os.path.dirname(_state_file()), exist_ok=True)
+        with open(_state_file(), "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+    except OSError as e:
+        print(f"  (경고) 마지막 동기화 기록 저장 실패: {e}")
 
 
 async def cmd_fill_ingr():
@@ -154,11 +186,23 @@ async def cmd_status():
     print(f"  특정연령대금기 규칙  : {age_taboo:>7,}건")
     print(f"  노인주의 규칙        : {elderly_caution:>7,}건")
     print(f"  residual_interactions: {residual:>6,}건 (성분코드 미해소 약 폴백)")
+    state = _load_state()
+    if state:
+        print("  ----- 마지막 성공 동기화 (UTC) -----")
+        for source, info in sorted(state.items()):
+            label = SOURCE_LABELS.get(source, source)
+            print(f"  {label:<22}: {info['at']}  ({info['count']:,}건)")
+    else:
+        print("  마지막 성공 동기화 기록 없음")
     print("============================\n")
 
 
-async def run_sync(sources: list[str]):
+async def run_sync(sources: list[str]) -> list[str]:
+    """실패한 소스 이름 목록을 돌려준다. 이전엔 실패해도 [오류]만 찍고 종료 코드 0이라
+    자동 실행(작업 스케줄러)에서 실패를 알 수 없었다."""
     from app.db.session import AsyncSessionLocal
+
+    failed: list[str] = []
     from app.services.public_data_service import PublicDataService
 
     async with AsyncSessionLocal() as db:
@@ -198,12 +242,16 @@ async def run_sync(sources: list[str]):
 
                 elapsed = time.time() - start
                 print(f"\r[완료] {label}: {n:,}건  ({elapsed:.1f}초)          ")
+                _record_success(source, n, elapsed)
             except Exception as e:
                 print(f"\r[오류] {label}: {e}")
+                failed.append(source)
+    return failed
 
 
 async def main_async():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "all"
+    failed: list[str] = []
 
     if cmd == "status":
         await cmd_status()
@@ -223,19 +271,23 @@ async def main_async():
         await cmd_status()
     elif cmd == "all":
         print("전체 동기화를 시작합니다.")
-        await run_sync(SOURCES)
+        failed = await run_sync(SOURCES)
         await cmd_status()
     elif cmd == "dur_extra_codes":
-        await run_sync(["dur_extra_codes"])
+        failed = await run_sync(["dur_extra_codes"])
         await cmd_status()
     elif cmd == "dur_age_caution":
-        await run_sync(["dur_age_caution"])
+        failed = await run_sync(["dur_age_caution"])
         await cmd_status()
     elif cmd in SOURCES:
-        await run_sync([cmd])
+        failed = await run_sync([cmd])
         await cmd_status()
     else:
         print(__doc__)
+        sys.exit(1)
+
+    if failed:
+        print(f"실패한 동기화: {', '.join(failed)}")
         sys.exit(1)
 
 

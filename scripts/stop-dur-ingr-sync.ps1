@@ -17,7 +17,7 @@ for d in /proc/[0-9]*; do
   kill "$(basename $d)" && k=$((k+1))
 done
 echo "종료: ${k}개"
-echo "checkpoint: $(cat /tmp/dur_contraindications_checkpoint.txt 2>/dev/null)"
+echo "checkpoint: $(cat /var/lib/goodmedicine/dur_contraindications_checkpoint.txt 2>/dev/null)"
 '@
 
 $script | docker exec -i $container sh

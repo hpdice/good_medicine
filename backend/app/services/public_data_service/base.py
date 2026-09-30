@@ -29,6 +29,8 @@ class _SyncBase:
         self._seen_ingr_contra: set[tuple] = set()
         self._seen_ingr_effect: set[tuple] = set()
         self._seen_ingr_age: set[tuple] = set()
+        # 이번 실행에서 금기 사유 문장이 바뀌어 갱신된 성분쌍 규칙 수(로그·검증용)
+        self._updated_ingr_contra = 0
         # item_seq -> Drug — 같은 품목이 병용금기 수십~수백 쌍에 반복 등장하므로
         # (예: 흔한 진통제 한 품목이 수백 개 다른 품목과 쌍을 이룸) 캐시 없이는
         # _find_or_create_drug_from_dur가 매번 DB 왕복한다(796,842행 sweep에서
@@ -82,8 +84,12 @@ class _SyncBase:
                 params = {"serviceKey": self._api_key, "pageNo": page, "numOfRows": size, "type": "json"}
                 data = await self._fetch_page(client, url, params)
                 if data is None:
-                    page += 1
-                    continue
+                    # _fetch_page 가 재시도를 다 쓴 상태. 이전엔 page += 1 로 건너뛰어 그 페이지가
+                    # 빠진 채 "완료"됐고, API 가 아예 죽으면 끝없이 페이지 번호만 올리며 돌았다.
+                    # 중단한다 — 이 루프의 적재는 멱등(upsert)이라 재실행하면 처음부터 안전하게 다시 받는다.
+                    raise RuntimeError(
+                        f"{log_label} page {page} 요청 실패(재시도 소진) — 건너뛰지 않고 중단. 재실행 필요."
+                    )
 
                 items = data.get("body", {}).get("items", [])
                 if not items:
@@ -110,7 +116,7 @@ class _SyncBase:
         retry_hint: str, page_size: int | None = None,
     ) -> int:
         """`ops`: {label: (엔드포인트 op, item_handler에 넘길 부가값)}을 순회하며 각각
-        totalCount까지 페이지를 돈다. 연속 3회 응답 실패 시 할당량 초과로 보고
+        totalCount까지 페이지를 돈다. 페이지 요청이 재시도 끝에 실패하면 건너뛰지 않고
         RuntimeError. `sync_dur_age_caution`/`sync_dur_extra_ingredient_codes`가
         각자 갖고 있던 거의 동일한 루프를 추출한 것(로직 변경 없음)."""
         size = page_size or self.PAGE_SIZE
@@ -119,7 +125,6 @@ class _SyncBase:
             url = f"{settings.DUR_PRODUCT_API_URL}/{op}"
             page = 1
             ep_count = 0
-            consecutive_failures = 0
             async with httpx.AsyncClient(timeout=30) as client:
                 while True:
                     params = {
@@ -128,15 +133,11 @@ class _SyncBase:
                     }
                     data = await self._fetch_page(client, url, params)
                     if data is None:
-                        consecutive_failures += 1
-                        if consecutive_failures >= 3:
-                            raise RuntimeError(
-                                f"{error_label} [{label}] page {page} 연속 실패 — 할당량 초과 추정. "
-                                f"할당량 리셋 후 `{retry_hint}` 재실행."
-                            )
-                        page += 1
-                        continue
-                    consecutive_failures = 0
+                        # 이전엔 연속 3회가 아니면 그 페이지를 건너뛰고 계속했다(조용한 누락).
+                        raise RuntimeError(
+                            f"{error_label} [{label}] page {page} 요청 실패(재시도 소진) — 건너뛰지 않고 중단. "
+                            f"할당량 초과일 수 있음 — 리셋 후 `{retry_hint}` 재실행."
+                        )
 
                     items = data.get("body", {}).get("items", [])
                     if not items:

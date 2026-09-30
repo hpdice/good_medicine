@@ -47,6 +47,10 @@ class Settings(BaseSettings):
         "127.0.0.1/32", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
     ]
 
+    # 공공데이터 동기화 상태(체크포인트·마지막 성공 시각). compose 의 sync_state 볼륨에 마운트 —
+    # 컨테이너를 재생성해도 유지된다.
+    SYNC_STATE_DIR: str = "/var/lib/goodmedicine"
+
     # 처방전/약봉투 OCR — 이미지는 메모리에서만 처리하고 OCR 직후 폐기(디스크·DB 저장 없음).
     OCR_MAX_IMAGE_BYTES: int = 8 * 1024 * 1024  # 8MB 초과 업로드는 거부
     OCR_TESSERACT_LANG: str = "kor+eng"
