@@ -31,8 +31,11 @@ class InteractionBanner extends StatelessWidget {
     final style = RiskStyle.of(tone, Theme.of(context).brightness);
     final isSafe = tone == RiskTone.safe;
 
-    final label = isSafe ? '함께 복용해도 괜찮아요' : _summaryLabel(result);
-    final subLabel = isSafe ? 'DUR 병용금기·효능군중복 기준' : '탭하여 상세 보기';
+    // 걸린 규칙이 없다는 건 "DUR에 등록된 위험이 없다"는 뜻이지 안전 보증이 아니다
+    // (예: 와파린은 DUR 병용금기 등록이 0건). 그래서 "괜찮아요"로 단정하지 않는다.
+    final label = isSafe ? '확인된 위험이 없어요' : _summaryLabel(result);
+    final subLabel =
+        isSafe ? 'DUR에 등록된 조합만 확인돼요 · 걱정되면 약사와 상담하세요' : '탭하여 상세 보기';
 
     return Container(
       decoration: BoxDecoration(
