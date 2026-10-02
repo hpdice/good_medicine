@@ -103,9 +103,9 @@ POST /drugs/ocr ─▶ 서버 OCR(Tesseract) ─▶ 후보 추출 ─▶ 매칭 
 | DB | PostgreSQL 16 (pg_trgm 퍼지검색, JSONB) |
 | OCR | Tesseract (kor+eng), 이미지 미저장 — 메모리 처리 후 폐기 |
 | LLM | Ollama + `qwen2.5:14b-instruct` (GPU passthrough, 외부 API 미사용) |
-| 보안 | JWT(AT 30분 / 단일사용 RT 7일), bcrypt, AES-256-GCM 필드 암호화, Rate Limiting |
+| 보안 | JWT(AT 30분 / 단일사용 RT 7일), bcrypt, AES-256-GCM 필드 암호화, Rate Limiting(로그인은 IP 단위 + 계정별 실패 횟수) |
 | 인프라 | Docker Compose / Tailscale Funnel(백엔드 외부 노출) / Vercel(웹) / GitHub Actions(백엔드 테스트·APK·웹) |
-| 테스트 | pytest-asyncio + httpx(ASGITransport), 격리 테스트 DB, Ollama mock — 68개, push 시 CI 실행 |
+| 테스트 | pytest-asyncio + httpx(ASGITransport), 격리 테스트 DB, Ollama mock — 73개, push 시 CI 실행 |
 | 운영 | 매일 DB 백업(복원 검증), 월간 공공데이터 갱신(품질 게이트), DB 확인 헬스체크 — [운영 런북](docs/operations.md) |
 
 ---
@@ -129,14 +129,14 @@ backend/                 FastAPI 백엔드 (Docker 이미지에는 이 폴더만
   app/
     api/v1/              auth · users · drugs · medicine-box · analysis (엔드포인트 17개)
     services/            비즈니스 로직 (위 표 참고) + public_data_service/(공공데이터 동기화 패키지)
-    core/                encryption · security · rate_limit · logging
+    core/                encryption · security · rate_limit · login_guard · logging
     models/ schemas/ db/
   alembic/               마이그레이션 0001~0010 + ce94face11b4(출생연도·연령대 규칙)
   sync.py                공공데이터 동기화 CLI (status · overview · approval · dur_contraindications ·
                          efcy_dplct · dur_age_caution · dur_extra_codes · build_drug_ingredients · …)
   validate_db.py         데이터 품질 게이트 (치명 문제 시 종료 코드 1)
   seed/                  DB 완전 초기화 시 복원하는 잔여 폴백 데이터
-  tests/                 pytest 68개
+  tests/                 pytest 73개
 front_app/               Flutter 앱 (Android · Web)
   lib/core/              api · models · notifications(FCM·복약 알림) · storage · theme · widgets
   lib/features/          auth · camera · home · profile · search

@@ -1,6 +1,6 @@
 # 프로젝트 전체 현황
 
-> 기준일: 2026-09-17. **이 문서는 "지금 상태" 스냅샷만** — 날짜별 작업 서사(계획/문제/결론)는
+> 기준일: 2026-10-02. **이 문서는 "지금 상태" 스냅샷만** — 날짜별 작업 서사(계획/문제/결론)는
 > [개발일지.md](./개발일지.md).
 >
 > 배포 완료: 백엔드+Ollama는 국내 PC(`docker compose` + Tailscale Funnel), 프론트 웹은 Vercel,
@@ -17,7 +17,7 @@
 | DB 마이그레이션 | 100% | ✅ 완료 (0001~0009 + `ce94face11b4` + `0010` — 성분 단위 전환·품목 테이블 폐기·risk_tags·복약정보 필드암호화·출생연도·연령대 규칙 테이블·낱알식별 죽은 컬럼/인덱스 제거) |
 | 데이터 적재 | 100% | ✅ 완료 + 품질 검증 통과 |
 | Flutter 앱 프론트엔드 | 100% | ✅ 완료. OCR은 서버 처리로 전환(`image_picker`, 웹 포함 전 플랫폼). 2026-09-12: 복약 알림·내 정보(건강정보/알레르기/출생연도) 화면 추가 + `home_screen.dart`(865줄) → 177줄+위젯 9개 파일로 분할 |
-| 백엔드 E2E 테스트 | 핵심 플로우 완료 | ✅ **68개** 테스트 통과 (2026-09-30: 탈퇴 처리·Rate Limit 키·헬스체크·동기화 누락 회귀 16개 추가, CI에서도 실행 / 성분 전환·서버 OCR·복약정보 암호화·알레르기 충돌·연령대 규칙·복약 알림 필드 커버) |
+| 백엔드 E2E 테스트 | 핵심 플로우 완료 | ✅ **73개** 테스트 (2026-09-30: 탈퇴 처리·Rate Limit 키·헬스체크·동기화 누락 회귀 16개 추가, 2026-10-02: 로그인 계정별 실패 제한 5개 추가 — 이 5개는 Docker 없는 PC에서 작성해 데스크탑 실행 확인 전. CI에서도 실행 / 성분 전환·서버 OCR·복약정보 암호화·알레르기 충돌·연령대 규칙·복약 알림 필드 커버) |
 | AI 대응 가이드 (로컬 LLM) | 완료 | ✅ Ollama + Qwen2.5 14B. 배포도 로컬 PC(GPU)라 **풀 동작** — Funnel 경유 실측: `is_ai_generated=true`, 308자 실제 생성 |
 | FCM 푸시 알림 | 완료 | ✅ Firebase 프로젝트(`good-medicine-app`) 연동, 디버그 APK 빌드 검증 완료 |
 | 배포 | 백엔드 국내 PC · 프론트 Vercel | ✅ 백엔드(API): 로컬 `docker compose` + Tailscale Funnel 컨테이너(`goodmedicine.tail9f1768.ts.net/api/v1/`). 프론트(웹): `git push` → GitHub Actions → Vercel(`goodmedicine-hpdice.vercel.app`). **개인정보는 백엔드·DB(국내 PC)에만.** 아래 참고 |
@@ -93,14 +93,14 @@ residual_interactions               :    217건  ← 성분코드 미해소 약�
 ### 보안
 - JWT Access Token 30분 + Single-use Refresh Token 7일 (모든 토큰에 `jti` 고유값 포함)
 - AES-256-GCM 필드 암호화 (건강정보·알레르기·출생연도, **복약함 전체 payload**(drug_id·용량·복용시각·알림설정·메모 등), 분석이력 drug_ids·findings·AI 가이드) — "누가 무슨 약을 먹는지"도 민감정보로 취급. 복호화 실패 시 필드별 격리(계정 전체 500 방지)
-- Rate Limiting — 로그인은 실제 클라이언트 IP, quick-check·guide·OCR은 로그인 사용자 단위(2026-09-30: 전 사용자가 Tailscale 프록시 IP 하나를 공유하던 문제 수정). 상세 `docs/operations.md`
+- Rate Limiting — 로그인은 **IP 단위 20회/15분(성공 포함, 폭주 방어) + 이메일별 실패 5회/15분(`app/core/login_guard.py`, 무차별 대입 방어)** 두 겹, quick-check·guide·OCR은 로그인 사용자 단위(2026-09-30: 전 사용자가 Tailscale 프록시 IP 하나를 공유하던 문제 수정, 2026-10-02: 공유 IP 환경에서 정상 사용자가 막히지 않게 IP 한도를 풀고 계정별 실패 제한으로 분리). 상세 `docs/operations.md`
 - 보안 헤더 (X-Frame-Options, X-Content-Type-Options, HSTS)
 - AuditLog (민감 작업 추적)
 - 회원 탈퇴: email/hashed_password/name tombstone 처리 (개인정보 삭제 + 이메일 재사용 가능)
 
 ### 테스트
-- `backend/tests/`: pytest + httpx(ASGITransport), 68개 E2E 테스트(스키마 1회 생성 + 테스트별 TRUNCATE), 운영 DB와 분리된 `drugtest_test_db` 사용
-- 커버리지: 인증(회원가입/로그인/리프레시 단일사용/72바이트 초과 비밀번호 거부/탈퇴 후 재가입), 약품검색, 약품명 매칭(성분명 폴백·정밀매칭 우선순위 회귀), 복약함(추가/중복거부/삭제/복약 알림 필드 왕복·형식 검증), quick-check 3단계(critical/caution/safe) + 알레르기 충돌(정확·부분일치·미등록 스킵) + 연령대 규칙(특정연령대금기 경계값·파싱 실패 스킵·노인주의·미등록 스킵), AI 가이드(생성·암호화저장·Ollama 다운 시 폴백, Ollama는 mock), 사용자 정보(건강정보 왕복/복호화 손상 격리)
+- `backend/tests/`: pytest + httpx(ASGITransport), 73개 E2E 테스트(스키마 1회 생성 + 테스트별 TRUNCATE), 운영 DB와 분리된 `drugtest_test_db` 사용
+- 커버리지: 인증(회원가입/로그인/리프레시 단일사용/72바이트 초과 비밀번호 거부/탈퇴 후 재가입/로그인 계정별 실패 잠금·성공 시 초기화·계정 간 분리), 약품검색, 약품명 매칭(성분명 폴백·정밀매칭 우선순위 회귀), 복약함(추가/중복거부/삭제/복약 알림 필드 왕복·형식 검증), quick-check 3단계(critical/caution/safe) + 알레르기 충돌(정확·부분일치·미등록 스킵) + 연령대 규칙(특정연령대금기 경계값·파싱 실패 스킵·노인주의·미등록 스킵), AI 가이드(생성·암호화저장·Ollama 다운 시 폴백, Ollama는 mock), 사용자 정보(건강정보 왕복/복호화 손상 격리)
 - Flutter: `flutter test` — `MedicationReminderService.computeSchedule`/`stableReminderId` 순수 함수 단위 테스트 9개(만료 처리·id 안정성)
 
 ## AI 대응 가이드 — 로컬 LLM
@@ -152,7 +152,7 @@ front_app/lib/
     ├── auth/            login_screen, register_screen, auth_provider
     ├── camera/          camera_screen, ocr_result_screen, camera_provider
     ├── home/            home_screen(177줄, 2026-09-12 865줄→분할)·home_provider
-    │                    (배너: 병용금기·알레르기·연령금기=critical, 효능군중복·노인주의=caution)
+    │                    (배너: 병용금기·알레르기·연령금기=critical, 효능군중복·노인주의=caution, 걸린 규칙 없음="확인된 위험이 없어요" — "괜찮아요"로 단정하지 않는다, 2026-10-02)
     │                    widgets/(9개: strip_banner·floating_error·empty_state·medicine_card·
     │                    interaction_banner·finding_card·single_drug_risk_card·risk_badge·
     │                    ai_guide_section·reminder_edit_sheet)
@@ -317,6 +317,9 @@ PC 상시 가동 부담을 덜려면 한국 리전 상시 서버(Oracle Cloud Al
 | `gh` CLI 인증 | 낮음 | GitHub Release로 APK 배포 중인데 `gh auth login` 미완료 — 매번 웹에서 수동 업로드 중. 인증하면 자동화 가능 |
 | 낱알 이미지 인식 | 폐기 (코드도 제거 완료) | 2026-09-12 검증: 필터(모양·색상·각인) 자체는 판별력 있음(각인 입력 시 90.4%가 후보 1건) 확인했으나, 이건 "사진 찍으면 인식"이 아니라 "약을 보고 직접 입력"하는 흐름이라 원래 기대한 사용성과 안 맞아 폐기 결정. 2026-09-17: 폐기 결정 후에도 DB 컬럼·동기화 코드가 남아있던 걸 발견해 마이그레이션 `0010`으로 완전히 제거 |
 | 복약 알림 실기기 검증 | 낮음 | 백엔드·Flutter 단위 테스트·`flutter build apk --debug` 빌드는 통과했으나, 실기기/에뮬레이터에서 알림이 실제로 뜨는지·재부팅 후 유지되는지는 미검증 |
+| AI 가이드 프롬프트에 알레르기·연령 판정 미전달 | 중간 | `generate_guide`가 `findings`만 받아, 알레르기·연령만으로 `critical`일 때 설명이 근거를 못 짚는다(2026-10-02 확인, 코드 수정은 보류). docs/study 기본기 09 |
+| 로그인 실패 카운터 영속화 | 낮음 | `login_guard`는 프로세스 메모리 — 재시작 시 초기화, uvicorn 워커를 늘리면 워커별로 센다. 지금은 단일 프로세스라 문제 없음 |
+| 폐기된 Refresh Token 재사용 로그 | 낮음 | 만료·위조·재사용이 모두 같은 401이라 토큰 탈취 신호를 구분 못 한다. docs/study 기본기 11 |
 | DUR 용량주의·투여기간주의 적재 | 낮음 | 성분코드 매핑만 `sync.py dur_extra_codes`로 수확 중, 판정 규칙 미적재 |
 
 ---
