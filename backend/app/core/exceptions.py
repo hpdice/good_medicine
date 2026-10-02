@@ -28,3 +28,11 @@ class ConflictError(HTTPException):
 class ValidationError(HTTPException):
     def __init__(self, detail: str = "Validation failed") -> None:
         super().__init__(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail)
+
+
+class TooManyRequestsError(HTTPException):
+    def __init__(self, detail: str = "Too many requests", retry_after: int | None = None) -> None:
+        headers = {"Retry-After": str(retry_after)} if retry_after else None
+        super().__init__(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=detail, headers=headers
+        )

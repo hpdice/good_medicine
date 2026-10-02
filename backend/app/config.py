@@ -36,7 +36,12 @@ class Settings(BaseSettings):
     CORS_ORIGIN_REGEX: str = ""
 
     # Rate Limiting
-    LOGIN_RATE_LIMIT: str = "5/15minutes"
+    # IP 단위 — 성공한 로그인도 센다. 자동화된 폭주 방어용이라 넉넉히 잡는다(같은 공유기·행사장
+    # 와이파이 뒤의 여러 사용자가 한 IP로 묶인다). 비밀번호 무차별 대입 방어는 아래 계정별 실패 제한이 맡는다.
+    LOGIN_RATE_LIMIT: str = "20/15minutes"
+    # 계정(이메일) 단위 — 실패한 로그인만 센다(app/core/login_guard.py).
+    LOGIN_FAILURE_LIMIT: int = 5
+    LOGIN_FAILURE_WINDOW_SECONDS: int = 900
     DEFAULT_RATE_LIMIT: str = "60/minute"
     ANALYSIS_RATE_LIMIT: str = "10/minute"
     OCR_RATE_LIMIT: str = "20/minute"

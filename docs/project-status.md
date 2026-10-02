@@ -73,7 +73,7 @@ residual_interactions               :    217건  ← 성분코드 미해소 약�
 | 엔드포인트 | 기능 | 보안 |
 |---|---|---|
 | POST /auth/register | 회원가입 | — |
-| POST /auth/login | 로그인 | Rate Limit 5회/15분 |
+| POST /auth/login | 로그인 | IP 20회/15분 + 계정별 실패 5회/15분 |
 | POST /auth/refresh | 토큰 갱신 | Single-use RT |
 | POST /auth/logout | 로그아웃 | JWT |
 | GET /users/me | 내 정보 조회 | JWT |

@@ -81,12 +81,13 @@ docker exec drugtest-backend-1 python validate_db.py          # 품질 검증
 
 | 엔드포인트 | 한도 | 기준 |
 |---|---|---|
-| `POST /auth/login` | 5회/15분 | 실제 클라이언트 IP |
+| `POST /auth/login` | 20회/15분 (성공 포함) + **계정별 실패 5회/15분** | 실제 클라이언트 IP + 이메일 |
 | `POST /analysis/quick-check` | 60회/분 | 로그인 사용자 (토큰 없으면 IP) |
 | `POST /analysis/guide` | 10회/분 | 로그인 사용자 |
 | `POST /drugs/ocr` | 20회/분 | 로그인 사용자 |
 
 - 이전엔 모든 요청이 Tailscale 컨테이너를 거쳐 들어와 **전 사용자가 IP 하나를 공유**했다(서비스 전체 로그인 5회/15분).
+- 로그인은 IP 한도를 20회/15분으로 풀고, 무차별 대입 방어는 **이메일별 실패 횟수**(`app/core/login_guard.py`, `LOGIN_FAILURE_LIMIT`·`LOGIN_FAILURE_WINDOW_SECONDS`)가 맡는다. 같은 행사장 와이파이처럼 IP를 공유하는 환경에서 정상 사용자가 막히지 않게 하려는 것이다. 한도는 `.env`로 조정할 수 있다.
 - 실제 IP: Tailscale Funnel은 출발지 주소를 `X-Forwarded-For`에 **덮어써서** 넘긴다. 백엔드는 직접 연결 상대가
   `TRUSTED_PROXY_CIDRS`(기본: 루프백·사설망)일 때만 이 헤더를, 그것도 **가장 오른쪽 값**만 믿는다
   (`app/core/rate_limit.py`). 감사 로그의 IP도 같은 함수를 쓴다(이전엔 위조 가능한 첫 번째 값을 그대로 기록).

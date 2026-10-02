@@ -12,8 +12,8 @@
 import os
 
 os.environ.setdefault("DEBUG", "false")
-# 로그인 엔드포인트는 5회/15분으로 강하게 제한되어 있어, 여러 테스트가
-# 순차적으로 로그인을 호출하면 실제 슬로우API 제한에 걸린다. 테스트에서는 완화한다.
+# 로그인 엔드포인트의 IP 단위 제한(운영 20회/15분)에 여러 테스트가 순차적으로 로그인을 호출하다
+# 걸리지 않도록 테스트에서는 완화한다. (계정별 실패 제한은 아래 autouse 픽스처가 테스트마다 초기화한다.)
 os.environ["LOGIN_RATE_LIMIT"] = "1000/minute"
 # 테스트는 거의 매번 회원가입+로그인(=bcrypt 해시+검증)을 한다. 운영 코스트(12)면
 # 테스트 1개당 수백 ms 씩 붙으므로 4 로 낮춘다 (보안 무관, 속도만).
@@ -28,6 +28,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
+from app.core.login_guard import login_guard
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
@@ -67,6 +68,14 @@ def _prepare_schema():
 
     asyncio.run(_setup())
     yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_login_guard():
+    """계정별 로그인 실패 카운터는 프로세스 메모리에 있어 테스트 사이에 새어 나간다 — 매번 비운다."""
+    login_guard.clear()
+    yield
+    login_guard.clear()
 
 
 _TRUNCATE_ALL = "TRUNCATE {} RESTART IDENTITY CASCADE".format(

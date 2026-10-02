@@ -1,3 +1,9 @@
+import time
+
+from app.config import settings
+from app.core.login_guard import LoginFailureGuard
+
+
 def _register_payload(email: str = "test@example.com") -> dict:
     return {
         "email": email,
@@ -110,3 +116,63 @@ async def test_delete_then_reregister_with_same_email(client):
         "/auth/login", json={"email": payload["email"], "password": payload["password"]}
     )
     assert relogin_res.status_code == 200
+
+
+async def _login(client, email: str, password: str):
+    return await client.post("/auth/login", json={"email": email, "password": password})
+
+
+async def test_login_locked_after_repeated_failures_even_with_correct_password(client):
+    payload = _register_payload()
+    await client.post("/auth/register", json=payload)
+
+    for _ in range(settings.LOGIN_FAILURE_LIMIT):
+        res = await _login(client, payload["email"], "wrong-password")
+        assert res.status_code == 401
+
+    # 잠긴 뒤에는 맞는 비밀번호도 거부 — 안 그러면 공격자가 계속 시도할 수 있다
+    res = await _login(client, payload["email"], payload["password"])
+    assert res.status_code == 429
+    assert int(res.headers["Retry-After"]) > 0
+
+
+async def test_login_lock_is_per_account(client):
+    a, b = _register_payload("a@example.com"), _register_payload("b@example.com")
+    await client.post("/auth/register", json=a)
+    await client.post("/auth/register", json=b)
+
+    for _ in range(settings.LOGIN_FAILURE_LIMIT):
+        await _login(client, a["email"], "wrong-password")
+
+    assert (await _login(client, a["email"], a["password"])).status_code == 429
+    assert (await _login(client, b["email"], b["password"])).status_code == 200
+
+
+async def test_successful_login_resets_failure_count(client):
+    payload = _register_payload()
+    await client.post("/auth/register", json=payload)
+
+    for _ in range(settings.LOGIN_FAILURE_LIMIT - 1):
+        await _login(client, payload["email"], "wrong-password")
+    assert (await _login(client, payload["email"], payload["password"])).status_code == 200
+
+    # 성공으로 카운터가 비워졌으므로 다시 LIMIT-1번 틀려도 잠기지 않는다
+    for _ in range(settings.LOGIN_FAILURE_LIMIT - 1):
+        await _login(client, payload["email"], "wrong-password")
+    assert (await _login(client, payload["email"], payload["password"])).status_code == 200
+
+
+async def test_unknown_email_failures_are_counted_too(client):
+    # 존재하지 않는 이메일도 같은 응답(401→429)이어야 가입 여부가 새지 않는다
+    for _ in range(settings.LOGIN_FAILURE_LIMIT):
+        assert (await _login(client, "ghost@example.com", "whatever123")).status_code == 401
+    assert (await _login(client, "ghost@example.com", "whatever123")).status_code == 429
+
+
+def test_login_guard_window_expires():
+    guard = LoginFailureGuard(limit=2, window_seconds=0.05)
+    guard.record_failure("x@example.com")
+    guard.record_failure("X@Example.com ")  # 대소문자·공백은 같은 계정
+    assert guard.retry_after("x@example.com") > 0
+    time.sleep(0.07)
+    assert guard.retry_after("x@example.com") == 0

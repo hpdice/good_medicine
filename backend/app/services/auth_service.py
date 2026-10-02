@@ -6,7 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.exceptions import ConflictError, UnauthorizedError
+from app.core.exceptions import ConflictError, TooManyRequestsError, UnauthorizedError
+from app.core.login_guard import login_guard
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -50,11 +51,20 @@ class AuthService:
         return user
 
     async def login(self, data: UserLogin, ip: str, user_agent: str | None) -> dict:
+        # 계정별 실패 제한 — 잠겨 있으면 맞는 비밀번호도 거부한다(핸들러 본문 전에 확인).
+        retry_after = login_guard.retry_after(data.email)
+        if retry_after:
+            raise TooManyRequestsError(
+                "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.", retry_after=retry_after
+            )
+
         user = await self.db.scalar(select(User).where(User.email == data.email))
         if not user or not verify_password(data.password, user.hashed_password):
+            login_guard.record_failure(data.email)
             raise UnauthorizedError("이메일 또는 비밀번호가 올바르지 않습니다.")
         if not user.is_active:
             raise UnauthorizedError("비활성화된 계정입니다.")
+        login_guard.reset(data.email)
 
         access_token = create_access_token(str(user.id))
         refresh_token_str = create_refresh_token(str(user.id))
