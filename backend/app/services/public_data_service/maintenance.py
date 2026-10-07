@@ -91,13 +91,13 @@ class MaintenanceMixin(_SyncBase):
                 continue
 
             candidates: list[str] = []
-            for entry in ingr_name or []:
-                kor = (entry or {}).get("kor")
+            for ingr_item in ingr_name or []:
+                kor = (ingr_item or {}).get("kor")
                 if kor:
                     candidates.append(kor)
-            for entry in _parse_main_ingr(main_item_ingr or ""):
-                if entry.get("kor"):
-                    candidates.append(entry["kor"])
+            for ingr_item in _parse_main_ingr(main_item_ingr or ""):
+                if ingr_item.get("kor"):
+                    candidates.append(ingr_item["kor"])
             for paren in re.findall(r'[\(\[（]([^\)\]）]+)[\)\]）]', item_name or ""):
                 for part in re.split(r'[,/·]', paren):
                     part = part.strip()
@@ -131,7 +131,7 @@ class MaintenanceMixin(_SyncBase):
         entries = json.loads(self.SEED_RESIDUAL_PATH.read_text(encoding="utf-8"))
 
         # item_seq → drug_id, 기존 쌍 집합을 각각 쿼리 1번으로 미리 로드 (N+1 방지)
-        seqs = {e["seq1"] for e in entries} | {e["seq2"] for e in entries}
+        seqs = {seed_row["seq1"] for seed_row in entries} | {seed_row["seq2"] for seed_row in entries}
         seq_to_id = {
             seq: drug_id
             for seq, drug_id in (await self.db.execute(
@@ -150,17 +150,17 @@ class MaintenanceMixin(_SyncBase):
         }
 
         count = skipped = missing = 0
-        for e in entries:
-            id1, id2 = seq_to_id.get(e["seq1"]), seq_to_id.get(e["seq2"])
+        for seed_row in entries:
+            id1, id2 = seq_to_id.get(seed_row["seq1"]), seq_to_id.get(seed_row["seq2"])
             if not id1 or not id2:
                 missing += 1
                 continue
-            if (frozenset((id1, id2)), e["type"]) in existing:
+            if (frozenset((id1, id2)), seed_row["type"]) in existing:
                 skipped += 1
                 continue
             self.db.add(ResidualInteraction(
                 drug1_id=id1, drug2_id=id2,
-                interaction_type=e["type"], mechanism=e.get("mechanism"),
+                interaction_type=seed_row["type"], mechanism=seed_row.get("mechanism"),
             ))
             count += 1
         await self.db.commit()

@@ -55,9 +55,9 @@ def user_or_ip_key(request: Request) -> str:
     scheme, _, token = auth.partition(" ")
     if scheme.lower() == "bearer" and token:
         try:
-            payload = decode_token(token)
-            if payload.get("type") == "access" and payload.get("sub"):
-                return f"user:{payload['sub']}"
+            jwt_claims = decode_token(token)
+            if jwt_claims.get("type") == "access" and jwt_claims.get("sub"):
+                return f"user:{jwt_claims['sub']}"
         except JWTError:
             pass
     return f"ip:{client_ip(request)}"

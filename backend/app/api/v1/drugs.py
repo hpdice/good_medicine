@@ -64,22 +64,22 @@ async def ocr_match_drugs(
     if ctype.startswith(_NON_IMAGE_TYPES):
         raise HTTPException(status_code=415, detail="이미지 파일만 업로드할 수 있습니다.")
 
-    data = await image.read()
+    image_bytes = await image.read()
     try:
-        if not data:
+        if not image_bytes:
             raise HTTPException(status_code=400, detail="빈 파일입니다.")
-        if len(data) > settings.OCR_MAX_IMAGE_BYTES:
+        if len(image_bytes) > settings.OCR_MAX_IMAGE_BYTES:
             limit_mb = settings.OCR_MAX_IMAGE_BYTES // (1024 * 1024)
             raise HTTPException(status_code=413, detail=f"이미지는 {limit_mb}MB 이하만 가능합니다.")
         try:
-            text = await run_in_threadpool(run_ocr, data)
+            text = await run_in_threadpool(run_ocr, image_bytes)
         except UnreadableImageError as e:
             raise HTTPException(status_code=415, detail=str(e)) from e
         except OcrError as e:
             raise HTTPException(status_code=503, detail=str(e)) from e
     finally:
         # 요청 처리가 끝나면 이미지 바이트가 남지 않도록 명시적으로 참조 해제 + 스풀 파일 닫기
-        del data
+        del image_bytes
         await image.close()
 
     candidates = extract_candidates(text)

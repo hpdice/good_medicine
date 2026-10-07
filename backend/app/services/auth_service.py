@@ -23,20 +23,20 @@ class AuthService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def register(self, data: UserRegister, ip: str, user_agent: str | None) -> User:
-        if not data.privacy_consent or not data.health_data_consent:
+    async def register(self, req: UserRegister, ip: str, user_agent: str | None) -> User:
+        if not req.privacy_consent or not req.health_data_consent:
             from app.core.exceptions import ValidationError
             raise ValidationError("개인정보 및 건강정보 수집 동의가 필요합니다.")
 
-        existing = await self.db.scalar(select(User).where(User.email == data.email))
+        existing = await self.db.scalar(select(User).where(User.email == req.email))
         if existing:
             raise ConflictError("이미 사용 중인 이메일입니다.")
 
         now = datetime.now(timezone.utc)
         user = User(
-            email=data.email,
-            hashed_password=hash_password(data.password),
-            name=data.name,
+            email=req.email,
+            hashed_password=hash_password(req.password),
+            name=req.name,
             privacy_consent_at=now,
             health_data_consent_at=now,
         )
@@ -50,21 +50,21 @@ class AuthService:
         await self.db.refresh(user)
         return user
 
-    async def login(self, data: UserLogin, ip: str, user_agent: str | None) -> dict:
+    async def login(self, req: UserLogin, ip: str, user_agent: str | None) -> dict:
         # 계정별 실패 제한 — 잠겨 있으면 맞는 비밀번호도 거부한다(핸들러 본문 전에 확인).
-        retry_after = login_guard.retry_after(data.email)
+        retry_after = login_guard.retry_after(req.email)
         if retry_after:
             raise TooManyRequestsError(
                 "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.", retry_after=retry_after
             )
 
-        user = await self.db.scalar(select(User).where(User.email == data.email))
-        if not user or not verify_password(data.password, user.hashed_password):
-            login_guard.record_failure(data.email)
+        user = await self.db.scalar(select(User).where(User.email == req.email))
+        if not user or not verify_password(req.password, user.hashed_password):
+            login_guard.record_failure(req.email)
             raise UnauthorizedError("이메일 또는 비밀번호가 올바르지 않습니다.")
         if not user.is_active:
             raise UnauthorizedError("비활성화된 계정입니다.")
-        login_guard.reset(data.email)
+        login_guard.reset(req.email)
 
         access_token = create_access_token(str(user.id))
         refresh_token_str = create_refresh_token(str(user.id))
@@ -93,10 +93,10 @@ class AuthService:
         from app.core.security import decode_token
 
         try:
-            payload = decode_token(refresh_token_str)
-            if payload.get("type") != "refresh":
+            jwt_claims = decode_token(refresh_token_str)
+            if jwt_claims.get("type") != "refresh":
                 raise UnauthorizedError()
-            user_id = uuid.UUID(payload["sub"])
+            user_id = uuid.UUID(jwt_claims["sub"])
         except (JWTError, ValueError, KeyError) as e:
             raise UnauthorizedError() from e
 

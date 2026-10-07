@@ -66,15 +66,15 @@ class AiGuideService:
     async def _build_prompt(
         self, user_id: uuid.UUID, findings: list[QuickCheckFinding], risk_level: str
     ) -> str:
-        drug_ids = {f.drug1_id for f in findings} | {f.drug2_id for f in findings}
+        drug_ids = {finding.drug1_id for finding in findings} | {finding.drug2_id for finding in findings}
         drugs = await DrugService(self.db).get_drugs_by_ids(list(drug_ids))
 
         findings_lines = []
-        for f in findings:
-            kind = "병용금기(절대 금기)" if f.interaction_type == "contraindicated" else "효능군중복(주의)"
-            tags = f" [주요 위험: {', '.join(f.risk_tags)}]" if f.risk_tags else ""
+        for finding in findings:
+            kind = "병용금기(절대 금기)" if finding.interaction_type == "contraindicated" else "효능군중복(주의)"
+            tags = f" [주요 위험: {', '.join(finding.risk_tags)}]" if finding.risk_tags else ""
             findings_lines.append(
-                f"- {f.drug1_name} + {f.drug2_name}: {kind} — {f.mechanism or '정보 없음'}{tags}"
+                f"- {finding.drug1_name} + {finding.drug2_name}: {kind} — {finding.mechanism or '정보 없음'}{tags}"
             )
 
         drug_lines = []
@@ -129,7 +129,7 @@ class AiGuideService:
             user_id=user_id,
             drug_ids_encrypted=self._enc.encrypt([str(d) for d in drug_ids]),
             findings_snapshot_encrypted=self._enc.encrypt(
-                [f.model_dump(mode="json") for f in findings]
+                [finding.model_dump(mode="json") for finding in findings]
             ),
             risk_level=risk_level,
             model_name=settings.OLLAMA_MODEL,

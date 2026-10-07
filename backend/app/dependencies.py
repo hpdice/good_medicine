@@ -24,10 +24,10 @@ async def get_current_user_id(
     요청할 수 있었다(2026-09-30 재현). PK 조회 한 번으로 막는다.
     """
     try:
-        payload = decode_token(credentials.credentials)
-        if payload.get("type") != "access":
+        jwt_claims = decode_token(credentials.credentials)
+        if jwt_claims.get("type") != "access":
             raise UnauthorizedError("Invalid token type")
-        user_id = payload.get("sub")
+        user_id = jwt_claims.get("sub")
         if not user_id:
             raise UnauthorizedError()
         uid = uuid.UUID(user_id)

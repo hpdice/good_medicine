@@ -21,7 +21,7 @@ class OllamaClient:
         self._timeout = settings.OLLAMA_TIMEOUT_SECONDS
 
     async def generate(self, prompt: str, system: str | None = None) -> str:
-        payload = {
+        request_body = {
             "model": self._model,
             "prompt": prompt,
             "stream": False,
@@ -31,8 +31,8 @@ class OllamaClient:
             "keep_alive": "30m",
         }
         if system:
-            payload["system"] = system
-        return await self._request(payload)
+            request_body["system"] = system
+        return await self._request(request_body)
 
     async def keep_warm(self) -> None:
         """모델을 GPU에 로드된 상태로 유지하는 용도의 최소 호출.
@@ -48,7 +48,7 @@ class OllamaClient:
         종종 부족했고, 그때마다 클라이언트가 연결을 끊으면서 Ollama가 로딩 중이던
         메모리를 회수 못 하고 누적되는 문제가 있었다.
         """
-        payload = {
+        request_body = {
             "model": self._model,
             "prompt": "ping",
             "stream": False,
@@ -56,15 +56,15 @@ class OllamaClient:
             "options": {"num_predict": 1},
         }
         try:
-            await self._request(payload, timeout=settings.OLLAMA_WARMUP_TIMEOUT_SECONDS)
+            await self._request(request_body, timeout=settings.OLLAMA_WARMUP_TIMEOUT_SECONDS)
         except OllamaUnavailableError as e:
             logger.warning(f"Ollama 워밍업 실패 (다음 주기에 재시도): {e}")
 
-    async def _request(self, payload: dict, timeout: float | None = None) -> str:
+    async def _request(self, request_body: dict, timeout: float | None = None) -> str:
         async with httpx.AsyncClient(base_url=self._base_url, timeout=timeout or self._timeout) as client:
             for attempt in range(2):
                 try:
-                    resp = await client.post("/api/generate", json=payload)
+                    resp = await client.post("/api/generate", json=request_body)
                     resp.raise_for_status()
                     return resp.json()["response"].strip()
                 except (httpx.ConnectError, httpx.ConnectTimeout) as e:
