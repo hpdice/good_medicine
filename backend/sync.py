@@ -17,6 +17,12 @@
     dur_age_caution         DUR 특정연령대금기·노인주의 동기화 (성분 테이블만 채움)
     all                     overview·dur_contraindications·efcy_dplct·approval 순 (기본값)
 
+옵션:
+    --replay[=YYYYMMDD]     API를 부르지 않고 저장해 둔 원본 응답(raw)으로 재파싱·재적재.
+                            날짜 생략 시 엔드포인트별 가장 최근 스냅샷. 원본은 동기화 때마다
+                            SYNC_STATE_DIR/raw/ 에 자동 보관된다(최근 RAW_KEEP_SNAPSHOTS개 유지).
+                            dur_contraindications는 남아 있는 체크포인트가 있으면 그 페이지부터 읽는다.
+
 판정은 성분 단위(drug_ingredients + dur_ingredient_*)만 쓴다. dur_contraindications·
 efcy_dplct 동기화가 이 테이블들을 채운다. dur_extra_codes는 판정엔 미관여하고
 성분코드 해소율만 높인다. 구 품목 테이블(drug_interactions/drug_effect_groups)은
@@ -197,7 +203,7 @@ async def cmd_status():
     print("============================\n")
 
 
-async def run_sync(sources: list[str]) -> list[str]:
+async def run_sync(sources: list[str], replay: str | None = None) -> list[str]:
     """실패한 소스 이름 목록을 돌려준다. 이전엔 실패해도 [오류]만 찍고 종료 코드 0이라
     자동 실행(작업 스케줄러)에서 실패를 알 수 없었다."""
     from app.db.session import AsyncSessionLocal
@@ -223,6 +229,7 @@ async def run_sync(sources: list[str]) -> list[str]:
                 print(f"\r  페이지 {page:>4}  {bar}  {count:>6}/{total:<6}  {pct}", end="", flush=True)
 
             service = PublicDataService(db, progress_cb=_cb)
+            service.replay_snapshot = replay
 
             try:
                 if source == "overview":
@@ -250,7 +257,13 @@ async def run_sync(sources: list[str]) -> list[str]:
 
 
 async def main_async():
-    cmd = sys.argv[1] if len(sys.argv) > 1 else "all"
+    args = [a for a in sys.argv[1:] if not a.startswith("--replay")]
+    replay_args = [a for a in sys.argv[1:] if a.startswith("--replay")]
+    replay = None
+    if replay_args:
+        replay = replay_args[0].partition("=")[2] or "latest"
+        print(f"[replay] API 대신 저장된 원본 응답({replay})으로 재적재합니다.")
+    cmd = args[0] if args else "all"
     failed: list[str] = []
 
     if cmd == "status":
@@ -271,16 +284,16 @@ async def main_async():
         await cmd_status()
     elif cmd == "all":
         print("전체 동기화를 시작합니다.")
-        failed = await run_sync(SOURCES)
+        failed = await run_sync(SOURCES, replay)
         await cmd_status()
     elif cmd == "dur_extra_codes":
-        failed = await run_sync(["dur_extra_codes"])
+        failed = await run_sync(["dur_extra_codes"], replay)
         await cmd_status()
     elif cmd == "dur_age_caution":
-        failed = await run_sync(["dur_age_caution"])
+        failed = await run_sync(["dur_age_caution"], replay)
         await cmd_status()
     elif cmd in SOURCES:
-        failed = await run_sync([cmd])
+        failed = await run_sync([cmd], replay)
         await cmd_status()
     else:
         print(__doc__)

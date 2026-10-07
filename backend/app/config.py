@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     # 공공데이터 동기화 상태(체크포인트·마지막 성공 시각). compose 의 sync_state 볼륨에 마운트 —
     # 컨테이너를 재생성해도 유지된다.
     SYNC_STATE_DIR: str = "/var/lib/goodmedicine"
+    # 공공 API 원본 응답(bronze) 보관 — SYNC_STATE_DIR/raw/<엔드포인트>/<YYYYMMDD>/page_NNNNNN.json.gz.
+    # 파싱 로직을 고치거나 새 필드가 필요할 때 7시간짜리 재동기화 대신 `sync.py <소스> --replay`로 재파싱한다.
+    RAW_RESPONSE_SAVE: bool = True
+    RAW_KEEP_SNAPSHOTS: int = 3  # 엔드포인트별로 최근 N개 날짜 스냅샷만 유지
 
     # 처방전/약봉투 OCR — 이미지는 메모리에서만 처리하고 OCR 직후 폐기(디스크·DB 저장 없음).
     OCR_MAX_IMAGE_BYTES: int = 8 * 1024 * 1024  # 8MB 초과 업로드는 거부

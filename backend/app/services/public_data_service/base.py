@@ -13,6 +13,7 @@ from app.core.logging import logger
 from app.models.drug import Drug
 from app.models.drug_ingredient import DrugIngredient
 
+from . import raw_store
 from .helpers import _make_drug_key, _make_simple_name
 
 
@@ -36,18 +37,27 @@ class _SyncBase:
         # _find_or_create_drug_from_dur가 매번 DB 왕복한다(796,842행 sweep에서
         # 실측: 이게 가장 큰 시간 비중을 차지함).
         self._drug_by_seq: dict[str, Drug] = {}
+        # 원본 응답 보관(bronze). replay_snapshot이 있으면 API 대신 저장된 파일에서 읽는다
+        # ("latest" = 엔드포인트별 가장 최근 스냅샷). 재파싱 시엔 새로 저장하지 않는다.
+        self.replay_snapshot: str | None = None
+        self._raw_snapshot = raw_store.today_snapshot()
 
     async def _emit(self, **kwargs) -> None:
         if self._progress_cb:
             await self._progress_cb(kwargs)
 
     async def _fetch_page(self, client: httpx.AsyncClient, url: str, params: dict, retries: int = 5) -> dict | None:
-        """페이지 요청. 429는 60초 대기 후 재시도, 그 외 에러는 지수 백오프."""
+        """페이지 요청. 429는 60초 대기 후 재시도, 그 외 에러는 지수 백오프.
+        성공한 응답은 원본 그대로 파일에 보관하고(`raw_store`), replay 모드면 파일에서 읽는다."""
+        if self.replay_snapshot:
+            return await asyncio.to_thread(self._load_raw_page, url, params)
         for attempt in range(retries):
             try:
                 resp = await client.get(url, params=params)
                 resp.raise_for_status()
-                return resp.json()
+                data = resp.json()
+                await self._save_raw_page(url, params, data)
+                return data
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429:
                     wait = 60
@@ -62,6 +72,26 @@ class _SyncBase:
                 await asyncio.sleep(wait)
         logger.error(f"API failed after {retries} attempts, skipping page {params.get('pageNo')}")
         return None
+
+    async def _save_raw_page(self, url: str, params: dict, data: dict) -> None:
+        if not settings.RAW_RESPONSE_SAVE:
+            return
+        try:
+            await asyncio.to_thread(
+                raw_store.save_page, raw_store.endpoint_name(url), self._raw_snapshot, int(params["pageNo"]), data
+            )
+        except Exception as e:  # 보관 실패가 적재를 막으면 안 된다
+            logger.warning(f"raw 응답 저장 실패(동기화는 계속): {e}")
+
+    def _load_raw_page(self, url: str, params: dict) -> dict | None:
+        endpoint = raw_store.endpoint_name(url)
+        snapshot = self.replay_snapshot
+        if snapshot == "latest":
+            snapshot = raw_store.latest_snapshot(endpoint)
+            if snapshot is None:
+                logger.error(f"replay할 raw 스냅샷이 없음: {endpoint}")
+                return None
+        return raw_store.load_page(endpoint, snapshot, int(params["pageNo"]))
 
     # ------------------------------------------------------------------ #
     # 공통 페이지네이션 루프 — 단순형(3곳이 쓰던 걸 통합) /                    #

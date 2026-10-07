@@ -130,6 +130,7 @@ docker exec drugtest-backend-1 python sync.py status
   할당량 초과로 멈추면 60분 뒤 최대 3번 이어서 재시도한다.
 - **품질 게이트**(`validate_db.py`): 자기참조·정규순서 위반·중복 쌍·고아 행·규칙 수 하한(약품 30,000 · 병용금기 300 ·
   효능군 200)·알려진 금기 쌍 3개 탐지 여부. 하나라도 걸리면 실패 → 직전 백업으로 복원 검토(2절).
+- **원본 응답 보관·재생**(2026-10-07): 동기화가 받은 API 응답을 `/var/lib/goodmedicine/raw/`(`sync_state` 볼륨)에 엔드포인트·날짜별 gz 파일로 남기고 최근 3개 날짜만 유지한다. 파싱 로직을 고친 뒤엔 `docker exec drugtest-backend-1 python sync.py <소스> --replay`로 API 호출 없이 재적재한다(날짜 지정은 `--replay=YYYYMMDD`). DB 백업에는 포함되지 않는다(API에서 재수집 가능한 캐시). 용량이 부담되면 `.env`의 `RAW_RESPONSE_SAVE=false` 또는 `RAW_KEEP_SNAPSHOTS`를 줄인다.
 - 원천이 금기 사유 문장을 고치면 반영되고, 그 규칙의 `risk_tags`는 비워져 다음 `extract_risk_tags`에서 다시 뽑힌다.
 - 동기화 중에도 서비스는 계속 동작한다(판정은 읽기만). 다만 공공 API 일일 할당량을 쓰므로 같은 날 수동 동기화는 피한다.
 

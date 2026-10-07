@@ -105,7 +105,7 @@ POST /drugs/ocr ─▶ 서버 OCR(Tesseract) ─▶ 후보 추출 ─▶ 매칭 
 | LLM | Ollama + `qwen2.5:14b-instruct` (GPU passthrough, 외부 API 미사용) |
 | 보안 | JWT(AT 30분 / 단일사용 RT 7일), bcrypt, AES-256-GCM 필드 암호화, Rate Limiting(로그인은 IP 단위 + 계정별 실패 횟수) |
 | 인프라 | Docker Compose / Tailscale Funnel(백엔드 외부 노출) / Vercel(웹) / GitHub Actions(백엔드 테스트·APK·웹) |
-| 테스트 | pytest-asyncio + httpx(ASGITransport), 격리 테스트 DB, Ollama mock — 73개, push 시 CI 실행 |
+| 테스트 | pytest-asyncio + httpx(ASGITransport), 격리 테스트 DB, Ollama mock — 77개, push 시 CI 실행 |
 | 운영 | 매일 DB 백업(복원 검증), 월간 공공데이터 갱신(품질 게이트), DB 확인 헬스체크 — [운영 런북](docs/operations.md) |
 
 ---
@@ -136,7 +136,7 @@ backend/                 FastAPI 백엔드 (Docker 이미지에는 이 폴더만
                          efcy_dplct · dur_age_caution · dur_extra_codes · build_drug_ingredients · …)
   validate_db.py         데이터 품질 게이트 (치명 문제 시 종료 코드 1)
   seed/                  DB 완전 초기화 시 복원하는 잔여 폴백 데이터
-  tests/                 pytest 73개
+  tests/                 pytest 77개
 front_app/               Flutter 앱 (Android · Web)
   lib/core/              api · models · notifications(FCM·복약 알림) · storage · theme · widgets
   lib/features/          auth · camera · home · profile · search
