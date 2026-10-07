@@ -16,21 +16,21 @@ class DrugOverviewSyncMixin(_SyncBase):
         )
 
     async def _upsert_drug_from_overview(self, item: dict) -> None:
-        item_seq = _clean(item.get("itemSeq"))
-        item_name = _clean(item.get("itemName"))
-        if not item_seq or not item_name:
+        raw_seq = _clean(item.get("itemSeq"))
+        raw_name = _clean(item.get("itemName"))
+        if not raw_seq or not raw_name:
             return
 
-        drug_key = _make_drug_key(item_name)
+        normalized_key = _make_drug_key(raw_name)
 
-        drug = await self.db.scalar(select(Drug).where(Drug.item_seq == item_seq))
+        drug = await self.db.scalar(select(Drug).where(Drug.item_seq == raw_seq))
         if not drug:
-            drug = Drug(item_seq=item_seq)
+            drug = Drug(item_seq=raw_seq)
             self.db.add(drug)
 
-        drug.drug_key = drug_key
-        drug.item_name = item_name
-        drug.simple_name = _make_simple_name(item_name)
+        drug.drug_key = normalized_key
+        drug.item_name = raw_name
+        drug.simple_name = _make_simple_name(raw_name)
         drug.entp_name = _clean(item.get("entpName"))
         drug.efcy_qesitm = _clean(item.get("efcyQesitm"))
         drug.use_method_qesitm = _clean(item.get("useMethodQesitm"))

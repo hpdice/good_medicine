@@ -22,12 +22,12 @@ class DrugApprovalSyncMixin(_SyncBase):
         if _clean(item.get("CANCEL_NAME")) != "정상":
             return
 
-        item_seq = _clean(item.get("ITEM_SEQ"))
-        item_name = _clean(item.get("ITEM_NAME"))
-        if not item_seq or not item_name:
+        raw_seq = _clean(item.get("ITEM_SEQ"))
+        raw_name = _clean(item.get("ITEM_NAME"))
+        if not raw_seq or not raw_name:
             return
 
-        drug = await self.db.scalar(select(Drug).where(Drug.item_seq == item_seq))
+        drug = await self.db.scalar(select(Drug).where(Drug.item_seq == raw_seq))
 
         permit_date: date | None = None
         permit_date_str = _clean(item.get("ITEM_PERMIT_DATE"))
@@ -42,7 +42,7 @@ class DrugApprovalSyncMixin(_SyncBase):
 
         if drug:
             if not drug.simple_name:
-                drug.simple_name = _make_simple_name(item_name)
+                drug.simple_name = _make_simple_name(raw_name)
             if not drug.item_permit_date:
                 drug.item_permit_date = permit_date
             if not drug.class_name:
@@ -52,10 +52,10 @@ class DrugApprovalSyncMixin(_SyncBase):
             return
 
         drug = Drug(
-            item_seq=item_seq,
-            item_name=item_name,
-            simple_name=_make_simple_name(item_name),
-            drug_key=_make_drug_key(item_name),
+            item_seq=raw_seq,
+            item_name=raw_name,
+            simple_name=_make_simple_name(raw_name),
+            drug_key=_make_drug_key(raw_name),
             entp_name=_clean(item.get("ENTP_NAME")),
             item_permit_date=permit_date,
             class_name=class_name,
