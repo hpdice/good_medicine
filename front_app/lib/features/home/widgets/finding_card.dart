@@ -33,7 +33,7 @@ class _FindingCardState extends State<FindingCard> {
             ? '중복 사유'
             : '금기 사유';
     final badgeText = isDuplicateIngredient
-        ? '중복 복용'
+        ? '병용주의'
         : tone == RiskTone.caution
             ? '같은 계열 중복'
             : style.label;
