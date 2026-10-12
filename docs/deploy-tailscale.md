@@ -106,43 +106,46 @@ flutter build apk --release --dart-define=BASE_URL=https://goodmedicine.tail9f17
 
 ## 노트북에서 임시로 켜기 (같은 주소 그대로)
 
-데스크톱이 주 호스트다. 데스크톱을 못 쓸 때 노트북이 **같은 주소**(`goodmedicine.tail9f1768.ts.net`)로 대신 받는다.
-Vercel 웹에 박힌 API 주소(`WEB_API_BASE_URL`)를 바꿀 필요가 없다. 핵심은 **Tailscale 노드 신원(`tailscale_state` 볼륨)을 노트북으로 옮겨 같은 노드로 로그인**하는 것이다.
+데스크톱이 주 호스트다. 데스크톱을 못 쓸 때 노트북이 **같은 주소**(`goodmedicine.tail9f1768.ts.net`)로 대신 받는다. Vercel 웹에 박힌 API 주소(`WEB_API_BASE_URL`)를 바꿀 필요가 없다.
+핵심은 **Tailscale 노드 이름 `goodmedicine`을 노트북이 이어받게** 하는 것이다. 주소는 노드 이름으로 만들어지므로, 기존(데스크톱) 항목의 이름만 비켜 주면 노트북이 새로 들어와 `goodmedicine`을 받는다.
 
-> ⚠ **동시에 두 곳에서 켜지 않는다.** 같은 노드를 두 PC가 쓰면 Funnel 주소가 번갈아 끊긴다. 항상 "한쪽 끄기 → 다른 쪽 켜기" 순서.
-> ⚠ `tailscale_state`에는 노드 키가 들어 있다(비밀). 옮긴 파일(`tailscale_state.tgz`)은 USB 등으로만 옮기고 git·메신저에 올리지 않으며, 다 쓰면 지운다.
+> ⚠ **한쪽만 켠다.** 데스크톱·노트북이 동시에 같은 이름의 터널을 켜지 않는다. 항상 "한쪽 끄기 → 다른 쪽 켜기".
+> ⚠ 노트북에서는 **항상 `docker-compose.laptop.yml`을 같이** 쓴다(없으면 GPU 없는 노트북에서 Ollama까지 켜려고 한다).
+> ⚠ **DB는 합쳐지지 않는다.** 노트북에서 가입한 사용자·복약함은 노트북 DB에만 있다.
 
-**준비 (노트북에서 미리 1회)**
-- 노트북 `.env`가 데스크톱과 **같은 비밀값**(JWT 서명 키, 암호화 키 등)을 쓰는지 확인한다. 다르면 데스크톱에서 만든 토큰·암호화 데이터를 노트북이 못 읽는다.
-- 노트북 `.env`의 CORS 허용 목록에 `https://goodmedicine-hpdice.vercel.app`이 있는지 확인한다(`CORS_ORIGINS`).
-- GPU가 없으면 `.env`에 `OLLAMA_ENABLED=false` (AI 설명은 폴백 문구로 나간다).
+**준비 (노트북, 미리 1회)**
+- `.env`에 `OLLAMA_ENABLED=false` (AI 설명은 폴백 문구로 나간다. Ollama에 연결을 시도하지 않는다).
+- `.env`의 `SECRET_KEY`, `FIELD_ENCRYPTION_KEY`가 데스크톱과 **같은지** 확인한다. 다르면 데스크톱에서 만든 토큰·암호화 데이터를 노트북이 못 읽는다.
+- `CORS_ORIGINS`에 `https://goodmedicine-hpdice.vercel.app`이 있는지 확인한다.
 
-**데스크톱 → 노트북 (켜기)**
-```powershell
-# [데스크톱] 터널을 끄고 노드 상태를 파일로 꺼낸다
-docker compose -f docker-compose.yml -f docker-compose.prod.yml stop tailscale
-docker run --rm -v drugtest_tailscale_state:/s -v ${PWD}:/out alpine tar czf /out/tailscale_state.tgz -C /s .
-# → tailscale_state.tgz 를 노트북으로 복사
+**켜기 (데스크톱 → 노트북)**
+1. Tailscale 관리 페이지(`https://login.tailscale.com/admin/machines`)에서 **Linux** `goodmedicine`(데스크톱 Docker 컨테이너, Windows `drugtest-pc`가 아님)의 `⋯` → **Edit machine name** → `goodmedicine-desktop`으로 변경한다. 이름만 바꾸는 것이고 삭제가 아니다. "Auto-generate from OS hostname"은 꺼 둔다.
+2. 노트북에서 터널을 띄운다(`--build`: 노트북 백엔드를 현재 코드로 다시 빌드).
+   ```powershell
+   docker compose -f docker-compose.yml -f docker-compose.laptop.yml -f docker-compose.prod.yml up -d --build tailscale
+   docker logs drugtest-tailscale   # "To authenticate, visit: https://login.tailscale.com/a/…" 가 나온다
+   ```
+3. 그 로그인 URL을 브라우저에서 승인한다(Tailscale 계정). 관리 페이지에 `goodmedicine`이 **Connected**로 새로 생긴다(`goodmedicine-1`이 되면 1번에서 이름이 안 비켜진 것).
+4. 공개 주소가 퍼질 때까지 **몇 분** 걸린다(처음엔 이름만 있고 IP가 없어 응답이 없다). 확인한다.
+   ```powershell
+   curl.exe -s https://goodmedicine.tail9f1768.ts.net/health   # {"status":"ok","db":"ok"}
+   ```
 
-# [노트북] 상태를 볼륨에 넣고 운영 구성으로 띄운다
-docker volume create drugtest_tailscale_state
-docker run --rm -v drugtest_tailscale_state:/s -v ${PWD}:/in alpine tar xzf /in/tailscale_state.tgz -C /s
-docker compose -f docker-compose.yml -f docker-compose.laptop.yml -f docker-compose.prod.yml up -d
-curl.exe -s https://goodmedicine.tail9f1768.ts.net/health   # {"status":"ok","db":"ok"}
-```
-다시 인증(로그인 URL)을 묻지 않아야 정상이다. 물으면 상태 복사가 안 된 것이다.
+**되돌리기 (노트북 → 데스크톱)**
+1. 노트북 터널을 먼저 끈다.
+   ```powershell
+   docker compose -f docker-compose.yml -f docker-compose.laptop.yml -f docker-compose.prod.yml stop tailscale
+   ```
+2. 관리 페이지에서 노트북의 `goodmedicine` 항목을 **삭제**하고, `goodmedicine-desktop`의 이름을 `goodmedicine`으로 **되돌린다**.
+3. 데스크톱에서 컨테이너를 켠다(데스크톱에서만 실행).
+   ```powershell
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+   ```
+4. 노트북에 쌓인 가입자를 데스크톱에서도 써야 하면, 1번 전에 노트북에서 `pg_dump`로 덤프해 데스크톱 DB에 복원한다. 짧은 임시 운영이면 버려도 된다.
 
-**노트북 → 데스크톱 (되돌리기)**
-```powershell
-# [노트북] 터널부터 끈다
-docker compose -f docker-compose.yml -f docker-compose.laptop.yml -f docker-compose.prod.yml stop tailscale
-# [데스크톱]
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d tailscale
-```
-되돌릴 때는 파일을 다시 옮길 필요가 없다(데스크톱의 볼륨은 그대로). 노트북에 남은 `tailscale_state.tgz`와 볼륨은 삭제한다: `docker volume rm drugtest_tailscale_state`.
+**노트북 DB를 직접 보고 싶을 때**: `docker-compose.laptop.yml`이 postgres를 이 PC의 `127.0.0.1:5433`에만 연다(밖에서는 접근 불가). DBeaver 등에서 Host `127.0.0.1`, Port `5433`, DB·사용자·비밀번호는 `.env`의 `POSTGRES_*` 값으로 접속한다. 비밀번호는 bcrypt 해시라 DB에서 원문이 보이지 않는 것이 정상이다.
 
-**데이터는 합쳐지지 않는다.** 노트북에서 가입한 사용자·복약함은 **노트북 DB**에만 있다. 데스크톱으로 돌아가면 보이지 않는다.
-임시 운영 기간이 짧으면 그대로 두고, 이어서 써야 하면 `pg_dump`로 옮긴다(되돌리기 전에 노트북에서 덤프 → 데스크톱에서 복원).
+**노트북에서 이 구성이 켜진 동안은** 소스 바인드마운트가 없다(`prod.yml`). 코드를 고치면 `up -d --build`로 다시 빌드해야 반영된다.
 
 ---
 
