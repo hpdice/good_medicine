@@ -106,11 +106,6 @@ secrets/*
 front_app/ios/Runner/GoogleService-Info.plist
 
 # =====================
-# 학습용 문서 (개인 공부용, git 미추적)
-# =====================
-docs/study/
-
-# =====================
 # AI 작업용 컨텍스트 파일 (로컬 전용, git 미추적)
 # =====================
 CLAUDE.md
