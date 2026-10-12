@@ -21,7 +21,7 @@ class QuickCheckFinding(BaseModel):
     drug1_name: str
     drug2_id: uuid.UUID
     drug2_name: str
-    interaction_type: str  # contraindicated(확정,금기) / duplicate_effect_group(확정,주의)
+    interaction_type: str  # contraindicated(확정,금기) / duplicate_ingredient(동일 성분,주의) / duplicate_effect_group(효능군,주의)
     mechanism: str | None
     risk_tags: list[str] = []  # mechanism 문장에서 뽑은 위험/증상 태그 (예: ["출혈위험", "신독성"])
     source: str = "ingredient"  # ingredient(성분 단위 정식 판정) / residual(성분코드 미해소 약 폴백)
@@ -72,6 +72,7 @@ class QuickCheckResponse(BaseModel):
     risk_level: str  # safe / caution / critical
     contraindicated_count: int
     duplicate_effect_group_count: int = 0
+    duplicate_ingredient_count: int = 0
     age_taboo_count: int = 0
     elderly_caution_count: int = 0
     pregnancy_taboo_count: int = 0

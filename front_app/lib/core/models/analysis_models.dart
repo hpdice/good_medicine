@@ -61,6 +61,7 @@ class QuickCheckResponse {
   final String riskLevel; // safe / caution / critical
   final int contraindicatedCount;
   final int duplicateEffectGroupCount;
+  final int duplicateIngredientCount;
   final int ageTabooCount;
   final int elderlyCautionCount;
   final int pregnancyTabooCount;
@@ -75,6 +76,7 @@ class QuickCheckResponse {
         riskLevel = j['risk_level'],
         contraindicatedCount = j['contraindicated_count'],
         duplicateEffectGroupCount = j['duplicate_effect_group_count'] ?? 0,
+        duplicateIngredientCount = j['duplicate_ingredient_count'] ?? 0,
         ageTabooCount = j['age_taboo_count'] ?? 0,
         elderlyCautionCount = j['elderly_caution_count'] ?? 0,
         pregnancyTabooCount = j['pregnancy_taboo_count'] ?? 0,

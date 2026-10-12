@@ -130,7 +130,7 @@ class HomeProvider extends ChangeNotifier {
     for (final f in result.findings) {
       final risk = switch (f.interactionType) {
         'contraindicated' => DrugRisk.contraindicated,
-        'duplicate_effect_group' => DrugRisk.caution,
+        'duplicate_ingredient' || 'duplicate_effect_group' => DrugRisk.caution,
         _ => null,
       };
       if (risk == null) continue;

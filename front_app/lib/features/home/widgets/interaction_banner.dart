@@ -14,7 +14,8 @@ String _summaryLabel(QuickCheckResponse result) {
     if (result.allergyConflicts.isNotEmpty) '알레르기 ${result.allergyConflicts.length}건',
     if (result.ageTabooCount > 0) '연령금기 ${result.ageTabooCount}건',
     if (result.pregnancyTabooCount > 0) '임부금기 ${result.pregnancyTabooCount}건',
-    if (result.duplicateEffectGroupCount > 0) '효능군 중복 ${result.duplicateEffectGroupCount}건',
+    if (result.duplicateIngredientCount > 0) '중복 복용 ${result.duplicateIngredientCount}건',
+    if (result.duplicateEffectGroupCount > 0) '같은 계열 약 중복 ${result.duplicateEffectGroupCount}건',
     if (result.elderlyCautionCount > 0) '노인 주의 ${result.elderlyCautionCount}건',
   ];
   return parts.isEmpty ? '주의가 필요해요' : parts.join(' · ');
@@ -35,8 +36,15 @@ class InteractionBanner extends StatelessWidget {
     // 걸린 규칙이 없다는 건 "DUR에 등록된 위험이 없다"는 뜻이지 안전 보증이 아니다
     // (예: 와파린은 DUR 병용금기 등록이 0건). 그래서 "괜찮아요"로 단정하지 않는다.
     final label = isSafe ? '확인된 위험이 없어요' : _summaryLabel(result);
-    final subLabel =
-        isSafe ? 'DUR에 등록된 조합만 확인돼요 · 걱정되면 약사와 상담하세요' : '탭하여 상세 보기';
+    final onlyDuplicateIngredient = result.duplicateIngredientCount > 0 &&
+        result.riskLevel == 'caution' &&
+        result.duplicateEffectGroupCount == 0 &&
+        result.elderlyCautionCount == 0;
+    final subLabel = isSafe
+        ? 'DUR에 등록된 조합만 확인돼요 · 걱정되면 약사와 상담하세요'
+        : onlyDuplicateIngredient
+            ? '같은 성분의 약이 함께 등록돼 있어요 · 탭하여 상세 보기'
+            : '탭하여 상세 보기';
 
     return Container(
       decoration: BoxDecoration(

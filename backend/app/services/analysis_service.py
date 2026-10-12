@@ -52,7 +52,7 @@ def _risk_level(
     has_elderly_caution = any(a.rule_type == "elderly_caution" for a in age_cautions)
     if "contraindicated" in types or allergy_conflicts or has_age_taboo or pregnancy_cautions:
         return "critical"
-    if "duplicate_effect_group" in types or has_elderly_caution:
+    if "duplicate_ingredient" in types or "duplicate_effect_group" in types or has_elderly_caution:
         return "caution"
     return "safe"
 
@@ -63,7 +63,7 @@ class AnalysisService:
     성분(ingredient) 단위가 정식 경로다 — `drug_ingredients`로 DUR 성분코드에 해소한 뒤
     `dur_ingredient_contraindications`(병용금기) / `dur_ingredient_effect_groups`(효능군중복)
     를 조회. 성분 경로가 재현 못 하는 품목쌍만 담은 소형 `residual_interactions`(217건)를
-    항상 합친다. 등급은 결정적: contraindicated > duplicate_effect_group > safe.
+    항상 합친다. 등급은 결정적: contraindicated > duplicate_ingredient/duplicate_effect_group > safe.
     AI·ML 추론은 판정에 관여하지 않는다 (ML 시도 AUROC 0.48, archive/ml/README.md).
     """
 
@@ -103,6 +103,7 @@ class AnalysisService:
 
         contraindicated = [f for f in findings if f.interaction_type == "contraindicated"]
         duplicate_effect = [f for f in findings if f.interaction_type == "duplicate_effect_group"]
+        duplicate_ingredient = [f for f in findings if f.interaction_type == "duplicate_ingredient"]
         age_taboo = [a for a in age_cautions if a.rule_type == "age_taboo"]
         elderly_caution = [a for a in age_cautions if a.rule_type == "elderly_caution"]
         return QuickCheckResponse(
@@ -111,6 +112,7 @@ class AnalysisService:
             risk_level=_risk_level(findings, allergy_conflicts, age_cautions, pregnancy_cautions),
             contraindicated_count=len(contraindicated),
             duplicate_effect_group_count=len(duplicate_effect),
+            duplicate_ingredient_count=len(duplicate_ingredient),
             age_taboo_count=len(age_taboo),
             elderly_caution_count=len(elderly_caution),
             pregnancy_taboo_count=len(pregnancy_cautions),
@@ -244,6 +246,23 @@ class AnalysisService:
                         ingr_a=rule.ingr_kor_a, ingr_b=rule.ingr_kor_b,
                     ))
 
+        # 동일 성분 중복: 같은 성분코드를 가진 서로 다른 약품 쌍 (효능군 테이블 유무와 무관)
+        same_ingredient_pairs: set[frozenset] = set()
+        shared = {c: ids for c, ids in code_to_drugs.items() if len(ids) >= 2}
+        ingr_names = await self.drugs.get_ingredient_kor_for_codes(set(shared))
+        for code, drug_ids in sorted(shared.items()):
+            name = ingr_names.get(code, code)
+            for id1, id2 in itertools.combinations(sorted(drug_ids, key=str), 2):
+                pair = frozenset({id1, id2})
+                if pair in same_ingredient_pairs:
+                    continue
+                same_ingredient_pairs.add(pair)
+                findings.append(_finding(
+                    drugs[id1], drugs[id2], "duplicate_ingredient",
+                    f"두 약 모두 {name} 성분이에요. 함께 복용하면 같은 성분이 중복돼 과량이 될 수 있어요.",
+                    [],
+                ))
+
         # 효능군중복: 성분코드를 dur_seq로 묶어 서로 다른 약품 2개 이상이면 쌍 생성
         groups: dict[str, tuple[str, set[str]]] = {}
         for row in await self.drugs.get_ingr_effect_groups_for_codes(all_codes):
@@ -255,25 +274,11 @@ class AnalysisService:
             if len(in_group) < 2:
                 continue
             for id1, id2 in itertools.combinations(sorted(in_group, key=str), 2):
+                if frozenset({id1, id2}) in same_ingredient_pairs:
+                    continue
                 findings.append(_finding(
                     drugs[id1], drugs[id2], "duplicate_effect_group",
                     f"효능군 중복: {effect_name}", [],
-                ))
-
-        # 동일 성분 중복 — 효능군 테이블에 없는 성분도 잡는다
-        covered = {frozenset({f.drug1_id, f.drug2_id}) for f in findings
-                   if f.interaction_type == "duplicate_effect_group"}
-        shared = {c: ids for c, ids in code_to_drugs.items() if len(ids) >= 2}
-        ingr_names = await self.drugs.get_ingredient_kor_for_codes(set(shared))
-        for code, drug_ids in sorted(shared.items()):
-            for id1, id2 in itertools.combinations(sorted(drug_ids, key=str), 2):
-                pair = frozenset({id1, id2})
-                if pair in covered:
-                    continue
-                covered.add(pair)
-                findings.append(_finding(
-                    drugs[id1], drugs[id2], "duplicate_effect_group",
-                    f"동일 성분 중복: {ingr_names.get(code, code)}", [],
                 ))
 
         return findings
@@ -307,8 +312,11 @@ class AnalysisService:
         for f in ingredient:
             merged.setdefault((frozenset({f.drug1_id, f.drug2_id}), f.interaction_type), f)
         for f in residual:
-            key = (frozenset({f.drug1_id, f.drug2_id}), f.interaction_type)
+            pair = frozenset({f.drug1_id, f.drug2_id})
+            key = (pair, f.interaction_type)
             if key in merged:
+                continue
+            if f.interaction_type == "duplicate_effect_group" and (pair, "duplicate_ingredient") in merged:
                 continue
             merged[key] = f
             logger.warning(

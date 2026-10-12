@@ -274,13 +274,14 @@ async def test_quick_check_same_ingredient_duplicate_without_effect_group(client
     assert res.status_code == 200
     body = res.json()
     assert body["risk_level"] == "caution"
-    assert body["duplicate_effect_group_count"] == 1
-    assert body["findings"][0]["interaction_type"] == "duplicate_effect_group"
-    assert body["findings"][0]["mechanism"] == "동일 성분 중복: 레비티라세탐"
+    assert body["duplicate_ingredient_count"] == 1
+    assert body["duplicate_effect_group_count"] == 0
+    assert body["findings"][0]["interaction_type"] == "duplicate_ingredient"
+    assert "레비티라세탐" in body["findings"][0]["mechanism"]
 
 
-async def test_quick_check_same_ingredient_dedupes_with_effect_group(client, session_factory):
-    """효능군에도 있는 성분이면 finding은 효능군 1건만."""
+async def test_quick_check_same_ingredient_wins_over_effect_group(client, session_factory):
+    """효능군에도 있는 같은 성분 쌍은 duplicate_ingredient 1건만 남는다."""
     async with session_factory() as session:
         drug_a = await make_drug(session, "크레스토정10", ingredients=[("D000001", "로수바스타틴")])
         drug_b = await make_drug(session, "크레스토정20", ingredients=[("D000001", "로수바스타틴")])
@@ -295,8 +296,9 @@ async def test_quick_check_same_ingredient_dedupes_with_effect_group(client, ses
         headers=headers,
     )
     body = res.json()
-    assert body["duplicate_effect_group_count"] == 1
-    assert body["findings"][0]["mechanism"] == "효능군 중복: 지질저하제"
+    assert body["duplicate_ingredient_count"] == 1
+    assert body["duplicate_effect_group_count"] == 0
+    assert len(body["findings"]) == 1
 
 
 async def test_quick_check_dedupes_ingredient_over_residual(client, session_factory):

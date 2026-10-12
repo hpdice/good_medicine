@@ -22,11 +22,24 @@ class _FindingCardState extends State<FindingCard> {
     final finding = widget.finding;
     final drugsById = widget.drugsById;
     final scheme = Theme.of(context).colorScheme;
-    final tone = finding.interactionType == 'duplicate_effect_group'
+    final isDuplicateIngredient = finding.interactionType == 'duplicate_ingredient';
+    final tone = isDuplicateIngredient || finding.interactionType == 'duplicate_effect_group'
         ? RiskTone.caution
         : RiskTone.critical;
     final style = RiskStyle.of(tone, Theme.of(context).brightness);
-    final reasonLabel = tone == RiskTone.caution ? '중복 사유' : '금기 사유';
+    final reasonLabel = isDuplicateIngredient
+        ? '왜 주의해야 하나요'
+        : tone == RiskTone.caution
+            ? '중복 사유'
+            : '금기 사유';
+    final badgeText = isDuplicateIngredient
+        ? '중복 복용'
+        : tone == RiskTone.caution
+            ? '같은 계열 중복'
+            : style.label;
+    final mechanismText = isDuplicateIngredient
+        ? '${finding.mechanism} 처방받은 대로 복용 중이라면 약사·의사와 상담해 주세요.'
+        : finding.mechanism;
 
     final drug1 = drugsById[finding.drug1Id];
     final drug2 = drugsById[finding.drug2Id];
@@ -42,7 +55,7 @@ class _FindingCardState extends State<FindingCard> {
                       fontWeight: FontWeight.w700, fontSize: 14.5)),
             ),
             const SizedBox(width: 8),
-            AppBadge(text: style.label, color: style.color),
+            AppBadge(text: badgeText, color: style.color),
           ]),
           if (drug1?.efcyQesitm != null) ...[
             Gap.v8,
@@ -83,7 +96,7 @@ class _FindingCardState extends State<FindingCard> {
                     fontWeight: FontWeight.w700,
                     color: style.color)),
             const SizedBox(height: 2),
-            Text(finding.mechanism!,
+            Text(mechanismText!,
                 style: TextStyle(
                     fontSize: 12.5, color: scheme.onSurfaceVariant, height: 1.4)),
           ],
