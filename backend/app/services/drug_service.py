@@ -236,6 +236,16 @@ class DrugService:
             mapping.setdefault(drug_id, set()).add(ingr_code)
         return mapping
 
+    async def get_ingredient_kor_for_codes(self, codes: set[str]) -> dict[str, str]:
+        """성분코드 → 성분 한글명."""
+        if not codes:
+            return {}
+        stmt = select(DrugIngredient.ingr_code, DrugIngredient.ingr_kor).where(
+            DrugIngredient.ingr_code.in_(codes), DrugIngredient.ingr_kor.isnot(None)
+        )
+        result = await self.db.execute(stmt)
+        return {code: kor for code, kor in result.all()}
+
     async def get_ingr_contraindications_for_codes(
         self, codes: set[str]
     ) -> list[DurIngredientContraindication]:

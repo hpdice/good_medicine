@@ -260,6 +260,22 @@ class AnalysisService:
                     f"효능군 중복: {effect_name}", [],
                 ))
 
+        # 동일 성분 중복 — 효능군 테이블에 없는 성분도 잡는다
+        covered = {frozenset({f.drug1_id, f.drug2_id}) for f in findings
+                   if f.interaction_type == "duplicate_effect_group"}
+        shared = {c: ids for c, ids in code_to_drugs.items() if len(ids) >= 2}
+        ingr_names = await self.drugs.get_ingredient_kor_for_codes(set(shared))
+        for code, drug_ids in sorted(shared.items()):
+            for id1, id2 in itertools.combinations(sorted(drug_ids, key=str), 2):
+                pair = frozenset({id1, id2})
+                if pair in covered:
+                    continue
+                covered.add(pair)
+                findings.append(_finding(
+                    drugs[id1], drugs[id2], "duplicate_effect_group",
+                    f"동일 성분 중복: {ingr_names.get(code, code)}", [],
+                ))
+
         return findings
 
     # ------------------------------------------------------------------ #

@@ -259,6 +259,46 @@ async def test_quick_check_ingredient_effect_group_caution(client, session_facto
     assert body["findings"][0]["source"] == "ingredient"
 
 
+async def test_quick_check_same_ingredient_duplicate_without_effect_group(client, session_factory):
+    """효능군에 없는 성분(레비티라세탐)도 같은 성분 두 약품이면 caution."""
+    async with session_factory() as session:
+        drug_a = await make_drug(session, "레비라정750", ingredients=[("D000510", "레비티라세탐")])
+        drug_b = await make_drug(session, "큐팜정750", ingredients=[("D000510", "레비티라세탐")])
+
+    headers = await _auth_headers(client)
+    res = await client.post(
+        "/analysis/quick-check",
+        json={"drug_ids": [str(drug_a.id), str(drug_b.id)]},
+        headers=headers,
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["risk_level"] == "caution"
+    assert body["duplicate_effect_group_count"] == 1
+    assert body["findings"][0]["interaction_type"] == "duplicate_effect_group"
+    assert body["findings"][0]["mechanism"] == "동일 성분 중복: 레비티라세탐"
+
+
+async def test_quick_check_same_ingredient_dedupes_with_effect_group(client, session_factory):
+    """효능군에도 있는 성분이면 finding은 효능군 1건만."""
+    async with session_factory() as session:
+        drug_a = await make_drug(session, "크레스토정10", ingredients=[("D000001", "로수바스타틴")])
+        drug_b = await make_drug(session, "크레스토정20", ingredients=[("D000001", "로수바스타틴")])
+        await make_ingr_effect_group(
+            session, [("D000001", "로수바스타틴")], dur_seq="1", effect_name="지질저하제",
+        )
+
+    headers = await _auth_headers(client)
+    res = await client.post(
+        "/analysis/quick-check",
+        json={"drug_ids": [str(drug_a.id), str(drug_b.id)]},
+        headers=headers,
+    )
+    body = res.json()
+    assert body["duplicate_effect_group_count"] == 1
+    assert body["findings"][0]["mechanism"] == "효능군 중복: 지질저하제"
+
+
 async def test_quick_check_dedupes_ingredient_over_residual(client, session_factory):
     """같은 쌍이 성분 규칙 + residual 양쪽에 있으면 finding 1건, source=ingredient 우선."""
     async with session_factory() as session:
