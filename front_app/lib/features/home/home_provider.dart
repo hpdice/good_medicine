@@ -136,5 +136,9 @@ class HomeProvider extends ChangeNotifier {
       bump(a.drugId,
           a.ruleType == 'age_taboo' ? DrugRisk.contraindicated : DrugRisk.caution);
     }
+    // 임부금기도 병용금기와 같은 급(critical) — 임신 중으로 등록한 사용자의 약 1개 단위.
+    for (final a in result.pregnancyCautions) {
+      bump(a.drugId, DrugRisk.contraindicated);
+    }
   }
 }

@@ -41,6 +41,8 @@ class UserService:
             user.allergy_info_encrypted = self._enc.encrypt(data.allergy_info)
         if data.birth_year is not None:
             user.birth_year_encrypted = self._enc.encrypt(data.birth_year)
+        if data.is_pregnant is not None:
+            user.pregnancy_encrypted = self._enc.encrypt(data.is_pregnant)
 
         await self.db.commit()
         await self.db.refresh(user)
@@ -70,6 +72,7 @@ class UserService:
         user.health_conditions_encrypted = None
         user.allergy_info_encrypted = None
         user.birth_year_encrypted = None
+        user.pregnancy_encrypted = None
         user.fcm_token = None
         user.email = f"deleted-{user.id}@deleted.local"
         user.hashed_password = hash_password(uuid.uuid4().hex)
@@ -92,6 +95,9 @@ class UserService:
         )
         user.__dict__["birth_year"] = self._safe_decrypt(
             user.id, "birth_year", user.birth_year_encrypted
+        )
+        user.__dict__["is_pregnant"] = self._safe_decrypt(
+            user.id, "is_pregnant", user.pregnancy_encrypted
         )
         return user
 

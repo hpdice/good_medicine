@@ -6,6 +6,7 @@ class UserProfile {
   final List<String> healthConditions;
   final List<String> allergyInfo;
   final int? birthYear;
+  final bool? isPregnant; // null = 미입력
 
   UserProfile.fromJson(Map<String, dynamic> j)
       : id = j['id'],
@@ -18,5 +19,6 @@ class UserProfile {
         allergyInfo = (j['allergy_info'] as List? ?? [])
             .map((e) => e.toString())
             .toList(),
-        birthYear = j['birth_year'];
+        birthYear = j['birth_year'],
+        isPregnant = j['is_pregnant'];
 }

@@ -29,12 +29,13 @@ class ProfileProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 셋 다 선택 입력 — null이면 그 필드는 보내지 않는다(값 없음 유지),
+  /// 전부 선택 입력 — null이면 그 필드는 보내지 않는다(값 없음 유지),
   /// 빈 리스트를 보내면 서버에 저장된 값을 비운다.
   Future<bool> save({
     List<String>? healthConditions,
     List<String>? allergyInfo,
     int? birthYear,
+    bool? isPregnant,
   }) async {
     _status = ProfileStatus.saving;
     _error = null;
@@ -44,6 +45,7 @@ class ProfileProvider extends ChangeNotifier {
         if (healthConditions != null) 'health_conditions': healthConditions,
         if (allergyInfo != null) 'allergy_info': allergyInfo,
         if (birthYear != null) 'birth_year': birthYear,
+        if (isPregnant != null) 'is_pregnant': isPregnant,
       });
       _profile = UserProfile.fromJson(res.data);
       _status = ProfileStatus.idle;

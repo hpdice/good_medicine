@@ -5,6 +5,7 @@ from app.models.dur_ingredient_rule import (
     DurIngredientAgeCaution,
     DurIngredientContraindication,
     DurIngredientEffectGroup,
+    DurItemPregnancyTaboo,
 )
 from app.models.medicine_box import MedicineBoxEntry
 from app.models.residual_interaction import ResidualInteraction
@@ -19,6 +20,7 @@ __all__ = [
     "DurIngredientContraindication",
     "DurIngredientEffectGroup",
     "DurIngredientAgeCaution",
+    "DurItemPregnancyTaboo",
     "ResidualInteraction",
     "MedicineBoxEntry",
     "AnalysisResult",

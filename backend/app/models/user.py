@@ -27,6 +27,9 @@ class User(Base):
     # 출생연도(만 나이 계산용, DUR 특정연령대금기·노인주의 판정) — 계정 소유자 본인이 아니라
     # 보호자가 관리하는 대상(자녀·부모 등)의 나이일 수 있어 건강정보와 함께 암호화한다.
     birth_year_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 임신 여부(DUR 임부금기 판정용) — 출생연도와 같은 이유로 암호화. bool 하나를 암호화해 두는 건
+    # '임신 중인지'가 그 자체로 민감한 건강정보이기 때문. NULL = 미입력(판정 스킵).
+    pregnancy_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # 개인정보보호법(PIPA) 동의 이력
     privacy_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

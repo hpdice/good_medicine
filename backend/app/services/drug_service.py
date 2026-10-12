@@ -11,6 +11,7 @@ from app.models.dur_ingredient_rule import (
     DurIngredientAgeCaution,
     DurIngredientContraindication,
     DurIngredientEffectGroup,
+    DurItemPregnancyTaboo,
 )
 from app.models.residual_interaction import ResidualInteraction
 from app.services.public_data_service import _make_drug_key
@@ -257,6 +258,16 @@ class DrugService:
         stmt = select(DurIngredientEffectGroup).where(
             DurIngredientEffectGroup.ingr_code.in_(codes)
         )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_pregnancy_taboo_for_item_seqs(
+        self, item_seqs: set[str]
+    ) -> list[DurItemPregnancyTaboo]:
+        """주어진 품목(ITEM_SEQ)에 걸린 DUR 임부금기 — 품목 단위라 성분코드 해소와 무관하다."""
+        if not item_seqs:
+            return []
+        stmt = select(DurItemPregnancyTaboo).where(DurItemPregnancyTaboo.item_seq.in_(item_seqs))
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 

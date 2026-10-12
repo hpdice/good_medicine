@@ -13,6 +13,15 @@ def _clean(value: Any) -> str | None:
     return s if s else None
 
 
+def _clean_text(value: Any) -> str | None:
+    """_clean + 원본이 통째로 따옴표로 감싸 내려주는 경우(임부금기 REMARK/PROHBT_CONTENT에서
+    일부 행이 '"2등급(…)"' 형태) 바깥 따옴표만 벗긴다. 본문 중간의 따옴표는 건드리지 않는다."""
+    s = _clean(value)
+    if s and len(s) >= 2 and s[0] == '"' and s[-1] == '"':
+        s = s[1:-1].strip()
+    return s or None
+
+
 def _make_drug_key(name: str) -> str:
     s = str(name)
     s = re.sub(r'\([^)]*\)', '', s)

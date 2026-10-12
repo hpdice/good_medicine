@@ -34,14 +34,16 @@ async def _ollama_keepalive_loop() -> None:
         await asyncio.sleep(settings.OLLAMA_KEEPALIVE_INTERVAL_SECONDS)
 
 
-@asynccontextmanager
+@asynccontextmanager # with 구문에서 FastAPI lifespan 이벤트로 사용
+
 async def lifespan(app: FastAPI):
     setup_logging()
     logger.info(f"Starting drugtest backend (debug={settings.DEBUG})")
     fcm_state = "enabled" if fcm_service.is_configured() else "disabled"
     logger.info(f"FCM push notifications: {fcm_state}")
     keepalive_task = asyncio.create_task(_ollama_keepalive_loop())
-    yield
+    
+    yield # 여기서 FastAPI 앱이 실행됨
     keepalive_task.cancel()
     await engine.dispose()
     logger.info("Backend shutdown complete")

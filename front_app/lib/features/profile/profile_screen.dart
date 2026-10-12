@@ -14,6 +14,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _birthYearCtrl = TextEditingController();
   List<String> _healthConditions = [];
   List<String> _allergyInfo = [];
+  bool _isPregnant = false;
   bool _loadedOnce = false;
 
   @override
@@ -33,6 +34,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _healthConditions = [...profile.healthConditions];
       _allergyInfo = [...profile.allergyInfo];
       _birthYearCtrl.text = profile.birthYear?.toString() ?? '';
+      _isPregnant = profile.isPregnant ?? false;
       _loadedOnce = true;
     });
   }
@@ -61,6 +63,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       healthConditions: _healthConditions,
       allergyInfo: _allergyInfo,
       birthYear: birthYear,
+      isPregnant: _isPregnant,
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -108,6 +111,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           labelText: '출생연도 (예: 1990)',
                           prefixIcon: Icon(Icons.cake_outlined),
                         ),
+                      ),
+                      Gap.v16,
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text('임신 중',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w700)),
+                        subtitle: Text(
+                          '켜면 복약함 약 중 DUR 임부금기에 해당하는 약을 경고합니다. '
+                          '보호자가 복약 대상 대신 입력해도 됩니다. 이 정보는 암호화되어 저장됩니다.',
+                          style: TextStyle(
+                              fontSize: 12.5,
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              height: 1.4),
+                        ),
+                        value: _isPregnant,
+                        onChanged: (v) => setState(() => _isPregnant = v),
                       ),
                       Gap.v24,
                       _ChipListEditor(

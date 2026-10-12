@@ -31,6 +31,7 @@ class UserUpdate(BaseModel):
     health_conditions: list[str] | None = None
     allergy_info: list[str] | None = None
     birth_year: int | None = Field(default=None, ge=1900, le=2100)
+    is_pregnant: bool | None = None  # 임신 중이면 DUR 임부금기 판정 (None=변경 없음)
     fcm_token: str | None = Field(default=None, max_length=512)
 
 
@@ -49,6 +50,7 @@ class UserWithHealthResponse(UserResponse):
     health_conditions: list[str] | None = None
     allergy_info: list[str] | None = None
     birth_year: int | None = None
+    is_pregnant: bool | None = None
 
 
 class TokenResponse(BaseModel):

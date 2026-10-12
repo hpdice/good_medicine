@@ -30,6 +30,7 @@ class _SyncBase:
         self._seen_ingr_contra: set[tuple] = set()
         self._seen_ingr_effect: set[tuple] = set()
         self._seen_ingr_age: set[tuple] = set()
+        self._seen_item_pregnancy: set[tuple] = set()
         # 이번 실행에서 금기 사유 문장이 바뀌어 갱신된 성분쌍 규칙 수(로그·검증용)
         self._updated_ingr_contra = 0
         # item_seq -> Drug — 같은 품목이 병용금기 수십~수백 쌍에 반복 등장하므로

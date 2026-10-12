@@ -10,6 +10,7 @@ from app.models.dur_ingredient_rule import (
     DurIngredientAgeCaution,
     DurIngredientContraindication,
     DurIngredientEffectGroup,
+    DurItemPregnancyTaboo,
 )
 from app.models.residual_interaction import ResidualInteraction
 
@@ -39,14 +40,17 @@ async def register_and_login_with_profile(
     allergy_info: list[str] | None = None,
     birth_year: int | None = None,
     email: str | None = None,
+    is_pregnant: bool | None = None,
 ) -> str:
-    """register_and_login + PATCH /users/me로 알레르기·출생연도까지 채운 토큰 반환."""
+    """register_and_login + PATCH /users/me로 알레르기·출생연도·임신 여부까지 채운 토큰 반환."""
     token = await register_and_login(client, email=email)
     body = {}
     if allergy_info is not None:
         body["allergy_info"] = allergy_info
     if birth_year is not None:
         body["birth_year"] = birth_year
+    if is_pregnant is not None:
+        body["is_pregnant"] = is_pregnant
     if body:
         res = await client.patch(
             "/users/me", json=body, headers={"Authorization": f"Bearer {token}"}
@@ -157,6 +161,21 @@ async def make_ingr_age_caution(
         ingr_code=ingr_code, ingr_kor=ingr_kor, rule_type=rule_type,
         prohibit_content=prohibit_content,
         age_threshold=age_threshold, age_unit=age_unit, age_direction=age_direction,
+    )
+    session.add(row)
+    await session.commit()
+    return row
+
+
+async def make_pregnancy_taboo(
+    session: AsyncSession, drug: Drug, ingr_code: str = "D700000",
+    ingr_kor: str = "테스트성분", prohibit_content: str | None = "동물실험에서 기형발생 보고",
+    remark: str | None = None,
+) -> DurItemPregnancyTaboo:
+    """품목(ITEM_SEQ) 단위 임부금기 규칙 — 성분코드 해소(drug_ingredients)와 무관하게 걸린다."""
+    row = DurItemPregnancyTaboo(
+        item_seq=drug.item_seq, ingr_code=ingr_code, ingr_kor=ingr_kor,
+        prohibit_content=prohibit_content, remark=remark,
     )
     session.add(row)
     await session.commit()

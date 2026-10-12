@@ -64,6 +64,39 @@ class DurIngredientEffectGroup(Base):
     )
 
 
+class DurItemPregnancyTaboo(Base):
+    """DUR 임부금기 — **품목(ITEM_SEQ) 단위**. 임신 중인 사용자의 복약함 약품에 적용.
+
+    `DURPrdlstInfoService03/getPwnmTabooInfoList03` 응답을 그대로 품목 단위로 적재한다.
+    다른 DUR 규칙과 달리 성분 단위로 합치지 않는 이유(2026-10-09 실측, 16,073행):
+    - 응답이 "이 품목이 금기"라고 품목을 정확히 나열하고, 비고(`REMARK`)에 적용 범위가
+      붙는다 — '경구'(661행), '외용 (모발용제)'(201), '겔제, 첩부제 포함'(187),
+      '제2형 당뇨병'(25) 등. 같은 성분이라도 제형·적응증에 따라 금기 여부가 다르므로
+      성분코드로 합치면 외용제까지 경고하는 오탐이 생긴다.
+    - 성분코드 해소율(61.5%)에 의존하지 않는다 — 품목은 `drugs.item_seq`로 곧바로 닿는다.
+    한 품목에 성분별 행이 여럿일 수 있어(복합제) (item_seq, ingr_code)를 유일 키로 둔다.
+    `PROHBT_CONTENT`에는 '1등급/2등급' 같은 등급 표기와 근거(동물실험·기형 보고)가
+    자유 텍스트로 섞여 있어 원문 그대로 보여준다.
+    """
+
+    __tablename__ = "dur_item_pregnancy_taboo"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    item_seq: Mapped[str] = mapped_column(String(50), nullable=False)
+    ingr_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    ingr_kor: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    prohibit_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("item_seq", "ingr_code", name="uq_dur_item_pregnancy_item_ingr"),
+        Index("idx_dur_item_pregnancy_item_seq", "item_seq"),
+    )
+
+
 class DurIngredientAgeCaution(Base):
     """성분 단위 DUR 특정연령대금기·노인주의 — 성분코드 + 연령 규칙.
 

@@ -6,7 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import logger
 from app.models.drug import Drug
-from app.schemas.analysis import AgeCaution, AllergyConflict, QuickCheckFinding, QuickCheckResponse
+from app.schemas.analysis import (
+    AgeCaution,
+    AllergyConflict,
+    PregnancyCaution,
+    QuickCheckFinding,
+    QuickCheckResponse,
+)
 from app.services.drug_service import DrugService
 from app.services.user_service import UserService
 
@@ -39,11 +45,12 @@ def _risk_level(
     findings: list[QuickCheckFinding],
     allergy_conflicts: list[AllergyConflict],
     age_cautions: list[AgeCaution],
+    pregnancy_cautions: list[PregnancyCaution] = (),
 ) -> str:
     types = {f.interaction_type for f in findings}
     has_age_taboo = any(a.rule_type == "age_taboo" for a in age_cautions)
     has_elderly_caution = any(a.rule_type == "elderly_caution" for a in age_cautions)
-    if "contraindicated" in types or allergy_conflicts or has_age_taboo:
+    if "contraindicated" in types or allergy_conflicts or has_age_taboo or pregnancy_cautions:
         return "critical"
     if "duplicate_effect_group" in types or has_elderly_caution:
         return "caution"
@@ -81,6 +88,7 @@ class AnalysisService:
 
         allergy_conflicts: list[AllergyConflict] = []
         age_cautions: list[AgeCaution] = []
+        pregnancy_cautions: list[PregnancyCaution] = []
         if user_id is not None:
             user = await UserService(self.db).get_user(user_id)
             allergy_terms = getattr(user, "allergy_info", None) or []
@@ -90,6 +98,8 @@ class AnalysisService:
             if birth_year:
                 age = date.today().year - birth_year
                 age_cautions = await self._age_findings(drugs, codes_by_drug, age)
+            if getattr(user, "is_pregnant", None) is True:
+                pregnancy_cautions = await self._pregnancy_findings(drugs)
 
         contraindicated = [f for f in findings if f.interaction_type == "contraindicated"]
         duplicate_effect = [f for f in findings if f.interaction_type == "duplicate_effect_group"]
@@ -98,14 +108,16 @@ class AnalysisService:
         return QuickCheckResponse(
             total_drugs=len(drugs),
             has_contraindication=bool(contraindicated),
-            risk_level=_risk_level(findings, allergy_conflicts, age_cautions),
+            risk_level=_risk_level(findings, allergy_conflicts, age_cautions, pregnancy_cautions),
             contraindicated_count=len(contraindicated),
             duplicate_effect_group_count=len(duplicate_effect),
             age_taboo_count=len(age_taboo),
             elderly_caution_count=len(elderly_caution),
+            pregnancy_taboo_count=len(pregnancy_cautions),
             findings=findings,
             allergy_conflicts=allergy_conflicts,
             age_cautions=age_cautions,
+            pregnancy_cautions=pregnancy_cautions,
         )
 
     # ------------------------------------------------------------------ #
@@ -176,6 +188,29 @@ class AnalysisService:
                                 drug_id=drug_id, drug_name=_display_name(drugs[drug_id]),
                                 rule_type="age_taboo", prohibit_content=rule.prohibit_content,
                             ))
+        return cautions
+
+    # ------------------------------------------------------------------ #
+    # 임부금기 — 임신 중으로 등록한 사용자 대 약품(품목 단위 규칙)              #
+    # ------------------------------------------------------------------ #
+
+    async def _pregnancy_findings(self, drugs: dict[uuid.UUID, Drug]) -> list[PregnancyCaution]:
+        drug_by_seq = {d.item_seq: d for d in drugs.values() if d.item_seq}
+        rules_by_seq: dict[str, list] = {}
+        for rule in await self.drugs.get_pregnancy_taboo_for_item_seqs(set(drug_by_seq)):
+            rules_by_seq.setdefault(rule.item_seq, []).append(rule)
+
+        cautions: list[PregnancyCaution] = []
+        for seq, rules in rules_by_seq.items():
+            drug = drug_by_seq[seq]
+            # 복합제는 성분별로 행이 따로 올 수 있다 — 약품 1개당 finding 1개로 합친다.
+            contents = list(dict.fromkeys(r.prohibit_content for r in rules if r.prohibit_content))
+            remarks = list(dict.fromkeys(r.remark for r in rules if r.remark))
+            cautions.append(PregnancyCaution(
+                drug_id=drug.id, drug_name=_display_name(drug),
+                prohibit_content="\n".join(contents) or None,
+                remark=" / ".join(remarks) or None,
+            ))
         return cautions
 
     # ------------------------------------------------------------------ #

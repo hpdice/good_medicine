@@ -13,6 +13,7 @@ String _summaryLabel(QuickCheckResponse result) {
     if (result.contraindicatedCount > 0) '병용금기 ${result.contraindicatedCount}건',
     if (result.allergyConflicts.isNotEmpty) '알레르기 ${result.allergyConflicts.length}건',
     if (result.ageTabooCount > 0) '연령금기 ${result.ageTabooCount}건',
+    if (result.pregnancyTabooCount > 0) '임부금기 ${result.pregnancyTabooCount}건',
     if (result.duplicateEffectGroupCount > 0) '효능군 중복 ${result.duplicateEffectGroupCount}건',
     if (result.elderlyCautionCount > 0) '노인 주의 ${result.elderlyCautionCount}건',
   ];
@@ -143,6 +144,19 @@ class InteractionBanner extends StatelessWidget {
                       : RiskTone.caution,
                   reasonLabel: a.ruleType == 'age_taboo' ? '특정연령대금기' : '노인 주의',
                   reasonText: a.prohibitContent ?? '등록한 나이 기준에 해당하는 DUR 규칙입니다.',
+                ),
+              ),
+            for (final a in result.pregnancyCautions)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: SingleDrugRiskCard(
+                  drugName: a.drugName,
+                  tone: RiskTone.critical,
+                  reasonLabel: '임부금기',
+                  reasonText: [
+                    if (a.remark != null) '적용 범위: ${a.remark}',
+                    a.prohibitContent ?? '임신 중 사용을 피해야 하는 DUR 규칙입니다.',
+                  ].join('\n'),
                 ),
               ),
             Gap.v8,

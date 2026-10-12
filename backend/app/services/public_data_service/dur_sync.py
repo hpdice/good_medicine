@@ -1,4 +1,4 @@
-"""DUR(병용금기·효능군중복·특정연령대금기·노인주의·기타 성분코드) 동기화.
+"""DUR(병용금기·효능군중복·특정연령대금기·노인주의·임부금기·기타 성분코드) 동기화.
 
 `DURPrdlstInfoService03` 응답의 `INGR_CODE`/`MIXTURE_INGR_CODE`에서 성분코드를
 캡처해 `drug_ingredients` + `dur_ingredient_*`(판정 규칙) 테이블을 채운다
@@ -15,10 +15,11 @@ from app.models.dur_ingredient_rule import (
     DurIngredientAgeCaution,
     DurIngredientContraindication,
     DurIngredientEffectGroup,
+    DurItemPregnancyTaboo,
 )
 
 from .base import _SyncBase
-from .helpers import _clean, _parse_age_criteria
+from .helpers import _clean, _clean_text, _parse_age_criteria
 
 
 class DurSyncMixin(_SyncBase):
@@ -36,15 +37,20 @@ class DurSyncMixin(_SyncBase):
     # 먼저 체크포인트 파일이 없는(=완료됐거나 시작 전) 상태인지 확인할 것.
     DUR_PAGE_SIZE: int = 500
 
-    # 특정연령대금기·노인주의는 판정 규칙(dur_ingredient_age_caution)까지 채우는
-    # sync_dur_age_caution()으로 옮겼다 — 이 딕셔너리에는 성분코드 매핑만 필요한
-    # 나머지(임부금기·용량주의·투여기간주의)만 남긴다. 값은 (엔드포인트, 부가값) —
+    # 특정연령대금기·노인주의는 sync_dur_age_caution(), 임부금기는 sync_dur_pregnancy_taboo()로
+    # 판정 규칙 테이블까지 채운다 — 이 딕셔너리에는 성분코드 매핑만 필요한 나머지
+    # (용량주의·투여기간주의)만 남긴다. 값은 (엔드포인트, 부가값) —
     # 부가값은 _run_multi_endpoint_sync가 item_handler에 그대로 넘겨주는 자리라
     # 여기선 안 써서 None.
+    # 실측(2026-10-09, 전체 페이지): 용량주의 6,611행은 본문(PROHBT_CONTENT) 2,601행·성분 71개만,
+    # 투여기간주의 646행은 본문 0건 — 판정에 쓸 구조화된 용량·기간 기준이 없어 규칙으로 못 만든다.
     DUR_EXTRA_CODE_OPS = {
-        "임부금기": ("getPwnmTabooInfoList03", None),
         "용량주의": ("getCpctyAtentInfoList03", None),
         "투여기간주의": ("getMdctnPdAtentInfoList03", None),
+    }
+
+    PREGNANCY_TABOO_OPS = {
+        "임부금기": ("getPwnmTabooInfoList03", None),
     }
 
     # label -> (엔드포인트, rule_type)
@@ -357,13 +363,68 @@ class DurSyncMixin(_SyncBase):
         )
 
     # ------------------------------------------------------------------ #
+    # DUR 임부금기 — 품목 단위 판정 규칙(dur_item_pregnancy_taboo)까지 채움     #
+    # ------------------------------------------------------------------ #
+
+    async def sync_dur_pregnancy_taboo(self) -> int:
+        """임부금기 → `dur_item_pregnancy_taboo`(판정 규칙) + 성분코드 매핑(해소율 보강).
+
+        성분이 아니라 품목 단위로 적재하는 이유는 모델 docstring 참고(비고에 제형·적응증
+        범위가 붙어 있어 성분으로 합치면 오탐). 이 엔드포인트는 이전에 `dur_extra_codes`가
+        성분코드 매핑만 수확하던 것이라, 그 부수 효과(drug_ingredients)는 그대로 유지한다.
+        """
+        return await self._run_multi_endpoint_sync(
+            self.PREGNANCY_TABOO_OPS, self._handle_pregnancy_taboo_item,
+            error_label="DUR pregnancy taboo", source_prefix="dur_pregnancy",
+            retry_hint="sync.py dur_pregnancy", page_size=self.DUR_PAGE_SIZE,
+        )
+
+    async def _handle_pregnancy_taboo_item(self, item: dict, extra) -> None:
+        await self._capture_ingr_code_row(item)
+        await self._upsert_item_pregnancy_taboo(
+            item_seq=_clean(item.get("ITEM_SEQ")),
+            ingr_code=_clean(item.get("INGR_CODE")),
+            ingr_kor=_clean(item.get("INGR_NAME") or item.get("INGR_KOR_NAME")),
+            prohibit_content=_clean_text(item.get("PROHBT_CONTENT")),
+            remark=_clean_text(item.get("REMARK")),
+        )
+
+    async def _upsert_item_pregnancy_taboo(
+        self, item_seq: str | None, ingr_code: str | None, ingr_kor: str | None,
+        prohibit_content: str | None, remark: str | None,
+    ) -> None:
+        if not item_seq or not ingr_code:
+            return
+        key = (item_seq, ingr_code)
+        if key in self._seen_item_pregnancy:
+            return
+        self._seen_item_pregnancy.add(key)
+
+        existing = await self.db.scalar(
+            select(DurItemPregnancyTaboo).where(
+                DurItemPregnancyTaboo.item_seq == item_seq,
+                DurItemPregnancyTaboo.ingr_code == ingr_code,
+            )
+        )
+        if existing:
+            # 원천이 사유·비고를 고쳐 내려주면 반영한다(병용금기 upsert와 같은 이유).
+            existing.ingr_kor = ingr_kor
+            existing.prohibit_content = prohibit_content
+            existing.remark = remark
+            return
+        self.db.add(DurItemPregnancyTaboo(
+            item_seq=item_seq, ingr_code=ingr_code, ingr_kor=ingr_kor,
+            prohibit_content=prohibit_content, remark=remark,
+        ))
+
+    # ------------------------------------------------------------------ #
     # DUR 기타 엔드포인트 — (ITEM_SEQ, INGR_CODE) 매핑만 수확                 #
-    #   임부금기·용량주의·투여기간주의                                       #
+    #   용량주의·투여기간주의                                                #
     #   판정 로직에는 관여하지 않는다 — drug_ingredients 해소율 보강 전용     #
     # ------------------------------------------------------------------ #
 
     async def sync_dur_extra_ingredient_codes(self) -> int:
-        """병용금기·효능군중복·연령대금기 외 DUR 품목 엔드포인트에서 성분코드 매핑만
+        """병용금기·효능군중복·연령대금기·임부금기 외 DUR 품목 엔드포인트에서 성분코드 매핑만
         가져와 `drug_ingredients`에 채운다. 응답에 `INGR_CODE`(D코드) + `ITEM_SEQ`가
         함께 있으므로 quick_check가 쓰는 성분코드 해소율을 순수하게 높이는 용도.
         판정 규칙(dur_ingredient_*)은 건드리지 않는다.

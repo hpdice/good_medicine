@@ -54,6 +54,18 @@ class AgeCaution(BaseModel):
     prohibit_content: str | None
 
 
+class PregnancyCaution(BaseModel):
+    """DUR 임부금기 — 약품 1개 단위. 사용자가 임신 중으로 등록했을 때만 생성된다.
+
+    `prohibit_content`는 등급(1·2등급)·근거(동물실험·기형 보고)가 섞인 원문,
+    `remark`는 적용 범위(예: '경구', '제2형 당뇨병')다 — 둘 다 그대로 보여준다."""
+
+    drug_id: uuid.UUID
+    drug_name: str
+    prohibit_content: str | None
+    remark: str | None = None
+
+
 class QuickCheckResponse(BaseModel):
     total_drugs: int
     has_contraindication: bool
@@ -62,9 +74,11 @@ class QuickCheckResponse(BaseModel):
     duplicate_effect_group_count: int = 0
     age_taboo_count: int = 0
     elderly_caution_count: int = 0
+    pregnancy_taboo_count: int = 0
     findings: list[QuickCheckFinding]
     allergy_conflicts: list[AllergyConflict] = []
     age_cautions: list[AgeCaution] = []
+    pregnancy_cautions: list[PregnancyCaution] = []
 
 
 class AnalysisGuideRequest(QuickCheckRequest):

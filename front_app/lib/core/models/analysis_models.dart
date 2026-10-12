@@ -43,6 +43,18 @@ class AgeCautionItem {
         prohibitContent = j['prohibit_content'];
 }
 
+class PregnancyCautionItem {
+  final String drugId, drugName;
+  final String? prohibitContent; // 등급·근거가 섞인 DUR 원문
+  final String? remark; // 적용 범위 (예: '경구')
+
+  PregnancyCautionItem.fromJson(Map<String, dynamic> j)
+      : drugId = j['drug_id'],
+        drugName = j['drug_name'],
+        prohibitContent = j['prohibit_content'],
+        remark = j['remark'];
+}
+
 class QuickCheckResponse {
   final int totalDrugs;
   final bool hasContraindication;
@@ -51,9 +63,11 @@ class QuickCheckResponse {
   final int duplicateEffectGroupCount;
   final int ageTabooCount;
   final int elderlyCautionCount;
+  final int pregnancyTabooCount;
   final List<FindingItem> findings;
   final List<AllergyConflictItem> allergyConflicts;
   final List<AgeCautionItem> ageCautions;
+  final List<PregnancyCautionItem> pregnancyCautions;
 
   QuickCheckResponse.fromJson(Map<String, dynamic> j)
       : totalDrugs = j['total_drugs'],
@@ -63,6 +77,7 @@ class QuickCheckResponse {
         duplicateEffectGroupCount = j['duplicate_effect_group_count'] ?? 0,
         ageTabooCount = j['age_taboo_count'] ?? 0,
         elderlyCautionCount = j['elderly_caution_count'] ?? 0,
+        pregnancyTabooCount = j['pregnancy_taboo_count'] ?? 0,
         findings = (j['findings'] as List? ?? [])
             .map((e) => FindingItem.fromJson(e))
             .toList(),
@@ -71,6 +86,9 @@ class QuickCheckResponse {
             .toList(),
         ageCautions = (j['age_cautions'] as List? ?? [])
             .map((e) => AgeCautionItem.fromJson(e))
+            .toList(),
+        pregnancyCautions = (j['pregnancy_cautions'] as List? ?? [])
+            .map((e) => PregnancyCautionItem.fromJson(e))
             .toList();
 }
 
