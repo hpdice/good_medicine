@@ -104,6 +104,48 @@ flutter build apk --release --dart-define=BASE_URL=https://goodmedicine.tail9f17
 
 ---
 
+## 노트북에서 임시로 켜기 (같은 주소 그대로)
+
+데스크톱이 주 호스트다. 데스크톱을 못 쓸 때 노트북이 **같은 주소**(`goodmedicine.tail9f1768.ts.net`)로 대신 받는다.
+Vercel 웹에 박힌 API 주소(`WEB_API_BASE_URL`)를 바꿀 필요가 없다. 핵심은 **Tailscale 노드 신원(`tailscale_state` 볼륨)을 노트북으로 옮겨 같은 노드로 로그인**하는 것이다.
+
+> ⚠ **동시에 두 곳에서 켜지 않는다.** 같은 노드를 두 PC가 쓰면 Funnel 주소가 번갈아 끊긴다. 항상 "한쪽 끄기 → 다른 쪽 켜기" 순서.
+> ⚠ `tailscale_state`에는 노드 키가 들어 있다(비밀). 옮긴 파일(`tailscale_state.tgz`)은 USB 등으로만 옮기고 git·메신저에 올리지 않으며, 다 쓰면 지운다.
+
+**준비 (노트북에서 미리 1회)**
+- 노트북 `.env`가 데스크톱과 **같은 비밀값**(JWT 서명 키, 암호화 키 등)을 쓰는지 확인한다. 다르면 데스크톱에서 만든 토큰·암호화 데이터를 노트북이 못 읽는다.
+- 노트북 `.env`의 CORS 허용 목록에 `https://goodmedicine-hpdice.vercel.app`이 있는지 확인한다(`CORS_ORIGINS`).
+- GPU가 없으면 `.env`에 `OLLAMA_ENABLED=false` (AI 설명은 폴백 문구로 나간다).
+
+**데스크톱 → 노트북 (켜기)**
+```powershell
+# [데스크톱] 터널을 끄고 노드 상태를 파일로 꺼낸다
+docker compose -f docker-compose.yml -f docker-compose.prod.yml stop tailscale
+docker run --rm -v drugtest_tailscale_state:/s -v ${PWD}:/out alpine tar czf /out/tailscale_state.tgz -C /s .
+# → tailscale_state.tgz 를 노트북으로 복사
+
+# [노트북] 상태를 볼륨에 넣고 운영 구성으로 띄운다
+docker volume create drugtest_tailscale_state
+docker run --rm -v drugtest_tailscale_state:/s -v ${PWD}:/in alpine tar xzf /in/tailscale_state.tgz -C /s
+docker compose -f docker-compose.yml -f docker-compose.laptop.yml -f docker-compose.prod.yml up -d
+curl.exe -s https://goodmedicine.tail9f1768.ts.net/health   # {"status":"ok","db":"ok"}
+```
+다시 인증(로그인 URL)을 묻지 않아야 정상이다. 물으면 상태 복사가 안 된 것이다.
+
+**노트북 → 데스크톱 (되돌리기)**
+```powershell
+# [노트북] 터널부터 끈다
+docker compose -f docker-compose.yml -f docker-compose.laptop.yml -f docker-compose.prod.yml stop tailscale
+# [데스크톱]
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d tailscale
+```
+되돌릴 때는 파일을 다시 옮길 필요가 없다(데스크톱의 볼륨은 그대로). 노트북에 남은 `tailscale_state.tgz`와 볼륨은 삭제한다: `docker volume rm drugtest_tailscale_state`.
+
+**데이터는 합쳐지지 않는다.** 노트북에서 가입한 사용자·복약함은 **노트북 DB**에만 있다. 데스크톱으로 돌아가면 보이지 않는다.
+임시 운영 기간이 짧으면 그대로 두고, 이어서 써야 하면 `pg_dump`로 옮긴다(되돌리기 전에 노트북에서 덤프 → 데스크톱에서 복원).
+
+---
+
 ## 개발용 임시 노출 (선택)
 
 Tailscale 컨테이너 없이 잠깐 외부 공유가 필요하면 (`cloudflared` 설치돼 있음):
