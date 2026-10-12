@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     FIREBASE_CREDENTIALS_JSON: str = ""
 
     # 로컬 LLM (Ollama) — AI 대응 가이드 생성용. 위험도 "판정"에는 관여하지 않음
+    # False면 Ollama를 아예 부르지 않는다 — 워밍업 루프를 띄우지 않고, AI 설명 요청은 시도 없이
+    # 곧바로 폴백 문구로 답한다. GPU가 없어 Ollama 컨테이너가 없는 환경(노트북)용.
+    OLLAMA_ENABLED: bool = True
     OLLAMA_BASE_URL: str = "http://ollama:11434"
     OLLAMA_MODEL: str = "qwen2.5:14b-instruct"
     # 실측(RTX 4070): 콜드스타트(모델을 GPU에 새로 올림) 87~153초, 워밍 후 10~15초.

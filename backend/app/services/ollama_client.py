@@ -21,6 +21,9 @@ class OllamaClient:
         self._timeout = settings.OLLAMA_TIMEOUT_SECONDS
 
     async def generate(self, prompt: str, system: str | None = None) -> str:
+        if not settings.OLLAMA_ENABLED:
+            # 연결을 시도하지 않고 바로 실패 처리 — 호출부가 폴백 문구로 대체한다.
+            raise OllamaUnavailableError("로컬 LLM이 비활성화돼 있습니다.")
         request_body = {
             "model": self._model,
             "prompt": prompt,
@@ -48,6 +51,8 @@ class OllamaClient:
         종종 부족했고, 그때마다 클라이언트가 연결을 끊으면서 Ollama가 로딩 중이던
         메모리를 회수 못 하고 누적되는 문제가 있었다.
         """
+        if not settings.OLLAMA_ENABLED:
+            return
         request_body = {
             "model": self._model,
             "prompt": "ping",

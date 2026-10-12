@@ -41,10 +41,15 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting drugtest backend (debug={settings.DEBUG})")
     fcm_state = "enabled" if fcm_service.is_configured() else "disabled"
     logger.info(f"FCM push notifications: {fcm_state}")
-    keepalive_task = asyncio.create_task(_ollama_keepalive_loop())
-    
+    keepalive_task = None
+    if settings.OLLAMA_ENABLED:
+        keepalive_task = asyncio.create_task(_ollama_keepalive_loop())
+    else:
+        logger.info("Ollama disabled — 워밍업 루프를 띄우지 않는다 (AI 설명은 폴백 문구)")
+
     yield # 여기서 FastAPI 앱이 실행됨
-    keepalive_task.cancel()
+    if keepalive_task is not None:
+        keepalive_task.cancel()
     await engine.dispose()
     logger.info("Backend shutdown complete")
 
