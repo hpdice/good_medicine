@@ -14,6 +14,14 @@ class ProfileProvider extends ChangeNotifier {
   ProfileStatus get status => _status;
   String? get error => _error;
 
+  /// 로그아웃 시 이전 사용자의 정보가 다음 로그인에 비치지 않도록 비운다.
+  void clear() {
+    _profile = null;
+    _status = ProfileStatus.idle;
+    _error = null;
+    notifyListeners();
+  }
+
   Future<void> load() async {
     _status = ProfileStatus.loading;
     _error = null;

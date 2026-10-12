@@ -43,6 +43,23 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  /// 서버에 refresh token 폐기를 요청한 뒤 기기의 토큰을 지운다.
+  /// 서버 호출이 실패(오프라인 등)해도 기기에서는 항상 로그아웃된다.
+  /// 토큰을 지우면 라우터의 redirect가 /login으로 보낸다.
+  Future<void> logout() async {
+    final refresh = await TokenStorage.getRefreshToken();
+    if (refresh != null) {
+      try {
+        await ApiClient.dio
+            .post('auth/logout', data: {'refresh_token': refresh});
+      } on DioException {
+        // 서버 폐기는 실패해도 로컬 로그아웃은 진행한다.
+      }
+    }
+    await TokenStorage.clearTokens();
+    _set(AuthStatus.idle);
+  }
+
   void resetState() => _set(AuthStatus.idle);
 
   void _set(AuthStatus s) {

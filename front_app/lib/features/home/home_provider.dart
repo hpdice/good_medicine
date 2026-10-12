@@ -26,6 +26,17 @@ class HomeProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
 
+  /// 로그아웃 시 이전 사용자의 복약함·판정 결과를 비우고 복약 알림도 취소한다.
+  Future<void> clear() async {
+    _entries = [];
+    _checkResult = null;
+    _riskMap = {};
+    _isLoading = false;
+    _error = null;
+    notifyListeners();
+    await MedicationReminderService.reschedule(const []);
+  }
+
   Future<void> loadEntries() async {
     _isLoading = true;
     _error = null;

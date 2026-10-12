@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
+import '../auth/auth_provider.dart';
+import '../home/home_provider.dart';
 import 'profile_provider.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -69,6 +71,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(ok ? '저장했습니다.' : (provider.error ?? '저장 실패'))),
     );
+  }
+
+  Future<void> _logout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('로그아웃'),
+        content: const Text('로그아웃할까요?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('취소')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('로그아웃')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    // 로그아웃하면 라우터가 이 화면을 걷어내므로, provider는 먼저 꺼내 둔다.
+    final auth = context.read<AuthProvider>();
+    final profile = context.read<ProfileProvider>();
+    final home = context.read<HomeProvider>();
+    await auth.logout();
+    profile.clear();
+    await home.clear();
   }
 
   @override
@@ -164,6 +192,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 child: CircularProgressIndicator(
                                     strokeWidth: 2, color: Colors.white))
                             : const Text('저장'),
+                      ),
+                      Gap.v12,
+                      OutlinedButton.icon(
+                        onPressed: saving ? null : _logout,
+                        icon: const Icon(Icons.logout_rounded),
+                        label: const Text('로그아웃'),
                       ),
                     ],
                   ),
