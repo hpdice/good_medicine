@@ -87,6 +87,8 @@ class _SyncBase:
     def _load_raw_page(self, url: str, params: dict) -> dict | None:
         endpoint = raw_store.endpoint_name(url)
         snapshot = self.replay_snapshot
+        if snapshot is None:  # replay 모드에서만 불린다 — 방어적 처리
+            return None
         if snapshot == "latest":
             snapshot = raw_store.latest_snapshot(endpoint)
             if snapshot is None:

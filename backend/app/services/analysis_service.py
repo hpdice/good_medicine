@@ -1,5 +1,6 @@
 import itertools
 import uuid
+from collections.abc import Sequence
 from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,7 +46,7 @@ def _risk_level(
     findings: list[QuickCheckFinding],
     allergy_conflicts: list[AllergyConflict],
     age_cautions: list[AgeCaution],
-    pregnancy_cautions: list[PregnancyCaution] = (),
+    pregnancy_cautions: Sequence[PregnancyCaution] = (),
 ) -> str:
     types = {f.interaction_type for f in findings}
     has_age_taboo = any(a.rule_type == "age_taboo" for a in age_cautions)

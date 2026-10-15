@@ -39,8 +39,8 @@ async def test_fetch_saves_raw_and_replay_reads_it_without_http():
         async def get(self, *a, **k):
             raise AssertionError("replay 중 API 호출")
 
-    assert await replay._fetch_page(Boom(), URL, {"pageNo": 3}) == PAGE   # 한글 보존
-    assert await replay._fetch_page(Boom(), URL, {"pageNo": 4}) is None   # 없는 페이지 → None(상위가 중단)
+    assert await replay._fetch_page(Boom(), URL, {"pageNo": 3}) == PAGE  # type: ignore[arg-type]  # 한글 보존
+    assert await replay._fetch_page(Boom(), URL, {"pageNo": 4}) is None  # type: ignore[arg-type]  # 없는 페이지 → None(상위가 중단)
 
 
 async def test_service_key_is_not_stored():
