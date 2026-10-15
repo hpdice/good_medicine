@@ -1,9 +1,18 @@
+import pytest
 from sqlalchemy import select
 
 from app.core.encryption import get_encryptor
 from app.models.analysis_result import AnalysisResult
 from app.services import ollama_client
-from tests.factories import make_contraindication, make_drug, make_effect_group, register_and_login
+from app.services.ai_guide_service import guide_text_problem, sanitize_guide_text
+from tests.factories import (
+    make_contraindication,
+    make_drug,
+    make_effect_group,
+    make_pregnancy_taboo,
+    register_and_login,
+    register_and_login_with_profile,
+)
 
 
 async def _auth_headers(client) -> dict:
@@ -72,6 +81,106 @@ async def test_guide_falls_back_safely_when_ollama_unavailable(client, session_f
     assert body["risk_level"] == "caution"
     assert body["guide_text"]  # 폴백 문구라도 비어있지 않음
     assert body["is_ai_generated"] is False  # 폴백 문구는 AI가 생성한 게 아님을 명시
+
+
+async def test_guide_prompt_includes_pregnancy_caution_without_risk_code(client, session_factory, monkeypatch):
+    """병용 문제 없이 임부금기만 걸려도 그 근거가 프롬프트에 들어가야 한다 — 빠져 있으면
+    모델이 '두 약의 병용이 critical'처럼 없는 상호작용을 지어냈다(2026-10-15 실측)."""
+    prompts = []
+
+    async def fake_generate(self, prompt: str, system: str | None = None) -> str:
+        prompts.append(prompt)
+        return "임신 중에는 이 약을 피해야 합니다. 임의로 복용을 중단하지 말고 의사와 상담하세요."
+
+    monkeypatch.setattr(ollama_client.OllamaClient, "generate", fake_generate)
+
+    async with session_factory() as session:
+        drug_a = await make_drug(session, "테스트가이드임부금기정")
+        drug_b = await make_drug(session, "테스트가이드동반정")
+        await make_pregnancy_taboo(session, drug_a, prohibit_content="1등급 태아독성 보고", remark="경구")
+
+    token = await register_and_login_with_profile(client, is_pregnant=True)
+    res = await client.post(
+        "/analysis/guide",
+        json={"drug_ids": [str(drug_a.id), str(drug_b.id)]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 200
+    assert res.json()["risk_level"] == "critical"
+    prompt = prompts[0]
+    assert "임부금기" in prompt and "1등급 태아독성 보고" in prompt and "경구" in prompt
+    assert "전체 위험도: 위험" in prompt
+    assert "critical" not in prompt
+
+
+async def test_guide_regenerates_once_then_falls_back(client, session_factory, monkeypatch):
+    calls = []
+
+    async def fake_generate(self, prompt: str, system: str | None = None) -> str:
+        calls.append(prompt)
+        return "근육 손상 위험이 있습니다. 你的回答与提供的信息不符。"
+
+    monkeypatch.setattr(ollama_client.OllamaClient, "generate", fake_generate)
+
+    async with session_factory() as session:
+        drug_a = await make_drug(session, "테스트가이드재시도A정")
+        drug_b = await make_drug(session, "테스트가이드재시도B정")
+        await make_contraindication(session, drug_a, drug_b, mechanism="근병증 위험증가")
+
+    headers = await _auth_headers(client)
+    res = await client.post(
+        "/analysis/guide", json={"drug_ids": [str(drug_a.id), str(drug_b.id)]}, headers=headers
+    )
+    body = res.json()
+    assert len(calls) == 2  # 한 번만 다시 생성
+    assert body["is_ai_generated"] is False
+    assert "你" not in body["guide_text"]
+    assert body["risk_level"] == "critical"  # 판정은 그대로
+
+
+async def test_guide_uses_second_attempt_when_first_is_rejected(client, session_factory, monkeypatch):
+    answers = iter([
+        "**위험**: 지금 바로 복용을 중단하세요.",
+        "**두 약을 함께 먹으면** 근병증 위험이 커집니다. 임의로 복용을 중단하지 말고 의사와 상담하세요.",
+    ])
+
+    async def fake_generate(self, prompt: str, system: str | None = None) -> str:
+        return next(answers)
+
+    monkeypatch.setattr(ollama_client.OllamaClient, "generate", fake_generate)
+
+    async with session_factory() as session:
+        drug_a = await make_drug(session, "테스트가이드복구A정")
+        drug_b = await make_drug(session, "테스트가이드복구B정")
+        await make_contraindication(session, drug_a, drug_b, mechanism="근병증 위험증가")
+
+    headers = await _auth_headers(client)
+    res = await client.post(
+        "/analysis/guide", json={"drug_ids": [str(drug_a.id), str(drug_b.id)]}, headers=headers
+    )
+    body = res.json()
+    assert body["is_ai_generated"] is True
+    assert body["guide_text"] == "두 약을 함께 먹으면 근병증 위험이 커집니다. 임의로 복용을 중단하지 말고 의사와 상담하세요."
+
+
+def test_sanitize_strips_markdown_but_keeps_text():
+    raw = "**대응 방법:**\n- 즉시 상담하세요.\n1. 함께 먹지 마세요.\n## 요약"
+    assert sanitize_guide_text(raw) == "대응 방법:\n즉시 상담하세요.\n함께 먹지 마세요.\n요약"
+
+
+@pytest.mark.parametrize(
+    ("text", "problem"),
+    [
+        ("근병증 위험이 커집니다. 의사와 상담하세요.", None),
+        ("임의로 복용을 중단하거나 바꾸지 말고 의사와 상담하세요.", None),
+        ("현재 복용 중이라면 즉시 복용을 중단하고 의사에게 알리세요.", "복용 중단 권유"),
+        ("위험 등급이 critical인 만큼 주의하세요.", "내부 등급 코드 노출"),
+        ("근육이 해.TryParse()损坏", "한자·가나 섞임"),
+        ("", "빈 응답"),
+    ],
+)
+def test_guide_text_problem(text, problem):
+    assert guide_text_problem(text) == problem
 
 
 async def test_guide_requires_at_least_two_drugs(client, session_factory):

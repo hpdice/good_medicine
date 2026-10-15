@@ -32,6 +32,10 @@ class OllamaClient:
             # 또는 기본 5분 유휴 후 언로드 시). 요청 사이 간격이 있어도 계속 로드된
             # 상태를 유지해 매번 이 콜드스타트 비용이 재발하지 않게 한다.
             "keep_alive": "30m",
+            "options": {
+                "temperature": settings.OLLAMA_TEMPERATURE,
+                "num_predict": settings.OLLAMA_NUM_PREDICT,
+            },
         }
         if system:
             request_body["system"] = system

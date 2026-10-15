@@ -45,6 +45,4 @@ async def generate_analysis_guide(
     """quick-check와 동일한 판정(규칙 기반, DB 직접 조회)에 로컬 LLM이 생성한
     설명·대응 가이드를 덧붙인다. 위험도 판정 자체는 AI가 바꾸지 않는다."""
     quick_check_result = await AnalysisService(db).quick_check(body.drug_ids, user_id=user_id)
-    return await AiGuideService(db).generate_guide(
-        user_id, body.drug_ids, quick_check_result.findings, quick_check_result.risk_level
-    )
+    return await AiGuideService(db).generate_guide(user_id, body.drug_ids, quick_check_result)

@@ -89,6 +89,11 @@ class Settings(BaseSettings):
     # 재시작 전까지 계속 들고 있는 문제로 이어짐). 사용자 요청을 막는 게 아니라
     # 백그라운드 루프에서만 쓰이므로 여유있게 잡아도 비용이 없다.
     OLLAMA_WARMUP_TIMEOUT_SECONDS: float = 500.0
+    # 생성 옵션 — Ollama 기본값(temperature 0.8)에서는 같은 입력으로 10번 중 5번꼴로
+    # 마크다운·"복용 중단" 권유·중국어 섞임이 나왔다(2026-10-15 실측). 설명문은
+    # 다양성보다 일관성이 중요하므로 낮게 둔다. num_predict는 장황한 답·폭주 방지 상한.
+    OLLAMA_TEMPERATURE: float = 0.2
+    OLLAMA_NUM_PREDICT: int = 600
 
 
 # 필수 값은 환경변수/.env 에서 채워진다 — 검사기는 이를 알 수 없어 인자 누락으로 본다.
