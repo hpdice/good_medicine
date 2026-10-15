@@ -163,6 +163,9 @@ class MedicineBoxService:
 
         OCR로 백그라운드에서 약을 추가하는 흐름에서는 사용자가 화면을 보고 있지
         않을 수 있어, 클라이언트 quick-check와 별개로 서버에서도 즉시 알린다.
+
+        푸시는 Google FCM(해외)을 거치므로 약 이름·ID를 싣지 않는다 — "누가 무슨 약을
+        먹는지"는 국내 서버 밖으로 내보내지 않는다(2026-10-15, 포스터 사실검증에서 발견).
         """
         if not fcm_service.is_configured():
             return
@@ -177,33 +180,18 @@ class MedicineBoxService:
             return
 
         # quick_check와 동일한 판정(성분 경로 + 잔여 폴백)을 재사용한다.
-        # finding에 약품명이 이미 들어있으므로 별도 조회는 하지 않는다.
         check = await AnalysisService(self.db).quick_check(box_drug_ids)
-        hit = next(
-            (
-                f for f in check.findings
-                if f.interaction_type == "contraindicated"
-                and new_drug_id in (f.drug1_id, f.drug2_id)
-            ),
-            None,
-        )
-        if hit is None:
+        if not any(
+            f.interaction_type == "contraindicated" and new_drug_id in (f.drug1_id, f.drug2_id)
+            for f in check.findings
+        ):
             return
-
-        if hit.drug1_id == new_drug_id:
-            new_name, other_id, other_name = hit.drug1_name, hit.drug2_id, hit.drug2_name
-        else:
-            new_name, other_id, other_name = hit.drug2_name, hit.drug1_id, hit.drug1_name
 
         result = await fcm_service.send_push(
             token=user.fcm_token,
-            title="병용금기 약물이 감지되었습니다",
-            body=f"{new_name} · {other_name} 병용금기 — 앱에서 확인하세요.",
-            data={
-                "type": "contraindication",
-                "drug1_id": str(new_drug_id),
-                "drug2_id": str(other_id),
-            },
+            title="복약함을 확인해 주세요",
+            body="함께 먹으면 안 되는 약이 복약함에 있어요. 앱에서 확인하세요.",
+            data={"type": "contraindication"},
         )
         if result is False:
             user.fcm_token = None
