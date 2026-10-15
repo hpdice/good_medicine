@@ -31,6 +31,28 @@ _FINDING_LABEL = {
 }
 _AGE_RULE_LABEL = {"age_taboo": "특정 연령대 금기", "elderly_caution": "노인 주의(만 65세 이상)"}
 
+# 대응 문장은 AI에 맡기지 않고 판정 종류별로 코드가 붙인다 — 하나의 지시("임의로 중단하지 말라")를
+# 모든 경우에 쓰게 했더니 알레르기 성분이 든 약에도 "끊지 말라"가 붙었다(2026-10-15).
+# 서비스가 직접 하는 말이 되므로 진단·처방이 아니라 "알리고 확인·상담" 수준으로만 쓴다.
+_CLOSING = {
+    "allergy": "이 약을 먹기 전에(이미 먹고 있다면 지금 바로) 의사나 약사에게 알레르기가 있다고 알리고 복용해도 되는지 확인하세요.",
+    "pregnancy": "임신 중이라는 사실을 의사나 약사에게 알리고 이 약을 계속 써도 되는지 상담하세요.",
+    "age": "나이에 맞는 약인지 의사나 약사와 상담하세요.",
+    "combination": "약을 임의로 끊거나 바꾸지 말고 처방한 의사나 약사와 상담하세요.",
+}
+
+
+def closing_for(check: QuickCheckResponse) -> str:
+    """걸린 판정 종류에 맞는 대응 문장(위험한 것부터). 해당 없으면 일반 상담 안내."""
+    kinds = [
+        ("allergy", check.allergy_conflicts),
+        ("pregnancy", check.pregnancy_cautions),
+        ("age", check.age_cautions),
+        ("combination", check.findings),
+    ]
+    lines = [_CLOSING[kind] for kind, items in kinds if items]
+    return "\n".join(lines) or "걱정되는 점이 있으면 의사나 약사와 상담하세요."
+
 _SYSTEM_PROMPT = """당신은 의약품 병용 위험을 설명하는 보조 도우미입니다.
 아래 원칙을 반드시 지키세요:
 1. 오직 사용자가 제공한 [판정 결과]와 [약품 정보] 안의 내용만 근거로 설명하세요.
@@ -39,9 +61,8 @@ _SYSTEM_PROMPT = """당신은 의약품 병용 위험을 설명하는 보조 도
    판정을 바꾸거나 재평가하지 말고, 그대로 받아들여 쉽게 풀어 설명만 하세요.
 3. 알레르기·나이·임신 항목은 약 한 가지에 대한 경고입니다. 두 약 사이의 상호작용처럼
    설명하지 마세요.
-4. 복용을 스스로 중단하거나 바꾸라고 권하지 마세요. "임의로 복용을 중단하거나 바꾸지 말고
-   의사·약사와 상담하세요"라는 취지로 마무리하세요.
-5. 일반인이 이해하기 쉬운 한국어 문장 3~6개로, 문단은 2개 이하로 쓰세요.
+4. 복용을 스스로 끊거나 바꾸라고 권하지 마세요. 대응은 "의사나 약사와 상담하세요" 정도로만 쓰세요.
+5. 일반인이 이해하기 쉬운 한국어 문장 3~6개로, 문단은 2개 이하로 쓰세요. 사용자를 "당신"이라고 부르지 마세요.
    마크다운(**, #, 글머리 기호, 번호 목록), 영어 단어, 한자는 쓰지 마세요."""
 
 _MARKDOWN_EMPHASIS = re.compile(r"\*\*|__")
@@ -57,7 +78,62 @@ def sanitize_guide_text(text: str) -> str:
     """앱은 받은 문자열을 그대로 그리므로 마크다운 기호를 걷어낸다(내용은 유지)."""
     text = _MARKDOWN_EMPHASIS.sub("", text)
     text = _MARKDOWN_LINE_PREFIX.sub("", text)
+    # temperature 0.2에서 모델이 "알레르기 반응"을 매번 "알레르 반응"으로 쓴다(10/10, 2026-10-15 실측)
+    text = re.sub(r"알레르(?!기)", "알레르기", text)
+    # 지시해도 알레르기 설명 4/10에 "당신이…"가 남았다 — 주어를 빼도 자연스러운 한국어라 지운다
+    text = re.sub(r"당신(?:께서|에게|이|은|의)?\s*", "", text)
     return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+_TRAILING_ADVICE = re.compile(r"(?:^|(?<=[.!?])\s+)[^.!?]*상담[^.!?]*[.!?]?\s*$")
+
+
+def drop_trailing_advice(text: str) -> str:
+    """AI가 끝에 쓴 상담 권유 문장을 떼어 낸다 — 대응 문장은 종류별로 코드가 붙인다.
+
+    AI에게 아예 대응을 쓰지 말라고 하면 답이 짧아지며 중국어로 새는 비율이 7/8까지
+    올랐다(상담 권유를 허용하면 0/8, 2026-10-15 실측). 그래서 쓰게 두고 뒤에서 뗀다."""
+    body = text.strip()
+    while True:
+        trimmed = _TRAILING_ADVICE.sub("", body).rstrip()
+        if trimmed == body or not trimmed:
+            return body
+        body = trimmed
+
+
+_SENTENCE_END = re.compile(r"(?<=[.!?。])\s+")
+
+
+def repair_guide_text(text: str) -> tuple[str, list[str]]:
+    """내보내면 안 되는 문장만 덜어 낸다 — (남은 글, 덜어 낸 이유들).
+
+    대응 문장은 코드가 따로 붙이므로 AI 답에서 문제 문장을 빼도 안내가 비지 않는다.
+    답 전체를 버리고 재생성하던 방식은 알레르기·임부금기에서 모델이 자연스럽게 쓰는
+    "복용을 중단하세요" 때문에 3/10이 폴백 문구로 끝났다(2026-10-15 실측).
+    한자·가나가 나오면 그 문장부터 끝까지 버린다(그 뒤는 대개 언어가 바뀐 채 이어진다).
+    """
+    removed: list[str] = []
+    paragraphs: list[str] = []
+    cut = False
+    for para in text.split("\n\n"):
+        kept = []
+        for sentence in _SENTENCE_END.split(para.strip()):
+            if not sentence:
+                continue
+            problem = guide_text_problem(sentence)
+            if problem == "한자·가나 섞임":
+                removed.append(problem)
+                cut = True
+                break
+            if problem:
+                removed.append(problem)
+                continue
+            kept.append(sentence)
+        if kept:
+            paragraphs.append(" ".join(kept))
+        if cut:
+            break
+    return drop_trailing_advice("\n\n".join(paragraphs)), removed
 
 
 def guide_text_problem(text: str) -> str | None:
@@ -99,12 +175,15 @@ class AiGuideService:
         guide_text, is_ai_generated = _FALLBACK_GUIDE_TEXT, False
         try:
             for attempt in range(1, _MAX_ATTEMPTS + 1):
-                candidate = sanitize_guide_text(await self._ollama.generate(prompt, system=_SYSTEM_PROMPT))
-                problem = guide_text_problem(candidate)
-                if problem is None:
-                    guide_text, is_ai_generated = candidate, True
+                raw = sanitize_guide_text(await self._ollama.generate(prompt, system=_SYSTEM_PROMPT))
+                candidate, removed = repair_guide_text(raw)
+                if removed:
+                    logger.info(f"AI 가이드 문장 제거({', '.join(sorted(set(removed)))}) — 시도 {attempt}")
+                if candidate:
+                    guide_text = f"{candidate}\n\n{closing_for(check)}"
+                    is_ai_generated = True
                     break
-                logger.warning(f"AI 가이드 응답 검사 실패({problem}) — 시도 {attempt}/{_MAX_ATTEMPTS}")
+                logger.warning(f"AI 가이드 응답에 남길 문장이 없음 — 시도 {attempt}/{_MAX_ATTEMPTS}")
             else:
                 logger.warning("AI 가이드 재생성도 검사 실패 — 폴백 문구로 대체 (판정 결과는 영향 없음)")
         except OllamaUnavailableError:

@@ -4,7 +4,12 @@ from sqlalchemy import select
 from app.core.encryption import get_encryptor
 from app.models.analysis_result import AnalysisResult
 from app.services import ollama_client
-from app.services.ai_guide_service import guide_text_problem, sanitize_guide_text
+from app.services.ai_guide_service import (
+    drop_trailing_advice,
+    guide_text_problem,
+    repair_guide_text,
+    sanitize_guide_text,
+)
 from tests.factories import (
     make_contraindication,
     make_drug,
@@ -41,7 +46,9 @@ async def test_guide_generated_for_critical_finding(client, session_factory, mon
     assert res.status_code == 200
     body = res.json()
     assert body["risk_level"] == "critical"
-    assert body["guide_text"] == "테스트용 AI 설명입니다."
+    # AI 설명 뒤에 판정 종류별 대응 문장(병용금기)이 코드로 붙는다
+    assert body["guide_text"].startswith("테스트용 AI 설명입니다.\n\n")
+    assert "임의로 끊거나 바꾸지 말고" in body["guide_text"]
     assert body["is_ai_generated"] is True
     assert "의사" in body["disclaimer"] or "약사" in body["disclaimer"]
 
@@ -49,7 +56,7 @@ async def test_guide_generated_for_critical_finding(client, session_factory, mon
     async with session_factory() as session:
         row = (await session.execute(select(AnalysisResult))).scalar_one()
         assert row.risk_level == "critical"
-        assert get_encryptor().decrypt(row.action_guide_encrypted) == "테스트용 AI 설명입니다."
+        assert get_encryptor().decrypt(row.action_guide_encrypted) == body["guide_text"]
         # 어떤 약 조합·판정 내역도 암호화 저장 (평문 JSONB 컬럼 없음)
         assert not hasattr(row, "drug_ids")
         assert get_encryptor().decrypt(row.drug_ids_encrypted) == [
@@ -107,6 +114,7 @@ async def test_guide_prompt_includes_pregnancy_caution_without_risk_code(client,
     )
     assert res.status_code == 200
     assert res.json()["risk_level"] == "critical"
+    assert "임신 중이라는 사실을 의사나 약사에게 알리고" in res.json()["guide_text"]
     prompt = prompts[0]
     assert "임부금기" in prompt and "1등급 태아독성 보고" in prompt and "경구" in prompt
     assert "전체 위험도: 위험" in prompt
@@ -118,7 +126,7 @@ async def test_guide_regenerates_once_then_falls_back(client, session_factory, m
 
     async def fake_generate(self, prompt: str, system: str | None = None) -> str:
         calls.append(prompt)
-        return "근육 손상 위험이 있습니다. 你的回答与提供的信息不符。"
+        return "你的回答与提供的信息不符。"  # 살릴 한국어 문장이 하나도 없음
 
     monkeypatch.setattr(ollama_client.OllamaClient, "generate", fake_generate)
 
@@ -160,12 +168,80 @@ async def test_guide_uses_second_attempt_when_first_is_rejected(client, session_
     )
     body = res.json()
     assert body["is_ai_generated"] is True
-    assert body["guide_text"] == "두 약을 함께 먹으면 근병증 위험이 커집니다. 임의로 복용을 중단하지 말고 의사와 상담하세요."
+    # AI가 끝에 쓴 상담 문장은 떼고, 종류별 대응 문장을 붙인다
+    assert body["guide_text"] == (
+        "두 약을 함께 먹으면 근병증 위험이 커집니다.\n\n약을 임의로 끊거나 바꾸지 말고 처방한 의사나 약사와 상담하세요."
+    )
+
+
+async def test_allergy_guide_closes_with_allergy_advice_not_keep_taking(client, session_factory, monkeypatch):
+    """알레르기 성분이 든 약에 '임의로 끊지 말라'가 붙으면 안 된다 — 종류별 대응 문장."""
+    prompts = []
+
+    async def fake_generate(self, prompt: str, system: str | None = None) -> str:
+        prompts.append(prompt)
+        return "이 약에는 등록하신 알레르기 성분인 페니실린이 들어 있습니다."
+
+    monkeypatch.setattr(ollama_client.OllamaClient, "generate", fake_generate)
+
+    async with session_factory() as session:
+        drug_a = await make_drug(session, "테스트가이드페니실린정", ingredients=[("D500101", "페니실린")])
+        drug_b = await make_drug(session, "테스트가이드비타민정")
+
+    token = await register_and_login_with_profile(client, allergy_info=["페니실린"])
+    res = await client.post(
+        "/analysis/guide",
+        json={"drug_ids": [str(drug_a.id), str(drug_b.id)]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    text = res.json()["guide_text"]
+    assert "알레르기 성분 충돌" in prompts[0] and "페니실린" in prompts[0]
+    assert "알레르기가 있다고 알리고" in text
+    assert "끊거나 바꾸지 말고" not in text  # 병용 문제가 없으니 병용용 문장은 붙지 않는다
+
+
+@pytest.mark.parametrize(
+    ("raw", "kept", "removed"),
+    [
+        # 한자가 나오면 그 문장부터 끝까지 버린다
+        ("근육 손상 위험이 있습니다. 함께服用可能会增加风险。 두 약을 같이 먹지 마세요.", "근육 손상 위험이 있습니다.", ["한자·가나 섞임"]),
+        # 알레르기·임부금기에서 자주 나오는 중단 권유는 그 문장만 뺀다
+        ("이 약에는 알레르기 성분이 있습니다. 즉시 복용을 중단하세요.", "이 약에는 알레르기 성분이 있습니다.", ["복용 중단 권유"]),
+        ("위험 등급이 critical입니다. 근병증 위험이 커집니다.", "근병증 위험이 커집니다.", ["내부 등급 코드 노출"]),
+        ("근병증 위험이 커집니다.\n\n임의로 복용을 중단하지 말고 의사와 상담하세요.", "근병증 위험이 커집니다.", []),
+        ("你的回答与提供的信息不符。", "", ["한자·가나 섞임"]),
+    ],
+)
+def test_repair_guide_text(raw, kept, removed):
+    assert repair_guide_text(raw) == (kept, removed)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("근병증 위험이 커집니다. 의사나 약사와 상담하세요.", "근병증 위험이 커집니다."),
+        ("위험이 커집니다.\n\n만약 같이 먹고 있다면 의사와 상담하세요. 약사와도 상담하세요.", "위험이 커집니다."),
+        ("상담이 필요한 조합입니다. 근육 손상 위험이 있습니다.", "상담이 필요한 조합입니다. 근육 손상 위험이 있습니다."),
+        ("의사나 약사와 상담하세요.", "의사나 약사와 상담하세요."),  # 다 떼면 빈 글이 되니 그대로 둔다
+    ],
+)
+def test_drop_trailing_advice(text, expected):
+    assert drop_trailing_advice(text) == expected
 
 
 def test_sanitize_strips_markdown_but_keeps_text():
     raw = "**대응 방법:**\n- 즉시 상담하세요.\n1. 함께 먹지 마세요.\n## 요약"
     assert sanitize_guide_text(raw) == "대응 방법:\n즉시 상담하세요.\n함께 먹지 마세요.\n요약"
+
+
+def test_sanitize_fixes_allergy_typo_only_where_missing():
+    assert sanitize_guide_text("알레르 반응과 알레르기 성분") == "알레르기 반응과 알레르기 성분"
+
+
+def test_sanitize_drops_second_person_address():
+    assert sanitize_guide_text("하지만 당신이 심바스타틴에 알레르기가 있어 위험합니다.") == (
+        "하지만 심바스타틴에 알레르기가 있어 위험합니다."
+    )
 
 
 @pytest.mark.parametrize(
