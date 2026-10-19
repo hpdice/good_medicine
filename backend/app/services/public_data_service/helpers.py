@@ -1,4 +1,5 @@
 """공공데이터 응답 파싱에 쓰는 순수 함수 모음 — DB/HTTP에 의존하지 않는다."""
+import html
 import json
 import re
 import xml.etree.ElementTree as ET
@@ -151,6 +152,12 @@ def make_ingredient_resolver(pairs: Iterable[Sequence[str | None]]) -> Callable[
     return _resolve
 
 
+def clean_html_text(value: str | None) -> str:
+    """CDATA 안에 날것으로 남은 HTML 엔티티(`&nbsp;`·`&amp;` 등)를 풀고 공백을 하나로 정리한다.
+    허가정보 원문에 '2)&nbsp;고지단백혈증'처럼 엔티티가 그대로 들어 있어 화면에 보였다(2026-10-19)."""
+    return " ".join(html.unescape(value or "").split())
+
+
 def permit_doc_to_text(doc_xml: str | None, max_chars: int | None = None) -> str | None:
     """허가정보 상세의 `EE/UD/NB_DOC_DATA`(CDATA가 든 XML) → 읽을 수 있는 평문.
 
@@ -165,17 +172,17 @@ def permit_doc_to_text(doc_xml: str | None, max_chars: int | None = None) -> str
         root = ET.fromstring(doc_xml.strip())
         for el in root.iter():
             if el.tag in ("SECTION", "ARTICLE"):
-                title = (el.get("title") or "").strip()
+                title = clean_html_text(el.get("title"))
                 if title:
                     blocks.append([title])
             elif el.tag == "PARAGRAPH":
-                line = " ".join((el.text or "").split())
+                line = clean_html_text(el.text)
                 if line:
                     if not blocks:
                         blocks.append([])
                     blocks[-1].append(line)
     except ET.ParseError:
-        plain = " ".join(re.sub(r"<[^>]+>", " ", doc_xml).split())
+        plain = clean_html_text(re.sub(r"<[^>]+>", " ", doc_xml))
         blocks = [[plain]] if plain else []
 
     texts = ["\n".join(b) for b in blocks if b]

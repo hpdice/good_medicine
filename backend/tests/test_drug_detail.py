@@ -51,6 +51,14 @@ def test_permit_doc_to_text_caps_at_block_boundary_and_keeps_first_block():
     assert "1. 금기" in (permit_doc_to_text(doc, max_chars=10) or "")
 
 
+def test_permit_doc_to_text_unescapes_html_entities():
+    """CDATA에 날것으로 남은 `&nbsp;`가 화면에 그대로 보이던 문제."""
+    doc = _nb(("2. 신중", "2)&nbsp;고지단백혈증 &amp; 당뇨병성&nbsp;&nbsp;고지질혈증"))
+    text = permit_doc_to_text(doc) or ""
+    assert "&nbsp;" not in text and "&amp;" not in text
+    assert "2) 고지단백혈증 & 당뇨병성 고지질혈증" in text
+
+
 def test_permit_doc_to_text_handles_empty_and_broken_xml():
     assert permit_doc_to_text(None) is None
     assert permit_doc_to_text("   ") is None

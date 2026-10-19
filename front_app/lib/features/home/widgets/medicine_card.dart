@@ -152,13 +152,69 @@ class MedicineCard extends StatelessWidget {
                       color: scheme.primary)),
               const SizedBox(height: 3),
             ],
-            Text(sections[i].$2,
-                style: TextStyle(
-                    fontSize: 12.5, height: 1.45, color: scheme.onSurfaceVariant)),
+            _CollapsibleText(
+              sections[i].$2,
+              style: TextStyle(
+                  fontSize: 12.5, height: 1.45, color: scheme.onSurfaceVariant),
+            ),
           ],
         ],
       ),
     );
+  }
+}
+
+/// 긴 설명은 앞부분(4줄)만 보여주고 "더보기"로 펼친다.
+/// 식약처 허가사항 원문(주의사항 등)은 의·약사용 문체로 수백~천 자라, 카드를 펼치면
+/// 다른 항목이 화면 밖으로 밀려난다. 넘치지 않는 짧은 글엔 버튼이 안 뜬다.
+class _CollapsibleText extends StatefulWidget {
+  final String text;
+  final TextStyle style;
+
+  const _CollapsibleText(this.text, {required this.style});
+
+  static const int previewLines = 4;
+
+  @override
+  State<_CollapsibleText> createState() => _CollapsibleTextState();
+}
+
+class _CollapsibleTextState extends State<_CollapsibleText> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, constraints) {
+      final painter = TextPainter(
+        text: TextSpan(text: widget.text, style: widget.style),
+        maxLines: _CollapsibleText.previewLines,
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+      )..layout(maxWidth: constraints.maxWidth);
+      final overflows = painter.didExceedMaxLines;
+      final collapsed = overflows && !_expanded;
+
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // ellipsis는 maxLines가 있을 때만 건다 — maxLines 없이 ellipsis만 주면 한 줄로 잘린다
+        // (펼쳤는데 오히려 카드가 줄어드는 버그를 위젯 테스트가 잡았다).
+        Text(widget.text,
+            style: widget.style,
+            maxLines: collapsed ? _CollapsibleText.previewLines : null,
+            overflow: collapsed ? TextOverflow.ellipsis : TextOverflow.clip),
+        if (overflows)
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 2),
+              child: Text(_expanded ? '접기' : '더보기',
+                  style: widget.style.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: Theme.of(context).colorScheme.primary)),
+            ),
+          ),
+      ]);
+    });
   }
 }
 
