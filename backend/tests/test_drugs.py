@@ -217,3 +217,20 @@ async def test_ocr_match_surfaces_ocr_engine_failure(client, monkeypatch):
         headers=headers,
     )
     assert res.status_code == 503
+
+
+async def test_large_response_is_gzip_compressed(client, session_factory):
+    """허가사항 전문(수만 자)이 든 응답은 gzip으로 내려간다 — 복약함 13종이 198KB→52KB."""
+    async with session_factory() as session:
+        drug = await make_drug(session, "긴설명정")
+        drug.atpn_qesitm = "1) 이 약 또는 이 약의 구성성분에 과민반응 환자\n" * 800
+        await session.commit()
+
+    token = await register_and_login(client)
+    res = await client.get(
+        f"/drugs/{drug.id}",
+        headers={"Authorization": f"Bearer {token}", "Accept-Encoding": "gzip"},
+    )
+    assert res.status_code == 200
+    assert res.headers.get("content-encoding") == "gzip"
+    assert res.json()["atpn_qesitm"].count("과민반응") == 800  # 압축을 풀면 원문 그대로
