@@ -42,13 +42,12 @@ def test_permit_doc_to_text_titles_and_paragraphs():
     assert text == "1. 다음 환자에는 투여하지 말 것\n과민반응 환자\n2. 부작용\n구역"
 
 
-def test_permit_doc_to_text_caps_at_block_boundary_and_keeps_first_block():
-    doc = _nb(("1. 금기", "가" * 50), ("2. 신중투여", "나" * 50), ("3. 부작용", "다" * 50))
-    capped = permit_doc_to_text(doc, max_chars=120) or ""  # 블록 하나가 55자 — 두 블록(110)까지만 담긴다
-    assert "1. 금기" in capped and "2. 신중투여" in capped
-    assert "3. 부작용" not in capped and "이하 생략" in capped
-    # 첫 블록이 한도보다 커도 비어 있게 두지 않는다
-    assert "1. 금기" in (permit_doc_to_text(doc, max_chars=10) or "")
+def test_permit_doc_to_text_keeps_full_text_without_truncation_marker():
+    """전문을 그대로 둔다 — 예전엔 1500자에서 자르고 '이하 생략'을 붙였다(잘린 뒤는 볼 수 없었음)."""
+    doc = _nb(*[(f"{i}. 항목", "가" * 600) for i in range(1, 8)])  # 약 4,300자
+    text = permit_doc_to_text(doc) or ""
+    assert "7. 항목" in text and text.count("가") == 7 * 600
+    assert "이하 생략" not in text
 
 
 def test_permit_doc_to_text_unescapes_html_entities():

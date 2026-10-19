@@ -158,13 +158,12 @@ def clean_html_text(value: str | None) -> str:
     return " ".join(html.unescape(value or "").split())
 
 
-def permit_doc_to_text(doc_xml: str | None, max_chars: int | None = None) -> str | None:
-    """허가정보 상세의 `EE/UD/NB_DOC_DATA`(CDATA가 든 XML) → 읽을 수 있는 평문.
+def permit_doc_to_text(doc_xml: str | None) -> str | None:
+    """허가정보 상세의 `EE/UD/NB_DOC_DATA`(CDATA가 든 XML) → 읽을 수 있는 평문(전문).
 
-    SECTION/ARTICLE 제목은 한 줄, PARAGRAPH는 그 아래 줄로 낸다. `max_chars`를 주면 제목 단위
-    블록(예: "1. 다음 환자에는 투여하지 말 것")을 앞에서부터 담다가 넘으면 거기서 멈추고
-    말줄임을 붙인다 — 문장 중간에서 자르지 않고, 금기가 앞에 오는 문서 구조상 가장 중요한
-    내용이 남는다. 첫 블록은 항상 담는다. XML이 깨져 있으면 태그만 걷어낸 텍스트로 폴백."""
+    SECTION/ARTICLE 제목은 한 줄, PARAGRAPH는 그 아래 줄로 낸다. 자르지 않는다 — 화면은 앱의
+    "더보기"가 접고, AI 프롬프트는 쓰는 쪽(`ai_guide_service`)이 필드당 상한으로 자른다.
+    XML이 깨져 있으면 태그만 걷어낸 텍스트로 폴백."""
     if not doc_xml or not doc_xml.strip():
         return None
     blocks: list[list[str]] = []
@@ -188,14 +187,4 @@ def permit_doc_to_text(doc_xml: str | None, max_chars: int | None = None) -> str
     texts = ["\n".join(b) for b in blocks if b]
     if not texts:
         return None
-    if max_chars is None:
-        return "\n".join(texts)
-    out: list[str] = []
-    used = 0
-    for block in texts:
-        if out and used + len(block) > max_chars:
-            out.append("…(이하 생략 — 전문은 식약처 허가사항 참고)")
-            break
-        out.append(block)
-        used += len(block)
-    return "\n".join(out)
+    return "\n".join(texts)

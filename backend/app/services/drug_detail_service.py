@@ -9,7 +9,8 @@ e약은요(효능·용법·주의 소비자용 문구)는 전체 약의 13.7%만
 삼키고, `detail_fetched_at`을 안 찍어 다음에 다시 시도한다).
 
 채우는 규칙(전부 "비어 있을 때만" — e약은요 값은 절대 덮어쓰지 않는다):
-  EE → efcy_qesitm, UD → use_method_qesitm, NB → atpn_qesitm(길이 제한, 아래),
+  EE → efcy_qesitm, UD → use_method_qesitm, NB → atpn_qesitm(전문 — 화면은 앱의 "더보기"가 접고,
+  AI 프롬프트는 `ai_guide_service`가 필드당 상한으로 자른다),
   MAIN_ITEM_INGR → main_item_ingr + ingr_name,
   그리고 `drug_ingredients` 행이 없으면 성분명으로 DUR 성분코드 해소(source='permit_detail').
 DUR 성분코드(D…)와 허가정보 성분코드(M…)는 체계가 달라 코드로는 못 잇고 이름으로만 맺는다.
@@ -32,9 +33,6 @@ from app.services.public_data_service.helpers import (
 )
 
 DETAIL_TIMEOUT_SECONDS = 8.0
-# 사용상의 주의사항 전문은 수십 KB가 되기도 한다 — 복약함 카드·AI 설명 프롬프트에 그대로 넣기엔
-# 크므로 금기 등 앞쪽 항목 위주로 이 길이까지만 담는다.
-CAUTION_MAX_CHARS = 1500
 
 
 def _detail_url() -> str:
@@ -81,7 +79,7 @@ class DrugDetailService:
         if not drug.use_method_qesitm:
             drug.use_method_qesitm = permit_doc_to_text(item.get("UD_DOC_DATA"))
         if not drug.atpn_qesitm:
-            drug.atpn_qesitm = permit_doc_to_text(item.get("NB_DOC_DATA"), max_chars=CAUTION_MAX_CHARS)
+            drug.atpn_qesitm = permit_doc_to_text(item.get("NB_DOC_DATA"))
 
         main_ingr = _clean(item.get("MAIN_ITEM_INGR"))
         if main_ingr and not drug.main_item_ingr:

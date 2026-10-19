@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -78,6 +79,10 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+# 허가정보 상세 보강으로 약 한 건의 주의사항이 최대 ~3만 자가 되어(복약함 13종 합 198KB) 응답이 커졌다.
+# 한국어 텍스트는 gzip으로 약 1/4(52KB)까지 줄어든다. 작은 응답은 압축 이득이 없어 건너뛴다.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 # 보안 헤더

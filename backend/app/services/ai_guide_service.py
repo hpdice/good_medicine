@@ -13,6 +13,16 @@ from app.services.ollama_client import OllamaClient, OllamaUnavailableError
 from app.services.user_service import UserService
 
 _MAX_FIELD_CHARS = 800  # 프롬프트 길이 방어 — 공공데이터 텍스트가 길 수 있어 필드당 상한
+
+
+def _clip_field(text: str) -> str:
+    """필드를 상한 안으로 자른다. 줄 경계가 가까이 있으면 거기서 잘라 문장 중간에서 끊기지 않게 한다
+    (허가사항 전문은 항목 번호 줄 단위라, 중간에서 끊긴 항목을 모델이 그럴듯하게 이어 쓰곤 했다)."""
+    if len(text) <= _MAX_FIELD_CHARS:
+        return text
+    head = text[:_MAX_FIELD_CHARS]
+    cut = head.rfind("\n")
+    return head[:cut] if cut >= _MAX_FIELD_CHARS // 2 else head
 _MAX_ATTEMPTS = 2  # 검사에 걸린 답은 한 번만 다시 생성하고, 그래도 안 되면 폴백 문구
 
 _FALLBACK_GUIDE_TEXT = (
@@ -40,6 +50,14 @@ _CLOSING = {
     "age": "나이에 맞는 약인지 의사나 약사와 상담하세요.",
     "combination": "약을 임의로 끊거나 바꾸지 말고 처방한 의사나 약사와 상담하세요.",
 }
+
+
+def _no_findings_text(drug_count: int) -> str:
+    return (
+        f"함께 복용 중인 약 {drug_count}개 사이에서 식약처 DUR 공공데이터 기준으로 확인된 문제는 없습니다. "
+        "다만 이 확인은 DUR에 등록된 병용금기·성분 중복 규칙만 대상으로 하므로, 모든 상호작용이 없다는 뜻은 아닙니다.\n\n"
+        "걱정되는 점이 있으면 의사나 약사와 상담하세요."
+    )
 
 
 def closing_for(check: QuickCheckResponse) -> str:
@@ -170,6 +188,16 @@ class AiGuideService:
         drug_ids: list[uuid.UUID],
         check: QuickCheckResponse,
     ) -> AnalysisGuideResponse:
+        if not (check.findings or check.allergy_conflicts or check.age_cautions or check.pregnancy_cautions):
+            # 설명할 문제가 없으면 모델을 부르지 않는다. 프롬프트에 약 정보가 없어서 4개 약을 "두 약"이라
+            # 하고 "안전하다고 판단되었습니다"라고까지 말했다(2026-10-19 실측) — DUR에 없는 상호작용은
+            # 못 찾으므로 "안전"을 말하면 안 된다. 정해진 문장 + 약 개수만 사실대로 쓴다.
+            guide_text = _no_findings_text(len(drug_ids))
+            await self._persist(user_id, drug_ids, check, guide_text)
+            return AnalysisGuideResponse(
+                risk_level=check.risk_level, guide_text=guide_text, is_ai_generated=False
+            )
+
         prompt = await self._build_prompt(user_id, check)
 
         guide_text, is_ai_generated = _FALLBACK_GUIDE_TEXT, False
@@ -236,13 +264,13 @@ class AiGuideService:
             if drug.class_name:
                 parts.append(f"분류: {drug.class_name}")
             if drug.efcy_qesitm:
-                parts.append(f"효능: {drug.efcy_qesitm[:_MAX_FIELD_CHARS]}")
+                parts.append(f"효능: {_clip_field(drug.efcy_qesitm)}")
             if drug.atpn_qesitm:
-                parts.append(f"주의사항: {drug.atpn_qesitm[:_MAX_FIELD_CHARS]}")
+                parts.append(f"주의사항: {_clip_field(drug.atpn_qesitm)}")
             if drug.intrc_qesitm:
-                parts.append(f"상호작용: {drug.intrc_qesitm[:_MAX_FIELD_CHARS]}")
+                parts.append(f"상호작용: {_clip_field(drug.intrc_qesitm)}")
             if drug.se_qesitm:
-                parts.append(f"부작용: {drug.se_qesitm[:_MAX_FIELD_CHARS]}")
+                parts.append(f"부작용: {_clip_field(drug.se_qesitm)}")
             drug_lines.append(" / ".join(parts))
 
         # 사용자 건강정보/알레르기 — 복호화 실패는 UserService가 필드별로 격리 처리하므로

@@ -5,6 +5,7 @@ from app.core.encryption import get_encryptor
 from app.models.analysis_result import AnalysisResult
 from app.services import ollama_client
 from app.services.ai_guide_service import (
+    _clip_field,
     drop_trailing_advice,
     guide_text_problem,
     repair_guide_text,
@@ -63,6 +64,40 @@ async def test_guide_generated_for_critical_finding(client, session_factory, mon
             str(drug_a.id), str(drug_b.id),
         ]
         assert isinstance(get_encryptor().decrypt(row.findings_snapshot_encrypted), list)
+
+
+async def test_guide_for_no_findings_skips_model_and_states_dur_limit(client, session_factory, monkeypatch):
+    """확인된 문제가 없을 땐 모델을 부르지 않는다 — 프롬프트에 약 정보가 없어 4개 약을 '두 약'이라 하고
+    '안전하다고 판단되었습니다'라고 말했다. 정해진 문장이 실제 약 개수와 DUR 한계를 말해야 한다."""
+
+    async def must_not_call(self, prompt: str, system: str | None = None) -> str:
+        raise AssertionError("확인된 문제가 없는데 모델을 불렀다")
+
+    monkeypatch.setattr(ollama_client.OllamaClient, "generate", must_not_call)
+
+    async with session_factory() as session:
+        drugs = [await make_drug(session, f"무관한약{i}정") for i in range(4)]
+
+    headers = await _auth_headers(client)
+    res = await client.post(
+        "/analysis/guide", json={"drug_ids": [str(d.id) for d in drugs]}, headers=headers
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["risk_level"] == "safe"
+    assert body["is_ai_generated"] is False
+    assert "4개" in body["guide_text"]  # '두 약'이 아니라 실제 개수
+    assert "모든 상호작용이 없다는 뜻은 아닙니다" in body["guide_text"]
+    assert "안전하다" not in body["guide_text"]
+
+
+def test_clip_field_cuts_at_line_boundary_not_mid_sentence():
+    line = "가" * 100
+    text = "\n".join(f"{i}) {line}" for i in range(20))  # 한 줄 ~103자, 총 2000자 이상
+    clipped = _clip_field(text)
+    assert len(clipped) <= 800
+    assert clipped.endswith(line)  # 항목 줄을 통째로 담고 끝난다 — 중간에서 끊기지 않음
+    assert _clip_field("짧은 글") == "짧은 글"
 
 
 async def test_guide_falls_back_safely_when_ollama_unavailable(client, session_factory, monkeypatch):
