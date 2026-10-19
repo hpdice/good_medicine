@@ -35,6 +35,10 @@ class Drug(Base):
     se_qesitm: Mapped[str | None] = mapped_column(Text, nullable=True)
     deposit_method_qesitm: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # 허가정보 상세 API(getDrugPrdtPrmsnDtlInq06)로 보강을 시도한 시각 — NULL이면 아직 안 해봄.
+    # (성공했지만 값이 없는 약도 찍어 둬서 같은 약을 매번 다시 호출하지 않는다)
+    detail_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     # 분류
     class_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     etc_otc_name: Mapped[str | None] = mapped_column(String(50), nullable=True)

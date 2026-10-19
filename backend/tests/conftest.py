@@ -71,6 +71,18 @@ def _prepare_schema():
 
 
 @pytest.fixture(autouse=True)
+def _no_permit_detail_network(monkeypatch):
+    """복약함 추가·약 상세 조회가 허가정보 상세 API(공공데이터)를 실제로 부르지 않게 막는다.
+    상세 보강을 검증하는 테스트는 이 패치를 자기 가짜 `_fetch`로 다시 덮어쓴다."""
+    from app.services.drug_detail_service import DrugDetailService
+
+    async def _offline(self, item_seq):
+        return None
+
+    monkeypatch.setattr(DrugDetailService, "_fetch", _offline)
+
+
+@pytest.fixture(autouse=True)
 def _reset_login_guard():
     """계정별 로그인 실패 카운터는 프로세스 메모리에 있어 테스트 사이에 새어 나간다 — 매번 비운다."""
     login_guard.clear()

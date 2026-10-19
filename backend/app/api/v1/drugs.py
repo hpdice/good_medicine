@@ -24,6 +24,7 @@ from app.schemas.drug import (
     DrugSearchResult,
     OcrMatchResponse,
 )
+from app.services.drug_detail_service import DrugDetailService
 from app.services.drug_service import DrugService
 from app.services.ocr_service import (
     OcrError,
@@ -110,4 +111,11 @@ async def get_drug(
     db: AsyncSession = Depends(get_db),
     _: uuid.UUID = Depends(get_current_user_id),
 ):
-    return await DrugService(db).get_by_id(drug_id)
+    drug = await DrugService(db).get_by_id(drug_id)
+    try:
+        await DrugDetailService(db).ensure_detail(drug)
+    except Exception:  # 부가 보강 — 실패해도 기존 정보로 응답
+        await db.rollback()
+        logger.exception("허가정보 상세 보강 중 오류 drug_id=%s", drug_id)
+        drug = await DrugService(db).get_by_id(drug_id)
+    return drug

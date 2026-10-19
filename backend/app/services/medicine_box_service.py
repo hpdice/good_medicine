@@ -17,6 +17,7 @@ from app.schemas.medicine_box import (
 )
 from app.services import fcm_service
 from app.services.analysis_service import AnalysisService
+from app.services.drug_detail_service import DrugDetailService
 from app.services.drug_service import DrugService
 
 # payload_encrypted 안에 들어가는(=암호화되는) 필드. 나머지(user_id/is_current/
@@ -108,6 +109,18 @@ class MedicineBoxService:
         rows = await self._load_with_payload(user_id, current_only=True)
         if any(p["drug_id"] == str(data.drug_id) for _, p in rows):
             raise ConflictError("이미 복약 중인 약품입니다.")
+
+        # e약은요에 없는 약(대부분의 전문의약품)은 허가정보 상세로 효능·용법·주의·성분을 채운다.
+        # 성분이 채워지면 아래 병용금기 푸시·이후 quick_check가 이 약을 성분 단위로 볼 수 있다.
+        # 부가 기능이라 실패해도 약 추가는 계속한다.
+        try:
+            await DrugDetailService(self.db).ensure_detail(drug)
+        except Exception:
+            await self.db.rollback()
+            logger.exception("허가정보 상세 보강 중 오류 (약품 추가는 계속 진행) drug_id=%s", data.drug_id)
+            drug = await self.db.get(Drug, data.drug_id)
+            if drug is None:
+                raise NotFoundError("약품을 찾을 수 없습니다.")
 
         payload = data.model_dump(mode="json")  # date/UUID → 문자열
         entry = MedicineBoxEntry(

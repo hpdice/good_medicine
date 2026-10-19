@@ -12,7 +12,7 @@ from app.models.drug_ingredient import DrugIngredient
 from app.models.residual_interaction import ResidualInteraction
 
 from .base import _SyncBase
-from .helpers import _make_drug_key, _make_simple_name, _parse_main_ingr
+from .helpers import _make_simple_name, _parse_main_ingr, make_ingredient_resolver
 
 
 class MaintenanceMixin(_SyncBase):
@@ -57,26 +57,10 @@ class MaintenanceMixin(_SyncBase):
             select(DrugIngredient.ingr_kor, DrugIngredient.ingr_code)
             .where(DrugIngredient.ingr_code.isnot(None), DrugIngredient.ingr_kor.isnot(None))
         )
-        name_to_code: dict[str, str] = {}
-        for ingr_kor, ingr_code in rows.all():
-            key = _make_drug_key(ingr_kor)
-            if key and key not in name_to_code:
-                name_to_code[key] = ingr_code
-        if not name_to_code:
+        pairs = rows.all()
+        if not pairs:
             return 0
-        code_keys = sorted(name_to_code)
-
-        def _resolve(cand: str) -> str | None:
-            key = _make_drug_key(cand)
-            if len(key) < 3:
-                return None
-            code = name_to_code.get(key)
-            if code:
-                return code
-            for ck in code_keys:
-                if ck.startswith(key) or key.startswith(ck):
-                    return name_to_code[ck]
-            return None
+        _resolve = make_ingredient_resolver(pairs)
 
         covered = set(
             (await self.db.execute(select(DrugIngredient.drug_id).distinct())).scalars().all()

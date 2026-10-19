@@ -1,6 +1,8 @@
 """공공데이터 응답 파싱에 쓰는 순수 함수 모음 — DB/HTTP에 의존하지 않는다."""
 import json
 import re
+import xml.etree.ElementTree as ET
+from collections.abc import Callable, Iterable
 from typing import Any
 
 _AGE_CRITERIA_RE = re.compile(r'(\d+)\s*(세|개월)\s*(미만|이상|이하|초과)')
@@ -117,3 +119,76 @@ def _parse_tag_array(raw: str) -> list[str]:
             seen.add(x.lower())
             out.append(x)
     return out[:4]
+
+
+def make_ingredient_resolver(pairs: Iterable[tuple[str | None, str | None]]) -> Callable[[str], str | None]:
+    """`(성분명, DUR 성분코드)` 쌍에서 "성분명 → 코드" 해소 함수를 만든다.
+
+    정규화한 이름이 완전히 같으면 그 코드, 아니면 접두(염 형태 차이: '트리메부틴' ↔
+    '트리메부틴말레산염')가 맞는 코드. substring 매칭은 '우레아→히드록시우레아' 같은
+    오매칭이 나서 쓰지 않는다(CLAUDE.md "상용약품 DUR 매칭 개선 시도" 2번)."""
+    name_to_code: dict[str, str] = {}
+    for ingr_kor, ingr_code in pairs:
+        if not ingr_kor or not ingr_code:
+            continue
+        key = _make_drug_key(ingr_kor)
+        if key and key not in name_to_code:
+            name_to_code[key] = ingr_code
+    code_keys = sorted(name_to_code)
+
+    def _resolve(cand: str) -> str | None:
+        key = _make_drug_key(cand)
+        if len(key) < 3:
+            return None
+        code = name_to_code.get(key)
+        if code:
+            return code
+        for ck in code_keys:
+            if ck.startswith(key) or key.startswith(ck):
+                return name_to_code[ck]
+        return None
+
+    return _resolve
+
+
+def permit_doc_to_text(doc_xml: str | None, max_chars: int | None = None) -> str | None:
+    """허가정보 상세의 `EE/UD/NB_DOC_DATA`(CDATA가 든 XML) → 읽을 수 있는 평문.
+
+    SECTION/ARTICLE 제목은 한 줄, PARAGRAPH는 그 아래 줄로 낸다. `max_chars`를 주면 제목 단위
+    블록(예: "1. 다음 환자에는 투여하지 말 것")을 앞에서부터 담다가 넘으면 거기서 멈추고
+    말줄임을 붙인다 — 문장 중간에서 자르지 않고, 금기가 앞에 오는 문서 구조상 가장 중요한
+    내용이 남는다. 첫 블록은 항상 담는다. XML이 깨져 있으면 태그만 걷어낸 텍스트로 폴백."""
+    if not doc_xml or not doc_xml.strip():
+        return None
+    blocks: list[list[str]] = []
+    try:
+        root = ET.fromstring(doc_xml.strip())
+        for el in root.iter():
+            if el.tag in ("SECTION", "ARTICLE"):
+                title = (el.get("title") or "").strip()
+                if title:
+                    blocks.append([title])
+            elif el.tag == "PARAGRAPH":
+                line = " ".join((el.text or "").split())
+                if line:
+                    if not blocks:
+                        blocks.append([])
+                    blocks[-1].append(line)
+    except ET.ParseError:
+        plain = " ".join(re.sub(r"<[^>]+>", " ", doc_xml).split())
+        blocks = [[plain]] if plain else []
+
+    texts = ["\n".join(b) for b in blocks if b]
+    if not texts:
+        return None
+    if max_chars is None:
+        return "\n".join(texts)
+    out: list[str] = []
+    used = 0
+    for block in texts:
+        if out and used + len(block) > max_chars:
+            out.append("…(이하 생략 — 전문은 식약처 허가사항 참고)")
+            break
+        out.append(block)
+        used += len(block)
+    return "\n".join(out)

@@ -16,6 +16,8 @@
     dur_extra_codes         DUR 기타 엔드포인트(용량/투여기간)에서 성분코드 매핑만 수확
     dur_age_caution         DUR 특정연령대금기·노인주의 동기화 (성분 테이블만 채움)
     dur_pregnancy           DUR 임부금기 동기화 (품목 단위 판정 규칙 + 성분코드 매핑)
+    box_detail              복약함에 이미 담긴 약을 허가정보 상세 API로 보강 (효능·용법·주의·성분).
+                            새로 담는 약은 담는 순간 자동 보강되므로, 이 기능 도입 전 항목용 1회성
     all                     overview·dur_contraindications·efcy_dplct·approval 순 (기본값)
 
 옵션:
@@ -127,6 +129,44 @@ async def cmd_extract_risk_tags():
     print(f"[완료] {n:,}개 distinct 문장 태그화")
 
 
+
+
+async def cmd_box_detail() -> bool:
+    """복약함에 담긴 모든 약(전 사용자, 현재·과거 항목 포함) 중 아직 보강 안 한 약을 상세 API로 채운다.
+    약 ID는 payload에 암호화돼 있어 복호화해서 모은다 — 약 목록만 메모리에 잠깐 들고 있고 출력하지 않는다."""
+    import uuid
+
+    from sqlalchemy import select
+
+    from app.core.encryption import get_encryptor
+    from app.db.session import AsyncSessionLocal
+    from app.models.drug import Drug
+    from app.models.medicine_box import MedicineBoxEntry
+    from app.services.drug_detail_service import DrugDetailService
+
+    print("[시작] 복약함 약품 허가정보 상세 보강")
+    enc = get_encryptor()
+    async with AsyncSessionLocal() as db:
+        drug_ids: set[uuid.UUID] = set()
+        for payload in (await db.execute(select(MedicineBoxEntry.payload_encrypted))).scalars():
+            try:
+                drug_ids.add(uuid.UUID(enc.decrypt(payload)["drug_id"]))
+            except Exception:  # noqa: BLE001 — 깨진 항목 하나가 전체를 막지 않게
+                continue
+        drugs = list((await db.execute(
+            select(Drug).where(Drug.id.in_(drug_ids), Drug.detail_fetched_at.is_(None))
+        )).scalars())
+        print(f"  복약함 약품 {len(drug_ids)}종 중 미보강 {len(drugs)}종")
+        svc = DrugDetailService(db)
+        done = failed = 0
+        for drug in drugs:
+            if await svc.ensure_detail(drug):
+                done += 1
+            else:
+                failed += 1
+                print(f"  (실패) {drug.item_name} — 다음 실행에서 재시도")
+    print(f"[완료] 보강 {done}종, 실패 {failed}종")
+    return failed == 0
 
 
 async def cmd_fill_simple_names():
@@ -291,6 +331,9 @@ async def main_async():
     elif cmd == "fill_simple_names":
         await cmd_fill_simple_names()
         await cmd_status()
+    elif cmd == "box_detail":
+        if not await cmd_box_detail():
+            failed = ["box_detail"]
     elif cmd == "all":
         print("전체 동기화를 시작합니다.")
         failed = await run_sync(SOURCES, replay)
