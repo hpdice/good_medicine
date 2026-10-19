@@ -68,6 +68,15 @@ void main() {
     expect(find.text('더보기'), findsOneWidget);
   });
 
+  testWidgets('문단 사이 빈 줄은 줄 수에 안 세어 짧은 글에 더보기가 안 뜬다', (tester) async {
+    // 문단 3개 + 사이 빈 줄 = 5줄이지만 실제 내용은 3줄 — 4줄 한도를 안 넘는다.
+    const text = '첫째 문단입니다.\n\n둘째 문단입니다.\n\n셋째 문단입니다.';
+    await tester.pumpWidget(_card(_entry(efcy: '골관절증의 증상 완화', atpn: text)));
+
+    expect(find.text('더보기'), findsNothing);
+    expect(find.text('첫째 문단입니다.\n둘째 문단입니다.\n셋째 문단입니다.'), findsOneWidget);
+  });
+
   testWidgets('짧은 글에는 더보기 버튼이 없다', (tester) async {
     await tester.pumpWidget(_card(_entry(efcy: '골관절증의 증상 완화', atpn: '술을 피하세요.')));
 

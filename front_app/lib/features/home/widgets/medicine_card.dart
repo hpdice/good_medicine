@@ -182,11 +182,16 @@ class _CollapsibleText extends StatefulWidget {
 class _CollapsibleTextState extends State<_CollapsibleText> {
   bool _expanded = false;
 
+  // 원문에는 문단 사이 빈 줄이 흔하다(e약은요 약 절반 이상) — 그대로 두면 4줄 한도의 절반을
+  // 빈 줄이 먹어서 문단 2개만 보이고 나머지가 접힌다. 줄바꿈을 한 번으로 모은다.
+  late final String _text =
+      widget.text.trim().replaceAll(RegExp(r'\s*\n\s*'), '\n');
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, constraints) {
       final painter = TextPainter(
-        text: TextSpan(text: widget.text, style: widget.style),
+        text: TextSpan(text: _text, style: widget.style),
         maxLines: _CollapsibleText.previewLines,
         textDirection: Directionality.of(context),
         textScaler: MediaQuery.textScalerOf(context),
@@ -197,20 +202,31 @@ class _CollapsibleTextState extends State<_CollapsibleText> {
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         // ellipsis는 maxLines가 있을 때만 건다 — maxLines 없이 ellipsis만 주면 한 줄로 잘린다
         // (펼쳤는데 오히려 카드가 줄어드는 버그를 위젯 테스트가 잡았다).
-        Text(widget.text,
+        Text(_text,
             style: widget.style,
             maxLines: collapsed ? _CollapsibleText.previewLines : null,
             overflow: collapsed ? TextOverflow.ellipsis : TextOverflow.clip),
         if (overflows)
+          // 소제목('경고' 등)과 같은 굵은 청록 글씨면 내용 없는 제목처럼 읽힌다 — 화살표를 붙여
+          // 누르는 버튼으로 보이게 하고 글씨는 소제목보다 가볍게 둔다.
           GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () => setState(() => _expanded = !_expanded),
             child: Padding(
-              padding: const EdgeInsets.only(top: 4, bottom: 2),
-              child: Text(_expanded ? '접기' : '더보기',
-                  style: widget.style.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: Theme.of(context).colorScheme.primary)),
+              padding: const EdgeInsets.only(top: 6, bottom: 2),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Text(_expanded ? '접기' : '더보기',
+                    style: widget.style.copyWith(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: Theme.of(context).colorScheme.primary)),
+                Icon(
+                    _expanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    size: 18,
+                    color: Theme.of(context).colorScheme.primary),
+              ]),
             ),
           ),
       ]);
