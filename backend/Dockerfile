@@ -13,6 +13,13 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr-kor \
     && rm -rf /var/lib/apt/lists/*
 
+# 고정밀 OCR 모델(tessdata_best, LSTM). apt의 tesseract-ocr-kor은 속도 우선 "fast" 모델이라
+# 용량 '20mg'을 '2000'으로 읽는 등 정확도가 낮다. ocr_service.py가 이 경로가 있으면 쓰고 없으면
+# fast 모델로 폴백한다. (예전엔 /tmp에 수동 배치해서 컨테이너 재시작마다 사라졌다.)
+ADD https://github.com/tesseract-ocr/tessdata_best/raw/4.1.0/kor.traineddata /usr/share/tessdata_best/kor.traineddata
+ADD https://github.com/tesseract-ocr/tessdata_best/raw/4.1.0/eng.traineddata /usr/share/tessdata_best/eng.traineddata
+RUN chmod -R a+rX /usr/share/tessdata_best
+
 RUN pip install poetry==1.8.3
 ENV POETRY_VIRTUALENVS_CREATE=false
 

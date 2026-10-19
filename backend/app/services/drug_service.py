@@ -124,6 +124,28 @@ class DrugService:
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
+    # 실측(2026-10-19, 35,529건): 한 글자 오인식은 0.40~0.42('뉴부턴'→뉴부틴 0.40, '신플렉스'→신플랙스 0.42),
+    # 의미 없는 입력('가나다라마정')은 0.2~0.3. 0.38이 둘을 가른다.
+    FUZZY_MIN_SIMILARITY = 0.38
+
+    async def _fuzzy_candidates(self, key: str) -> list[Drug]:
+        """`drug_key`와 트라이그램 유사도가 높은 약 최대 3개(유사도 순).
+
+        `word_similarity`는 짧은 검색어가 긴 `drug_key`('신플랙스세이프정500/20밀리그램')의
+        앞부분과 얼마나 닮았는지를 보므로 뒤에 붙은 용량·성분 표기에 점수가 깎이지 않는다.
+        `<%` 연산자(GIN 인덱스)는 기본 문턱 0.6이라 한 글자 오인식을 못 잡아, 점수를 직접 비교한다 —
+        앞선 4단계가 모두 빈손일 때만 타는 경로라 전체 스캔(3.5만 건) 비용은 무시할 만하다."""
+        if len(key) < 3:
+            return []
+        score = func.word_similarity(key, Drug.drug_key)
+        rows = (await self.db.execute(
+            select(Drug)
+            .where(score >= self.FUZZY_MIN_SIMILARITY)
+            .order_by(score.desc(), func.length(Drug.drug_key))
+            .limit(3)
+        )).scalars().all()
+        return list(rows)
+
     async def match_names(self, names: list[str]) -> list[dict]:
         """약품명 리스트 각각을 drug_key → 용량 제거 prefix → ILIKE → 성분명 순으로 검색."""
         results = []
@@ -209,8 +231,17 @@ class DrugService:
                         .limit(5)
                     )).scalars().all())
 
+            # 5순위: OCR 오인식 보정 — 위 4단계가 전부 빈손일 때만, 글자 하나가 틀린 이름
+            # ('신플렉스'↔'신플랙스', '뉴부턴'↔'뉴부틴')을 트라이그램 유사도로 찾는다. 틀린 글자를
+            # 사전으로 고치는 게 아니라 DB 이름과의 유사도라 새 약이 나와도 코드 수정이 필요 없다.
+            # 오인식을 자동 확정하면 엉뚱한 약이 복약함에 들어갈 수 있어 `matched`로는 올리지 않고
+            # `alternatives`(앱의 "유사 약품" 목록)로만 내려, 사용자가 직접 고르게 한다.
+            fuzzy: list[Drug] = []
+            if not rows:
+                fuzzy = await self._fuzzy_candidates(name_prefix if len(name_prefix) >= 3 else normalized_key)
+
             matched = rows[0] if rows else None
-            alternatives = rows[1:] if len(rows) > 1 else []
+            alternatives = rows[1:] if len(rows) > 1 else fuzzy
             results.append({
                 "queried_name": name,
                 "matched": matched,

@@ -109,6 +109,41 @@ def test_extract_candidates_ports_dart_regex():
     assert "용법: 식후 30분" not in got
 
 
+async def test_match_names_suggests_similar_drug_for_ocr_typo(client, session_factory):
+    """OCR이 한 글자 틀린 이름('렉'↔'랙')은 자동 확정하지 않고 '유사 약품'으로만 내려준다."""
+    async with session_factory() as session:
+        target = await make_drug(session, "신플랙스세이프정500/20밀리그램")
+        await make_drug(session, "타이레놀정500밀리그램")
+    token = await register_and_login(client)
+    res = await client.post(
+        "/drugs/match-names",
+        json={"names": ["신플렉스세이프정", "가나다라마정"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 200
+    typo, garbage = res.json()
+    assert typo["matched"] is None  # 오인식을 자동으로 확정하면 안 된다
+    assert [a["id"] for a in typo["alternatives"]] == [str(target.id)]
+    assert garbage["matched"] is None and garbage["alternatives"] == []  # 닮은 게 없으면 억지로 안 낸다
+
+
+def test_extract_candidates_keeps_digits_inside_name():
+    """이름 가운데 숫자('8시간')에서 끊겨 '시간이알서방정' 조각만 남던 버그."""
+    got = extract_candidates("아니스펜8시간이알서방정(아..  1회투약량 1\n1회투약량1 1일투여횟수2\n")
+    assert "아니스펜8시간이알서방정" in got
+    assert not any(c.startswith("1") or "투약" in c for c in got)
+
+
+def test_extract_candidates_drops_generic_form_fragments():
+    """줄이 잘려 제형·서방 설명어만 읽힌 조각은 약 이름이 아니다 — 엉뚱한 약에 매칭되던 버그."""
+    text = "신플랙스세이프정  1회투약량1\nEM 서방정\n알서방정\n시간이알서방정\n뉴부틴서방정(말레인산트리메..\n"
+    got = extract_candidates(text)
+    assert "신플랙스세이프정" in got
+    assert "뉴부틴서방정" in got
+    for fragment in ("서방정", "알서방정", "시간이알서방정"):
+        assert fragment not in got
+
+
 async def test_ocr_match_returns_candidates_and_db_matches(
     client, session_factory, monkeypatch
 ):
