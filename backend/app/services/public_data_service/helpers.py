@@ -2,7 +2,7 @@
 import json
 import re
 import xml.etree.ElementTree as ET
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
 _AGE_CRITERIA_RE = re.compile(r'(\d+)\s*(세|개월)\s*(미만|이상|이하|초과)')
@@ -121,7 +121,7 @@ def _parse_tag_array(raw: str) -> list[str]:
     return out[:4]
 
 
-def make_ingredient_resolver(pairs: Iterable[tuple[str | None, str | None]]) -> Callable[[str], str | None]:
+def make_ingredient_resolver(pairs: Iterable[Sequence[str | None]]) -> Callable[[str], str | None]:
     """`(성분명, DUR 성분코드)` 쌍에서 "성분명 → 코드" 해소 함수를 만든다.
 
     정규화한 이름이 완전히 같으면 그 코드, 아니면 접두(염 형태 차이: '트리메부틴' ↔

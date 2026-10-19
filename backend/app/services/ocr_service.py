@@ -140,7 +140,7 @@ def _fit_max_side(img: Image.Image, max_side: int) -> Image.Image:
     scale = max_side / max(img.size)
     if scale >= 1:
         return img
-    return img.resize((int(img.width * scale), int(img.height * scale)), Image.LANCZOS)
+    return img.resize((int(img.width * scale), int(img.height * scale)), Image.Resampling.LANCZOS)
 
 # 병렬 tesseract 프로세스끼리 OpenMP 스레드를 또 나누면 오히려 느려진다.
 os.environ.setdefault("OMP_THREAD_LIMIT", "1")
