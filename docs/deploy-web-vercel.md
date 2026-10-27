@@ -1,6 +1,6 @@
 # 프론트(Flutter 웹) → Vercel 배포
 
-> **구조**: 프론트는 Vercel(정적 CDN), API 는 국내 PC 백엔드(`https://goodmedicine.tail9f1768.ts.net/api/v1/`).
+> **구조**: 프론트는 Vercel(정적 CDN), API 는 국내 백엔드(`https://goodmedicine.tail9f1768.ts.net/api/v1/`).
 > 개인정보는 프론트에 없으므로 Vercel(해외) 호스팅은 PIPA 무관 — 저장·처리는 전부 국내 백엔드/DB.
 > 백엔드는 API 만 서빙한다(웹 번들 없음). 웹은 Vercel 이 유일한 호스트.
 
@@ -10,7 +10,7 @@ git push (front_app/** 변경)
       flutter build web  --dart-define=BASE_URL=<WEB_API_BASE_URL>
       → vercel deploy --prebuilt --prod
   → https://goodmedicine-hpdice.vercel.app   (프론트)
-        └─ fetch → https://goodmedicine.tail9f1768.ts.net/api/v1/  (백엔드, 국내 PC)
+        └─ fetch → https://goodmedicine.tail9f1768.ts.net/api/v1/  (백엔드, 국내)
 ```
 
 ---
