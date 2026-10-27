@@ -117,3 +117,10 @@ env.txt
 
 # 학술제 포스터 (원본은 학술제 폴더에서 관리, 저장소에 넣지 않음)
 docs/*포스터*
+
+# 로컬 전용 문서 (학습·작업 기록, 발표 준비) — 저장소에 넣지 않음
+docs/study/
+docs/개발일지.*
+docs/dev-log-style.css
+docs/학술제_*
+docs/poster-screenshots-*/
