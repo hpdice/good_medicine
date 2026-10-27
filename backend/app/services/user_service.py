@@ -53,8 +53,8 @@ class UserService:
 
         사용자 행은 tombstone으로 남기므로(감사 로그 참조 보존) FK의 ON DELETE CASCADE가
         발동하지 않는다. 그래서 복약함·분석 이력(암호화된 건강·복약 정보)을 여기서 직접
-        지우고, 남은 Refresh Token을 전부 폐기한다 — 이전엔 둘 다 빠져 탈퇴 후에도 데이터가
-        남고 옛 토큰으로 계속 접근할 수 있었다(2026-09-30 재현).
+        지우고, 남은 Refresh Token을 전부 폐기한다 — 그렇지 않으면 탈퇴 후에도 데이터가
+        남고 옛 토큰으로 계속 접근할 수 있다.
         """
         user = await self.db.get(User, user_id)
         if not user:

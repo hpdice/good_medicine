@@ -43,7 +43,7 @@ def test_permit_doc_to_text_titles_and_paragraphs():
 
 
 def test_permit_doc_to_text_keeps_full_text_without_truncation_marker():
-    """전문을 그대로 둔다 — 예전엔 1500자에서 자르고 '이하 생략'을 붙였다(잘린 뒤는 볼 수 없었음)."""
+    """전문을 그대로 둔다 — 자르고 '이하 생략'을 붙이면 잘린 뒤는 볼 수 없다."""
     doc = _nb(*[(f"{i}. 항목", "가" * 600) for i in range(1, 8)])  # 약 4,300자
     text = permit_doc_to_text(doc) or ""
     assert "7. 항목" in text and text.count("가") == 7 * 600

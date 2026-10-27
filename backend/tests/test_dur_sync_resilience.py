@@ -1,9 +1,8 @@
-"""공공데이터 동기화의 조용한 결함 회귀 테스트 (2026-09-30).
+"""공공데이터 동기화의 조용한 결함 회귀 테스트.
 
-1. 페이지 요청이 재시도 끝에 실패하면 그 페이지를 건너뛰고(page += 1) 계속해, 규칙이 빠진 채
-   "완료"로 끝났다 → 이제 그 페이지를 체크포인트로 남기고 중단, 재실행 시 거기서 이어받는다.
-2. 이미 있는 성분쌍 규칙은 "있으면 건너뜀"이라 원천이 금기 사유 문장을 고쳐도 반영되지 않았다
-   → 문장이 바뀌면 갱신하고, 낡은 risk_tags 는 비운다.
+1. 페이지 요청이 재시도 끝에 실패하면 건너뛰지 않고 그 페이지를 체크포인트로 남긴 채 중단하며,
+   재실행 시 거기서 이어받는다(건너뛰면 규칙이 빠진 채 "완료"로 끝난다).
+2. 이미 있는 성분쌍 규칙도 원천이 금기 사유 문장을 고치면 갱신하고, 낡은 risk_tags 는 비운다.
 
 공공 API 는 부르지 않는다 — `_fetch_page` 를 가짜로 바꿔 페이지별 응답을 흉내 낸다.
 """
@@ -104,7 +103,7 @@ async def test_same_prohibit_content_is_left_untouched(session_factory):
 
 async def test_simple_paginated_sync_stops_instead_of_skipping(session_factory):
     """e약은요·허가정보·효능군중복이 쓰는 공통 루프도 실패 페이지를 건너뛰면 안 된다.
-    (이전엔 실패 횟수 제한도 없어, API 가 죽으면 페이지 번호만 올리며 끝없이 돌았다.)"""
+    (실패 횟수 제한이 없으면 API 가 죽을 때 페이지 번호만 올리며 끝없이 돈다.)"""
     fetched, handled = [], []
     async with session_factory() as session:
         svc = PublicDataService(session)

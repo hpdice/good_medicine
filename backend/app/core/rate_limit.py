@@ -1,13 +1,10 @@
 """공용 Rate Limiter 인스턴스와 키 함수.
 
-이전엔 main.py·auth.py·analysis.py·drugs.py가 각자
-`Limiter(key_func=get_remote_address)`를 만들어 4개가 따로 존재했다(스토리지도 별개).
-하나로 모아 `app.state.limiter`와 라우터 데코레이터가 같은 인스턴스를 쓰게 한다.
+Limiter를 하나만 두어 `app.state.limiter`와 라우터 데코레이터가 같은 인스턴스(같은 스토리지)를 쓰게 한다.
 
-키 함수가 `get_remote_address`(= 직접 연결한 상대의 IP)였을 때, 배포 환경에서는 모든
-요청이 Tailscale Funnel 컨테이너를 거쳐 들어와 **전 사용자가 IP 하나를 공유**했다 —
-로그인 5회/15분이 서비스 전체 한도가 되는 문제(2026-09-30 실측). 그래서:
-(그 뒤 로그인 한도는 IP 20회/15분으로 풀고, 무차별 대입 방어는 `login_guard.py`의 계정별 실패 제한으로 분리했다.)
+키 함수를 직접 연결한 상대의 IP(`get_remote_address`)로 두면, 배포 환경에서는 모든 요청이 Tailscale Funnel
+컨테이너를 거쳐 들어와 **전 사용자가 IP 하나를 공유**하게 된다. 그래서 로그인 한도는 IP 20회/15분으로 두고,
+무차별 대입 방어는 `login_guard.py`의 계정별 실패 제한으로 분리했다.
 
 - 실제 클라이언트 IP는 `client_ip()`로 구한다. `X-Forwarded-For`는 **신뢰 프록시에서 온
   요청일 때만** 믿는다(누구나 헤더를 위조할 수 있으므로). Tailscale serve/Funnel은 이 헤더를

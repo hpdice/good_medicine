@@ -17,7 +17,7 @@ from app.db.session import AsyncSessionLocal
 SEP = "=" * 50
 
 # 규칙 수 하한 — 동기화가 규칙을 지우지는 않으므로, 이보다 적으면 DB가 비었거나 잘못 복원된 것.
-# (2026-09-30 기준: 약품 35,506 · 성분 병용금기 357 · 효능군 259)
+# (현재: 약품 약 3.5만 · 성분 병용금기 357 · 효능군 259)
 MIN_DRUGS = 30_000
 MIN_CONTRA_RULES = 300
 MIN_EFFECT_RULES = 200

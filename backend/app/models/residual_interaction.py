@@ -11,8 +11,7 @@ from app.db.base import Base
 class ResidualInteraction(Base):
     """성분 경로가 재현하지 못하는 품목쌍만 남긴 소형 폴백 테이블.
 
-    구 `drug_interactions`(331K행, 227MB)는 성분 단위 판정이 그 탐지의 100.0%를
-    재현함이 DB 전수검증(`analyze_ingr_coverage.py`)으로 확인되어 폐기했다.
+    성분 단위 판정이 품목쌍 단위 판정의 탐지를 100.0% 재현하므로 품목쌍 테이블은 두지 않는다.
     성분코드가 해소되지 않은 약(주로 외용제·희귀 품목)이 낀 ~217쌍만 여기 남긴다.
 
     `quick_check`는 선택 약 중 성분코드 미해소가 하나라도 있을 때만 이 테이블을 본다.

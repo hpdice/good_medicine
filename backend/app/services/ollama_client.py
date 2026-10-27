@@ -28,7 +28,7 @@ class OllamaClient:
             "model": self._model,
             "prompt": prompt,
             "stream": False,
-            # 실측 결과 모델을 새로 GPU에 올리는 데 87초~2분 30초가 걸림(9GB, 첫 요청
+            # 모델을 새로 GPU에 올리는 데 87초~2분 30초가 걸린다(9GB, 첫 요청
             # 또는 기본 5분 유휴 후 언로드 시). 요청 사이 간격이 있어도 계속 로드된
             # 상태를 유지해 매번 이 콜드스타트 비용이 재발하지 않게 한다.
             "keep_alive": "30m",
@@ -52,8 +52,8 @@ class OllamaClient:
         사용자 요청을 막지 않으므로 generate()보다 여유있는 전용 타임아웃
         (OLLAMA_WARMUP_TIMEOUT_SECONDS)을 쓴다 — 백엔드 재시작 직후의 첫 호출은
         Ollama 컨테이너도 같이 막 뜬 완전 콜드 상태라 일반 타임아웃(200초)으로
-        종종 부족했고, 그때마다 클라이언트가 연결을 끊으면서 Ollama가 로딩 중이던
-        메모리를 회수 못 하고 누적되는 문제가 있었다.
+        부족할 수 있고, 클라이언트가 연결을 끊으면 Ollama가 로딩 중이던
+        메모리를 회수하지 못하고 누적되기 때문이다.
         """
         if not settings.OLLAMA_ENABLED:
             return

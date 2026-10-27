@@ -251,8 +251,8 @@ async def cmd_status():
 
 
 async def run_sync(sources: list[str], replay: str | None = None) -> list[str]:
-    """실패한 소스 이름 목록을 돌려준다. 이전엔 실패해도 [오류]만 찍고 종료 코드 0이라
-    자동 실행(작업 스케줄러)에서 실패를 알 수 없었다."""
+    """실패한 소스 이름 목록을 돌려준다. 호출부가 이 목록으로 종료 코드를 정해
+    자동 실행(작업 스케줄러)에서 실패를 알 수 있게 한다."""
     from app.db.session import AsyncSessionLocal
 
     failed: list[str] = []

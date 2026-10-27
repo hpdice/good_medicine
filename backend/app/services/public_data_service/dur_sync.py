@@ -23,15 +23,14 @@ from .helpers import _clean, _clean_text, _parse_age_criteria
 
 
 class DurSyncMixin(_SyncBase):
-    # 체크포인트는 SYNC_STATE_DIR(compose 의 sync_state 볼륨)에 둔다. 이전엔 컨테이너의
-    # /tmp 였어서 `up --build` 등으로 컨테이너가 재생성되면 사라져, 7시간짜리 sweep 을
-    # 처음부터 다시 받아야 했다.
+    # 체크포인트는 SYNC_STATE_DIR(compose 의 sync_state 볼륨)에 둔다. 컨테이너 /tmp 에 두면
+    # `up --build` 등으로 컨테이너가 재생성될 때 사라져, 7시간짜리 sweep 을 처음부터 다시 받아야 한다.
     @property
     def CHECKPOINT_FILE(self) -> str:  # noqa: N802 — 기존 속성명 유지(스크립트·문서 호환)
         return os.path.join(settings.SYNC_STATE_DIR, "dur_contraindications_checkpoint.txt")
 
-    # DUR 계열(DURPrdlstInfoService03) 엔드포인트는 전부 numOfRows=500까지 실측
-    # 확인됨(그 이상은 빈 응답) — 기본 PAGE_SIZE(100, 다른 API 서비스 공용)보다
+    # DUR 계열(DURPrdlstInfoService03) 엔드포인트는 전부 numOfRows=500까지 된다
+    # (그 이상은 빈 응답) — 기본 PAGE_SIZE(100, 다른 API 서비스 공용)보다
     # 5배 커서 페이지 수·sleep 총량이 그만큼 준다. 체크포인트는 페이지 "번호"만
     # 저장하므로, 이 값을 바꾸면 진행 중이던 이전 체크포인트와 어긋난다 — 바꿀 땐
     # 먼저 체크포인트 파일이 없는(=완료됐거나 시작 전) 상태인지 확인할 것.
@@ -42,7 +41,7 @@ class DurSyncMixin(_SyncBase):
     # (용량주의·투여기간주의)만 남긴다. 값은 (엔드포인트, 부가값) —
     # 부가값은 _run_multi_endpoint_sync가 item_handler에 그대로 넘겨주는 자리라
     # 여기선 안 써서 None.
-    # 실측(2026-10-09, 전체 페이지): 용량주의 6,611행은 본문(PROHBT_CONTENT) 2,601행·성분 71개만,
+    # 전체 페이지 기준: 용량주의 6,611행은 본문(PROHBT_CONTENT) 2,601행·성분 71개만,
     # 투여기간주의 646행은 본문 0건 — 판정에 쓸 구조화된 용량·기간 기준이 없어 규칙으로 못 만든다.
     DUR_EXTRA_CODE_OPS = {
         "용량주의": ("getCpctyAtentInfoList03", None),
@@ -101,10 +100,9 @@ class DurSyncMixin(_SyncBase):
                 params = {"serviceKey": self._api_key, "pageNo": page, "numOfRows": self.DUR_PAGE_SIZE, "type": "json"}
                 data = await self._fetch_page(client, url, params)
                 if data is None:
-                    # _fetch_page 가 이미 재시도(429 대기·지수 백오프)를 다 쓴 상태. 이전엔 이 페이지를
-                    # 건너뛰고(page += 1) 계속해, 가끔 한 페이지씩 실패하면 그만큼 규칙이 빠진 채
-                    # "완료"로 끝났다(조용한 누락). 건너뛰지 않고 이 페이지를 체크포인트로 남긴 채
-                    # 중단한다 — 재실행하면 정확히 이 페이지부터 이어받는다.
+                    # _fetch_page 가 이미 재시도(429 대기·지수 백오프)를 다 쓴 상태. 건너뛰면 가끔 한 페이지씩
+                    # 실패할 때 그만큼 규칙이 빠진 채 "완료"로 끝난다(조용한 누락). 그래서 건너뛰지 않고 이 페이지를
+                    # 체크포인트로 남긴 채 중단한다 — 재실행하면 정확히 이 페이지부터 이어받는다.
                     self._save_checkpoint(page)
                     raise RuntimeError(
                         f"DUR 병용금기 페이지 {page} 요청 실패(재시도 소진) — 건너뛰지 않고 중단. "
@@ -192,11 +190,9 @@ class DurSyncMixin(_SyncBase):
             code_a, code_b, ingr_kor_a, ingr_kor_b,
             prohibit_content=mechanism, remark=_clean(item.get("REMARK")),
         )
-        # 품목쌍(구 drug_interactions)은 폐기됨 — 이 sweep은 이제 성분 테이블만 채운다.
-        # (실측 확인 2026-09-17: getUsjntTabooInfoList03은 모든 행에 INGR_CODE/
-        # MIXTURE_INGR_CODE가 채워져 있어 — 성분코드 미해소로 residual_interactions에
-        # 폴백해야 하는 경우가 이 엔드포인트에서는 발생하지 않는다. 796,842건 전수
-        # 재동기화로 실측 검증함 — residual_interactions 0건 증가.)
+        # 이 sweep은 성분 테이블만 채운다. getUsjntTabooInfoList03은 모든 행에 INGR_CODE/
+        # MIXTURE_INGR_CODE가 채워져 있어 성분코드 미해소로 residual_interactions에
+        # 폴백해야 하는 경우가 이 엔드포인트에서는 발생하지 않는다.
 
     # ------------------------------------------------------------------ #
     # 성분(ingredient) 단위 판정 규칙 upsert — run 내 in-memory 캐시로        #
@@ -225,8 +221,8 @@ class DurSyncMixin(_SyncBase):
             )
         )
         if existing:
-            # 원천(식약처)이 금기 사유 문장을 고쳐 내려주면 반영한다 — 이전엔 "있으면 건너뜀"이라
-            # 한 번 적재된 문장이 영원히 갱신되지 않았다. 문장이 바뀌면 그 문장에서 뽑아 둔
+            # 원천(식약처)이 금기 사유 문장을 고쳐 내려주면 반영한다(건너뛰면 한 번 적재된 문장이
+            # 영원히 갱신되지 않는다). 문장이 바뀌면 그 문장에서 뽑아 둔
             # risk_tags 도 낡은 값이 되므로 비워 둔다(sync.py extract_risk_tags 가 NULL 만 다시 뽑음).
             if prohibit_content and existing.prohibit_content != prohibit_content:
                 existing.prohibit_content = prohibit_content
@@ -321,7 +317,7 @@ class DurSyncMixin(_SyncBase):
         ingr_kor = _clean(item.get("INGR_NAME") or item.get("INGR_KOR_NAME"))
         await self._upsert_drug_ingredient(drug.id, ingr_code, ingr_kor)
         await self._upsert_ingr_effect_group(ingr_code, dur_seq, effect_name)
-        # 품목 단위 drug_effect_groups는 폐기됨 — 이 sweep도 성분 테이블만 채운다.
+        # 이 sweep도 성분 테이블만 채운다.
 
     # ------------------------------------------------------------------ #
     # DUR 특정연령대금기·노인주의 — 판정 규칙까지 채움                        #
@@ -330,7 +326,7 @@ class DurSyncMixin(_SyncBase):
     async def sync_dur_age_caution(self) -> int:
         """특정연령대금기·노인주의 → `dur_ingredient_age_caution`(판정 규칙 테이블).
 
-        실측 확인(2026-09-12): 두 엔드포인트 다 나이 기준을 구조화한 필드가 없고
+        두 엔드포인트 다 나이 기준을 구조화한 필드가 없고
         유일한 단서인 PROHBT_CONTENT(자유 텍스트)도 "OO세 미만" 패턴은 3.6%뿐이라
         `_parse_age_criteria`가 실패하면 원문만 저장하고 판정에서 스킵한다(모델
         docstring 참고). `dur_seq` 같은 그룹핑 필드가 없어 `_sync_efcy_dplct`와

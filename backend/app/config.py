@@ -73,9 +73,8 @@ class Settings(BaseSettings):
     OLLAMA_ENABLED: bool = True
     OLLAMA_BASE_URL: str = "http://ollama:11434"
     OLLAMA_MODEL: str = "qwen2.5:14b-instruct"
-    # 실측(RTX 4070): 콜드스타트(모델을 GPU에 새로 올림) 87~153초, 워밍 후 10~15초.
-    # 90초로 뒀다가 콜드스타트 중 타임아웃으로 불필요한 폴백이 발생하는 걸 실측으로
-    # 확인해 여유있게 조정 (Flutter 쪽 receiveTimeout도 이보다 커야 함).
+    # 콜드스타트(모델을 GPU에 새로 올림, RTX 4070 기준 87~153초)를 커버하도록 여유 있게 잡았다
+    # (워밍 후 10~15초). Flutter 쪽 receiveTimeout도 이보다 커야 한다.
     OLLAMA_TIMEOUT_SECONDS: float = 200.0
     # keep_alive(30분)보다 짧은 주기로 조용히 핑을 보내 모델이 GPU에서 내려가기 전에
     # 계속 갱신되게 한다 — 콜드스타트(87~153초)가 실제 사용자 요청에서 거의 발생하지
@@ -83,15 +82,13 @@ class Settings(BaseSettings):
     # 여전히 콜드스타트가 발생할 수 있음).
     OLLAMA_KEEPALIVE_INTERVAL_SECONDS: float = 600.0
     # 백엔드 재시작 직후 첫 워밍업 호출 전용 타임아웃 — 이때는 Ollama 컨테이너도
-    # 막 같이 뜬 완전 콜드 상태라 OLLAMA_TIMEOUT_SECONDS(200초)로도 부족한 경우가
-    # 실측으로 확인됨 (백엔드 시작 후 3분20초경 반복적으로 abort → 클라이언트가
-    # 연결을 끊으면 Ollama가 로딩 중이던 모델 메모리를 회수하지 못하고 컨테이너가
-    # 재시작 전까지 계속 들고 있는 문제로 이어짐). 사용자 요청을 막는 게 아니라
+    # 막 같이 뜬 완전 콜드 상태라 OLLAMA_TIMEOUT_SECONDS(200초)로도 부족할 수 있다.
+    # 클라이언트가 연결을 끊으면 Ollama가 로딩 중이던 모델 메모리를 회수하지 못하고 컨테이너가
+    # 재시작 전까지 계속 들고 있게 된다. 사용자 요청을 막는 게 아니라
     # 백그라운드 루프에서만 쓰이므로 여유있게 잡아도 비용이 없다.
     OLLAMA_WARMUP_TIMEOUT_SECONDS: float = 500.0
-    # 생성 옵션 — Ollama 기본값(temperature 0.8)에서는 같은 입력으로 10번 중 5번꼴로
-    # 마크다운·"복용 중단" 권유·중국어 섞임이 나왔다(2026-10-15 실측). 설명문은
-    # 다양성보다 일관성이 중요하므로 낮게 둔다. num_predict는 장황한 답·폭주 방지 상한.
+    # 생성 옵션 — Ollama 기본값(temperature 0.8)에서는 마크다운·"복용 중단" 권유·중국어 섞임이
+    # 잦다. 설명문은 다양성보다 일관성이 중요하므로 낮게 둔다. num_predict는 장황한 답·폭주 방지 상한.
     OLLAMA_TEMPERATURE: float = 0.2
     OLLAMA_NUM_PREDICT: int = 600
 

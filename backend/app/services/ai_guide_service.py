@@ -33,7 +33,7 @@ _FALLBACK_GUIDE_TEXT = (
 )
 
 # 내부 등급 코드(critical 등)를 프롬프트에 그대로 넣으면 모델이 "critical 등급"처럼
-# 화면에 따라 쓴다(2026-10-15 실측) — 사용자에게 보이는 말로 바꿔서 넘긴다.
+# 화면에 따라 쓴다 — 사용자에게 보이는 말로 바꿔서 넘긴다.
 _RISK_LABEL = {"critical": "위험", "caution": "주의", "safe": "안전"}
 _FINDING_LABEL = {
     "contraindicated": "병용금기(함께 먹으면 안 되는 조합)",
@@ -42,8 +42,8 @@ _FINDING_LABEL = {
 }
 _AGE_RULE_LABEL = {"age_taboo": "특정 연령대 금기", "elderly_caution": "노인 주의(만 65세 이상)"}
 
-# 대응 문장은 AI에 맡기지 않고 판정 종류별로 코드가 붙인다 — 하나의 지시("임의로 중단하지 말라")를
-# 모든 경우에 쓰게 했더니 알레르기 성분이 든 약에도 "끊지 말라"가 붙었다(2026-10-15).
+# 대응 문장은 AI에 맡기지 않고 판정 종류별로 코드가 붙인다 — 한 문장을 모든 경우에 쓰면
+# 알레르기 성분이 든 약에도 "끊지 말라"가 붙기 때문이다.
 # 서비스가 직접 하는 말이 되므로 진단·처방이 아니라 "알리고 확인·상담" 수준으로만 쓴다.
 _CLOSING = {
     "allergy": "이 약을 먹기 전에(이미 먹고 있다면 지금 바로) 의사나 약사에게 알레르기가 있다고 알리고 복용해도 되는지 확인하세요.",
@@ -142,9 +142,9 @@ def sanitize_guide_text(text: str) -> str:
     """앱은 받은 문자열을 그대로 그리므로 마크다운 기호를 걷어낸다(내용은 유지)."""
     text = _MARKDOWN_EMPHASIS.sub("", text)
     text = _MARKDOWN_LINE_PREFIX.sub("", text)
-    # temperature 0.2에서 모델이 "알레르기 반응"을 매번 "알레르 반응"으로 쓴다(10/10, 2026-10-15 실측)
+    # 모델이 "알레르기 반응"을 "알레르 반응"으로 쓰는 일이 잦아 교정한다
     text = re.sub(r"알레르(?!기)", "알레르기", text)
-    # 지시해도 알레르기 설명 4/10에 "당신이…"가 남았다 — 주어를 빼도 자연스러운 한국어라 지운다
+    # 지시해도 "당신이…"가 남는다 — 주어를 빼도 자연스러운 한국어라 지운다
     text = re.sub(r"당신(?:께서|에게|이|은|의)?\s*", "", text)
     # 해요체 표기 교정: "약이예요" → "약이에요"
     text = text.replace("이예요", "이에요")
@@ -157,8 +157,8 @@ _TRAILING_ADVICE = re.compile(r"(?:^|(?<=[.!?])\s+)[^.!?]*상담[^.!?]*[.!?]?\s*
 def drop_trailing_advice(text: str) -> str:
     """AI가 끝에 쓴 상담 권유 문장을 떼어 낸다 — 대응 문장은 종류별로 코드가 붙인다.
 
-    AI에게 아예 대응을 쓰지 말라고 하면 답이 짧아지며 중국어로 새는 비율이 7/8까지
-    올랐다(상담 권유를 허용하면 0/8, 2026-10-15 실측). 그래서 쓰게 두고 뒤에서 뗀다."""
+    AI에게 아예 대응을 쓰지 말라고 하면 답이 짧아져 한국어를 벗어나는 일이 잦아진다.
+    그래서 쓰게 두고 뒤에서 뗀다."""
     body = text.strip()
     while True:
         trimmed = _TRAILING_ADVICE.sub("", body).rstrip()
@@ -174,8 +174,8 @@ def repair_guide_text(text: str) -> tuple[str, list[str]]:
     """내보내면 안 되는 문장만 덜어 낸다 — (남은 글, 덜어 낸 이유들).
 
     대응 문장은 코드가 따로 붙이므로 AI 답에서 문제 문장을 빼도 안내가 비지 않는다.
-    답 전체를 버리고 재생성하던 방식은 알레르기·임부금기에서 모델이 자연스럽게 쓰는
-    "복용을 중단하세요" 때문에 3/10이 폴백 문구로 끝났다(2026-10-15 실측).
+    답 전체를 버리고 재생성하면 알레르기·임부금기에서 모델이 자연스럽게 쓰는
+    "복용을 중단하세요" 한 문장 때문에 폴백으로 끝나는 일이 많아, 문제 문장만 뺀다.
     한자·가나가 나오면 그 문장부터 끝까지 버린다(그 뒤는 대개 언어가 바뀐 채 이어진다).
     """
     removed: list[str] = []
@@ -205,7 +205,7 @@ def repair_guide_text(text: str) -> tuple[str, list[str]]:
 def guide_text_problem(text: str) -> str | None:
     """사용자에게 내보내면 안 되는 답이면 그 이유를, 괜찮으면 None을 돌려준다.
 
-    지시문만으로는 막히지 않는 것들(2026-10-15 실측: 23회 중 10회)을 결정론적으로 거른다.
+    지시문만으로는 막히지 않는 것들을 결정론적으로 거른다.
     """
     if not text:
         return "빈 응답"
@@ -243,9 +243,9 @@ class AiGuideService:
         check: QuickCheckResponse,
     ) -> AnalysisGuideResponse:
         if not (check.findings or check.allergy_conflicts or check.age_cautions or check.pregnancy_cautions):
-            # 설명할 문제가 없으면 모델을 부르지 않는다. 프롬프트에 약 정보가 없어서 4개 약을 "두 약"이라
-            # 하고 "안전하다고 판단되었습니다"라고까지 말했다(2026-10-19 실측) — DUR에 없는 상호작용은
-            # 못 찾으므로 "안전"을 말하면 안 된다. 정해진 문장 + 약 개수만 사실대로 쓴다.
+            # 설명할 문제가 없으면 모델을 부르지 않는다. 프롬프트에 약 정보가 없으면 모델이 약 개수를 틀리게
+            # 말하고 "안전하다"고까지 단정하는데, DUR에 없는 상호작용은 못 찾으므로 "안전"을 말하면 안 된다.
+            # 정해진 문장 + 약 개수만 사실대로 쓴다.
             guide_text = _no_findings_text(len(drug_ids))
             await self._persist(user_id, drug_ids, check, guide_text)
             return AnalysisGuideResponse(
@@ -321,9 +321,8 @@ class AiGuideService:
         for drug in drugs.values():
             name = drug.simple_name or drug.item_name
             parts = [f"[{name}]"]
-            # e약은요 데이터가 없는 약(86%)은 이름만 남아 한국어 맥락이 짧아지는데, 그때
-            # 모델이 첫 문장 뒤 중국어로 넘어갔다(임부금기 단독 5/5, 2026-10-15 실측).
-            # 분류명에 마지막 줄 "한국어로만" 지시를 더하자 0/8로 사라졌다("한국어로만"만으로는 5/8).
+            # e약은요 데이터가 없는 약(대부분)은 이름만 남아 한국어 맥락이 짧아지는데, 그때 모델이 중국어로
+            # 넘어갈 수 있다. 분류명을 넣고 마지막 줄에 "한국어로만" 지시를 두어 막는다.
             if drug.class_name:
                 parts.append(f"분류: {drug.class_name}")
             if drug.efcy_qesitm:

@@ -35,8 +35,8 @@ class _SyncBase:
         self._updated_ingr_contra = 0
         # item_seq -> Drug — 같은 품목이 병용금기 수십~수백 쌍에 반복 등장하므로
         # (예: 흔한 진통제 한 품목이 수백 개 다른 품목과 쌍을 이룸) 캐시 없이는
-        # _find_or_create_drug_from_dur가 매번 DB 왕복한다(796,842행 sweep에서
-        # 실측: 이게 가장 큰 시간 비중을 차지함).
+        # _find_or_create_drug_from_dur가 매번 DB 왕복한다(796,842행 sweep에서 가장 큰 시간 비중을
+        # 차지한다).
         self._drug_by_seq: dict[str, Drug] = {}
         # 원본 응답 보관(bronze). replay_snapshot이 있으면 API 대신 저장된 파일에서 읽는다
         # ("latest" = 엔드포인트별 가장 최근 스냅샷). 재파싱 시엔 새로 저장하지 않는다.
@@ -108,7 +108,7 @@ class _SyncBase:
         `_sync_drug_overview`/`_sync_efcy_dplct`/`sync_drug_approval`이 각자 복붙해
         갖고 있던 거의 동일한 루프를 추출한 것(로직 변경 없음). `page_size`는 검증된
         호출부만 기본값(100)보다 키워서 넘긴다 — 서비스마다 상한이 달라서 전역으로
-        올리면 안전하지 않다(실측: DUR 계열은 500까지 됨, 그 이상은 빈 응답)."""
+        올리면 안전하지 않다(DUR 계열은 500까지 되고 그 이상은 빈 응답)."""
         size = page_size or self.PAGE_SIZE
         count = 0
         page = 1
@@ -117,8 +117,8 @@ class _SyncBase:
                 params = {"serviceKey": self._api_key, "pageNo": page, "numOfRows": size, "type": "json"}
                 data = await self._fetch_page(client, url, params)
                 if data is None:
-                    # _fetch_page 가 재시도를 다 쓴 상태. 이전엔 page += 1 로 건너뛰어 그 페이지가
-                    # 빠진 채 "완료"됐고, API 가 아예 죽으면 끝없이 페이지 번호만 올리며 돌았다.
+                    # _fetch_page 가 재시도를 다 쓴 상태. 건너뛰면 그 페이지가 빠진 채 "완료"되고,
+                    # API 가 아예 죽으면 끝없이 페이지 번호만 올리며 돌게 된다.
                     # 중단한다 — 이 루프의 적재는 멱등(upsert)이라 재실행하면 처음부터 안전하게 다시 받는다.
                     raise RuntimeError(
                         f"{log_label} page {page} 요청 실패(재시도 소진) — 건너뛰지 않고 중단. 재실행 필요."
@@ -166,7 +166,7 @@ class _SyncBase:
                     }
                     data = await self._fetch_page(client, url, params)
                     if data is None:
-                        # 이전엔 연속 3회가 아니면 그 페이지를 건너뛰고 계속했다(조용한 누락).
+                        # 그 페이지를 건너뛰면 조용한 누락이 생기므로 건너뛰지 않는다.
                         raise RuntimeError(
                             f"{error_label} [{label}] page {page} 요청 실패(재시도 소진) — 건너뛰지 않고 중단. "
                             f"할당량 초과일 수 있음 — 리셋 후 `{retry_hint}` 재실행."

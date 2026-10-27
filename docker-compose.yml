@@ -40,8 +40,8 @@ services:
       # 공공데이터 동기화 체크포인트·마지막 성공 시각 (컨테이너 재생성에도 유지)
       - sync_state:/var/lib/goodmedicine
       # 런타임 비밀 파일(Firebase 서비스 계정 키 등) — 이미지에는 넣지 않고 읽기 전용으로 연결.
-      # 이전엔 키가 backend/ 에 있어 개발 모드(소스 바인드마운트)에서만 보였고, 배포 모드에선
-      # 파일이 없어 FCM 푸시가 조용히 꺼져 있었다(2026-09-30 발견).
+      # backend/ 에 두면 개발 모드(소스 바인드마운트)에서만 보이고 배포 모드에선 파일이 없어
+      # FCM 푸시가 조용히 꺼지므로 secrets/ 로 분리했다.
       - ./secrets:/run/secrets:ro
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -63,14 +63,14 @@ services:
     # Tailscale Funnel 컨테이너를 함께 띄운다. (프론트 웹은 Vercel 이 별도 호스팅)
 
   ollama:
-    # latest 는 받을 때마다 버전이 바뀐다 — 동작이 검증된 버전으로 고정(2026-09-30 기준 사용 중이던 버전).
+    # latest 는 받을 때마다 버전이 바뀐다 — 동작이 검증된 버전으로 고정한다.
     image: ollama/ollama:0.32.6
     volumes:
       - ollama_data:/root/.ollama
     # 호스트 포트는 열지 않는다. backend 는 compose 내부망(http://ollama:11434)으로만 호출하고,
     # 호스트에서 모델을 다룰 땐 `docker exec drugtest-ollama-1 ollama ...` 를 쓴다.
-    # (2026-09-30: 127.0.0.1:11434 가 Windows 예약 포트 대역(11423-11522)에 걸려 컨테이너가 뜨지 못했다 —
-    #  이 대역은 재부팅마다 바뀔 수 있어 고정 호스트 포트는 재발 위험. 열지 않으면 LLM 무인증 노출 위험도 없다.)
+    # (고정 호스트 포트는 Windows 예약 포트 대역에 걸려 컨테이너가 뜨지 못할 수 있고 이 대역은 재부팅마다
+    #  바뀔 수 있다. 열지 않으면 LLM 무인증 노출 위험도 없다.)
     deploy:
       resources:
         reservations:

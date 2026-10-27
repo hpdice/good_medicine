@@ -92,7 +92,7 @@ def _parse_main_ingr(main_ingr: str) -> list[dict]:
 def _parse_age_criteria(text: str | None) -> tuple[int | None, str | None, str | None]:
     """PROHBT_CONTENT 원문에서 "OO세 미만" 같은 숫자 나이 기준을 뽑는다.
 
-    실측(2026-09-12, 500건 샘플)상 이 패턴이 있는 행은 3.6%뿐이다 — 나머지는
+    500건 샘플 기준 이 패턴이 있는 행은 3.6%뿐이다 — 나머지는
     "소아"/"영아" 같은 범주어이거나 나이 언급이 아예 없어서 숫자로 못 뽑는다.
     실패하면 (None, None, None) — 호출부가 원문은 저장하되 판정에는 안 쓴다.
     """
@@ -127,7 +127,7 @@ def make_ingredient_resolver(pairs: Iterable[Sequence[str | None]]) -> Callable[
 
     정규화한 이름이 완전히 같으면 그 코드, 아니면 접두(염 형태 차이: '트리메부틴' ↔
     '트리메부틴말레산염')가 맞는 코드. substring 매칭은 '우레아→히드록시우레아' 같은
-    오매칭이 나서 쓰지 않는다(CLAUDE.md "상용약품 DUR 매칭 개선 시도" 2번)."""
+    오매칭이 나서 쓰지 않는다."""
     name_to_code: dict[str, str] = {}
     for ingr_kor, ingr_code in pairs:
         if not ingr_kor or not ingr_code:
@@ -154,7 +154,7 @@ def make_ingredient_resolver(pairs: Iterable[Sequence[str | None]]) -> Callable[
 
 def clean_html_text(value: str | None) -> str:
     """CDATA 안에 날것으로 남은 HTML 엔티티(`&nbsp;`·`&amp;` 등)를 풀고 공백을 하나로 정리한다.
-    허가정보 원문에 '2)&nbsp;고지단백혈증'처럼 엔티티가 그대로 들어 있어 화면에 보였다(2026-10-19)."""
+    허가정보 원문에 '2)&nbsp;고지단백혈증'처럼 엔티티가 그대로 들어 있어 풀지 않으면 화면에 그대로 보인다."""
     return " ".join(html.unescape(value or "").split())
 
 

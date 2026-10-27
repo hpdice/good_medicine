@@ -115,7 +115,7 @@ class AuthService:
         token_record.is_revoked = True
 
         # 탈퇴(비활성) 계정은 갱신 불가 — 이 검사가 없으면 탈퇴 전에 받은 Refresh Token으로
-        # 새 7일짜리 토큰을 계속 이어 받아 무기한 접근할 수 있었다(2026-09-30 재현).
+        # 새 7일짜리 토큰을 계속 이어 받아 무기한 접근할 수 있다.
         is_active = await self.db.scalar(select(User.is_active).where(User.id == user_id))
         if not is_active:
             await self.db.commit()

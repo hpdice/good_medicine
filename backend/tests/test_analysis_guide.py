@@ -128,7 +128,7 @@ async def test_guide_falls_back_safely_when_ollama_unavailable(client, session_f
 
 async def test_guide_prompt_includes_pregnancy_caution_without_risk_code(client, session_factory, monkeypatch):
     """병용 문제 없이 임부금기만 걸려도 그 근거가 프롬프트에 들어가야 한다 — 빠져 있으면
-    모델이 '두 약의 병용이 critical'처럼 없는 상호작용을 지어냈다(2026-10-15 실측)."""
+    모델이 '두 약의 병용이 critical'처럼 없는 상호작용을 지어낼 수 있다."""
     prompts = []
 
     async def fake_generate(self, prompt: str, system: str | None = None) -> str:

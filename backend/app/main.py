@@ -22,7 +22,7 @@ from app.services.ollama_client import OllamaClient
 async def _ollama_keepalive_loop() -> None:
     """AI 가이드용 로컬 LLM이 GPU에서 내려가지 않게 주기적으로 핑을 보낸다.
 
-    콜드스타트(모델을 GPU에 새로 올림, 실측 87~153초)가 실제 사용자 요청에서
+    콜드스타트(모델을 GPU에 새로 올림, 87~153초)가 실제 사용자 요청에서
     발생하는 걸 최소화하기 위함 — 위험도 판정에는 영향 없음(그쪽은 로컬 LLM과
     무관하게 규칙 기반으로 동작).
     """
@@ -104,7 +104,7 @@ app.include_router(api_router, prefix="/api/v1")
 async def health_check(db: AsyncSession = Depends(get_db)):
     """외부 감시용. DB에 실제로 질의해 보고 실패하면 503.
 
-    이전엔 DB가 죽어도 항상 ok를 반환해 감시 도구가 장애를 알 수 없었다. 로컬 LLM(AI 설명)은
+    DB가 죽으면 감시 도구가 알 수 있도록 항상 ok를 반환하지 않는다. 로컬 LLM(AI 설명)은
     판정과 무관한 보조 기능이라 여기서 확인하지 않는다 — Ollama가 없어도 서비스는 정상이다.
     """
     try:

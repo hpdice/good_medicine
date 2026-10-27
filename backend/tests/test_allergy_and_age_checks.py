@@ -134,7 +134,7 @@ async def test_age_taboo_not_applied_above_threshold(client, session_factory):
 
 
 async def test_age_taboo_skipped_when_threshold_unparsed(client, session_factory):
-    """PROHBT_CONTENT에서 숫자 기준을 못 뽑은 규칙(실측상 대다수)은 조용히 스킵된다."""
+    """PROHBT_CONTENT에서 숫자 기준을 못 뽑은 규칙(대다수)은 조용히 스킵된다."""
     async with session_factory() as session:
         drug_a = await make_drug(session, "테스트연령금기정C", ingredients=[("D600003", "연령금기성분C")])
         drug_b = await make_drug(session, "테스트동반정C")

@@ -124,8 +124,8 @@ class DrugService:
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    # 실측(2026-10-19, 35,529건): 한 글자 오인식은 0.40~0.42('뉴부턴'→뉴부틴 0.40, '신플렉스'→신플랙스 0.42),
-    # 의미 없는 입력('가나다라마정')은 0.2~0.3. 0.38이 둘을 가른다.
+    # 한 글자 오인식은 0.40~0.42('뉴부턴'→뉴부틴 0.40, '신플렉스'→신플랙스 0.42),
+    # 의미 없는 입력('가나다라마정')은 0.2~0.3 — 0.38이 둘을 가른다.
     FUZZY_MIN_SIMILARITY = 0.38
 
     async def _fuzzy_candidates(self, key: str) -> list[Drug]:
@@ -171,9 +171,8 @@ class DrugService:
                 )).scalars().all())
                 # 같은 이름에 용량만 다른 제품(파탁정10mg vs 파탁정20mg)이 여러 개 걸리면,
                 # 위 order_expr(완전일치 아니면 전부 동률)은 그냥 drug_key 알파벳순이라
-                # "10mg"이 "20mg"보다 앞서 나와 엉뚱한 용량이 뽑히는 문제가 있었다
-                # (실측 2026-09-16: OCR이 '20mg'를 '2000'으로 긁어도, 그 숫자가 DB
-                # 쪽 용량 숫자로 시작/포함되면 우선한다).
+                # "10mg"이 "20mg"보다 앞서 나와 엉뚱한 용량이 뽑힌다. 그래서 OCR이 '20mg'를 '2000'으로
+                # 긁어도 그 숫자가 DB 쪽 용량 숫자로 시작/포함되면 우선한다.
                 if len(rows) > 1 and name_digits:
                     target_digits: str = name_digits
 

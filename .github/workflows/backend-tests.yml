@@ -1,5 +1,4 @@
 # 백엔드 테스트 — backend/ 가 바뀌는 push·PR 마다 pytest 전체를 돌린다.
-# 이전엔 CI 가 웹·APK 빌드만 해서, 테스트는 개발자가 로컬 컨테이너에서 직접 돌려야만 했다.
 #
 # DB 는 GitHub Actions 서비스 컨테이너(PostgreSQL 16)를 쓴다. conftest 가 그 안에
 # drugtest_test_db 를 만들고 pg_trgm 확장을 켠 뒤 스키마를 생성한다.

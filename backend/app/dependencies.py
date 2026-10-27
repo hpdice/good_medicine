@@ -21,7 +21,7 @@ async def get_current_user_id(
     """JWT Bearer 토큰에서 사용자 ID를 추출하고, 그 계정이 아직 활성인지 확인한다.
 
     토큰 서명·만료만 보면 탈퇴한 사용자가 탈퇴 전에 받은 Access Token(최대 30분)으로 계속
-    요청할 수 있었다(2026-09-30 재현). PK 조회 한 번으로 막는다.
+    요청할 수 있다. PK 조회 한 번으로 막는다.
     """
     try:
         jwt_claims = decode_token(credentials.credentials)

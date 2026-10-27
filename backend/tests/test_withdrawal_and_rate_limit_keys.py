@@ -1,8 +1,8 @@
-"""2026-09-30 재현된 운영 결함의 회귀 테스트.
+"""운영 결함 회귀 테스트.
 
-1. 탈퇴 후에도 복약 데이터가 남고, 탈퇴 전에 받은 Access/Refresh Token이 계속 통하던 문제
-2. Rate Limit 키가 직접 연결 상대의 IP(= 배포 시 Tailscale 프록시)라 전 사용자가 한도를
-   공유하던 문제 — 키 함수 단위로 검증한다(테스트 환경은 로그인 한도를 풀어 둠).
+1. 탈퇴하면 복약 데이터가 지워지고, 탈퇴 전에 받은 Access/Refresh Token은 더 이상 통하지 않는다
+2. Rate Limit 키가 직접 연결 상대의 IP(= 배포 시 Tailscale 프록시)면 전 사용자가 한도를
+   공유하므로 — 키 함수 단위로 검증한다(테스트 환경은 로그인 한도를 풀어 둠).
 """
 from sqlalchemy import func, select
 from starlette.requests import Request

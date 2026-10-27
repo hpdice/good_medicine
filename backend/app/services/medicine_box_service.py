@@ -178,7 +178,7 @@ class MedicineBoxService:
         않을 수 있어, 클라이언트 quick-check와 별개로 서버에서도 즉시 알린다.
 
         푸시는 Google FCM(해외)을 거치므로 약 이름·ID를 싣지 않는다 — "누가 무슨 약을
-        먹는지"는 국내 서버 밖으로 내보내지 않는다(2026-10-15, 포스터 사실검증에서 발견).
+        먹는지"는 국내 서버 밖으로 내보내지 않는다.
         """
         if not fcm_service.is_configured():
             return
