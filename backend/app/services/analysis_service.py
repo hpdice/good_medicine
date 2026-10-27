@@ -65,7 +65,7 @@ class AnalysisService:
     `dur_ingredient_contraindications`(병용금기) / `dur_ingredient_effect_groups`(효능군중복)
     를 조회. 성분 경로가 재현 못 하는 품목쌍만 담은 소형 `residual_interactions`(217건)를
     항상 합친다. 등급은 결정적: contraindicated > duplicate_ingredient/duplicate_effect_group > safe.
-    AI·ML 추론은 판정에 관여하지 않는다 (ML 시도 AUROC 0.48, archive/ml/README.md).
+    AI·ML 추론은 판정에 관여하지 않는다.
     """
 
     def __init__(self, db: AsyncSession) -> None:
