@@ -66,8 +66,10 @@ async def make_drug(
     item_seq: str | None = None,
     ingr_name: list[dict] | None = None,
     ingredients: list[tuple[str, str]] | None = None,
+    etc_otc_name: str | None = None,
 ) -> Drug:
-    """`ingredients`: [(ingr_code, ingr_kor), ...] → drug_ingredients 행도 함께 생성."""
+    """`ingredients`: [(ingr_code, ingr_kor), ...] → drug_ingredients 행도 함께 생성.
+    `etc_otc_name`: "일반의약품" / "전문의약품"."""
     drug = Drug(
         item_seq=item_seq or f"TEST_{uuid.uuid4().hex[:12]}",
         item_name=item_name,
@@ -75,6 +77,7 @@ async def make_drug(
         drug_key=item_name.lower(),
         class_name=class_name,
         ingr_name=ingr_name,
+        etc_otc_name=etc_otc_name,
     )
     session.add(drug)
     await session.commit()

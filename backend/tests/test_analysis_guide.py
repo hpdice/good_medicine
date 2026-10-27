@@ -49,7 +49,8 @@ async def test_guide_generated_for_critical_finding(client, session_factory, mon
     assert body["risk_level"] == "critical"
     # AI 설명 뒤에 판정 종류별 대응 문장(병용금기)이 코드로 붙는다
     assert body["guide_text"].startswith("테스트용 AI 설명입니다.\n\n")
-    assert "임의로 끊거나 바꾸지 말고" in body["guide_text"]
+    assert "함께 쓰고 있다고 알리고 확인해 보세요" in body["guide_text"]
+    assert "처방한" not in body["guide_text"]  # 처방자를 탓하는 말로 읽히고 일반약에는 맞지 않는다
     assert body["is_ai_generated"] is True
     assert "의사" in body["disclaimer"] or "약사" in body["disclaimer"]
 
@@ -156,6 +157,45 @@ async def test_guide_prompt_includes_pregnancy_caution_without_risk_code(client,
     assert "critical" not in prompt
 
 
+async def test_guide_prompt_includes_glossary_only_for_known_terms(client, session_factory, monkeypatch):
+    """출처 있는 풀이가 있는 용어만 [용어 풀이]로 넘긴다 — 없는 용어는 모델이 풀이하게 두지 않는다."""
+    prompts = []
+
+    async def fake_generate(self, prompt: str, system: str | None = None) -> str:
+        prompts.append(prompt)
+        return "두 약을 함께 먹으면 위험이 커집니다."
+
+    monkeypatch.setattr(ollama_client.OllamaClient, "generate", fake_generate)
+
+    async with session_factory() as session:
+        drug_a = await make_drug(session, "테스트가이드용어A정")
+        drug_b = await make_drug(session, "테스트가이드용어B정")
+        drug_c = await make_drug(session, "테스트가이드용어C정")
+        drug_d = await make_drug(session, "테스트가이드용어D정")
+        await make_contraindication(session, drug_a, drug_b, mechanism="근병증, 횡문근융해의 위험증가")
+        await make_contraindication(session, drug_c, drug_d, mechanism="출혈위험 증가")
+
+    headers = await _auth_headers(client)
+    for pair in ((drug_a, drug_b), (drug_c, drug_d)):
+        res = await client.post(
+            "/analysis/guide", json={"drug_ids": [str(pair[0].id), str(pair[1].id)]}, headers=headers
+        )
+        assert res.status_code == 200
+
+    assert "[용어 풀이]" in prompts[0] and "횡문근융해증" in prompts[0] and "급성 신부전" in prompts[0]
+    assert "[용어 풀이]" not in prompts[1]
+
+
+def test_system_prompt_keeps_grounding_and_bans_alternatives():
+    from app.services.ai_guide_service import _SYSTEM_PROMPT
+
+    assert "[용어 풀이]" in _SYSTEM_PROMPT  # 풀이 근거를 쓰라는 지시
+    assert "대체 약" in _SYSTEM_PROMPT and "복용 시간 조절" in _SYSTEM_PROMPT  # 위험한 제안은 명시 금지
+    assert "지어내지" in _SYSTEM_PROMPT  # 근거 밖 내용 금지는 유지
+    # 대상(일반 시민)과 해요체 말투 예시가 빠지면 말투가 합니다체로 돌아간다
+    assert "일반 시민" in _SYSTEM_PROMPT and "식약처가 정한 기준으로는" in _SYSTEM_PROMPT
+
+
 async def test_guide_regenerates_once_then_falls_back(client, session_factory, monkeypatch):
     calls = []
 
@@ -205,8 +245,43 @@ async def test_guide_uses_second_attempt_when_first_is_rejected(client, session_
     assert body["is_ai_generated"] is True
     # AI가 끝에 쓴 상담 문장은 떼고, 종류별 대응 문장을 붙인다
     assert body["guide_text"] == (
-        "두 약을 함께 먹으면 근병증 위험이 커집니다.\n\n약을 임의로 끊거나 바꾸지 말고 처방한 의사나 약사와 상담하세요."
+        "두 약을 함께 먹으면 근병증 위험이 커집니다.\n\n"
+        "의사나 약사에게 이 두 약을 함께 쓰고 있다고 알리고 확인해 보세요. 이미 드시는 중이라면 임의로 끊거나 바꾸지는 마세요."
     )
+
+
+async def _combination_guide_text(client, session_factory, monkeypatch, otc_a: str, otc_b: str, tag: str) -> str:
+    async def fake_generate(self, prompt: str, system: str | None = None) -> str:
+        return "두 약을 함께 먹으면 근병증 위험이 커집니다."
+
+    monkeypatch.setattr(ollama_client.OllamaClient, "generate", fake_generate)
+
+    async with session_factory() as session:
+        drug_a = await make_drug(session, f"테스트가이드{tag}A정", etc_otc_name=otc_a)
+        drug_b = await make_drug(session, f"테스트가이드{tag}B정", etc_otc_name=otc_b)
+        await make_contraindication(session, drug_a, drug_b, mechanism="근병증 위험증가")
+
+    headers = await _auth_headers(client)
+    res = await client.post(
+        "/analysis/guide", json={"drug_ids": [str(drug_a.id), str(drug_b.id)]}, headers=headers
+    )
+    assert res.status_code == 200
+    return res.json()["guide_text"]
+
+
+async def test_combination_guide_with_otc_drug_explains_unprescribed_gap(client, session_factory, monkeypatch):
+    """처방 때 DUR 점검은 의사·약사가 이미 받는다 — 일반의약품이 낀 조합은 '처방 점검에 안 잡히는 약'을 더하는
+    상황이므로 그에 맞게 말하고, 처방자를 지목하지 않는다."""
+    text = await _combination_guide_text(client, session_factory, monkeypatch, "전문의약품", "일반의약품", "OTC")
+    assert "처방 없이 산 약은 처방 점검에 잡히지 않을 수 있어요" in text
+    assert "함께 드시기 전에" in text and "임의로 끊거나 바꾸지는 마세요" in text
+    assert "처방한" not in text
+
+
+async def test_combination_guide_with_prescription_drugs_only_keeps_default_closing(client, session_factory, monkeypatch):
+    text = await _combination_guide_text(client, session_factory, monkeypatch, "전문의약품", "전문의약품", "RX")
+    assert "함께 쓰고 있다고 알리고 확인해 보세요" in text
+    assert "처방 없이 산 약" not in text
 
 
 async def test_allergy_guide_closes_with_allergy_advice_not_keep_taking(client, session_factory, monkeypatch):
@@ -232,7 +307,7 @@ async def test_allergy_guide_closes_with_allergy_advice_not_keep_taking(client, 
     text = res.json()["guide_text"]
     assert "알레르기 성분 충돌" in prompts[0] and "페니실린" in prompts[0]
     assert "알레르기가 있다고 알리고" in text
-    assert "끊거나 바꾸지 말고" not in text  # 병용 문제가 없으니 병용용 문장은 붙지 않는다
+    assert "함께 쓰고 있다고" not in text  # 병용 문제가 없으니 병용용 문장은 붙지 않는다
 
 
 @pytest.mark.parametrize(
@@ -245,6 +320,12 @@ async def test_allergy_guide_closes_with_allergy_advice_not_keep_taking(client, 
         ("위험 등급이 critical입니다. 근병증 위험이 커집니다.", "근병증 위험이 커집니다.", ["내부 등급 코드 노출"]),
         ("근병증 위험이 커집니다.\n\n임의로 복용을 중단하지 말고 의사와 상담하세요.", "근병증 위험이 커집니다.", []),
         ("你的回答与提供的信息不符。", "", ["한자·가나 섞임"]),
+        # 약 소개와 위험 설명은 남기고 대체 약 제안 문장만 뺀다
+        (
+            "뉴심바드정은 콜레스테롤을 낮추는 약입니다. 다른 약물로 교체할 수 있습니다. 근병증 위험이 커집니다.",
+            "뉴심바드정은 콜레스테롤을 낮추는 약입니다. 근병증 위험이 커집니다.",
+            ["대체 약·치료법 제안"],
+        ),
     ],
 )
 def test_repair_guide_text(raw, kept, removed):
@@ -269,6 +350,10 @@ def test_sanitize_strips_markdown_but_keeps_text():
     assert sanitize_guide_text(raw) == "대응 방법:\n즉시 상담하세요.\n함께 먹지 마세요.\n요약"
 
 
+def test_sanitize_fixes_haeyo_typo():
+    assert sanitize_guide_text("항생물질이예요. 쓰는 약이예요. 맞는 거예요.") == "항생물질이에요. 쓰는 약이에요. 맞는 거예요."
+
+
 def test_sanitize_fixes_allergy_typo_only_where_missing():
     assert sanitize_guide_text("알레르 반응과 알레르기 성분") == "알레르기 반응과 알레르기 성분"
 
@@ -286,6 +371,19 @@ def test_sanitize_drops_second_person_address():
         ("임의로 복용을 중단하거나 바꾸지 말고 의사와 상담하세요.", None),
         ("현재 복용 중이라면 즉시 복용을 중단하고 의사에게 알리세요.", "복용 중단 권유"),
         ("위험 등급이 critical인 만큼 주의하세요.", "내부 등급 코드 노출"),
+        # 금기 조합에 시간차 복용·대체를 권하는 문장은 막는다
+        ("다른 시간에 복용하거나 적절한 대안 치료 방법을 찾는 것이 필요합니다.", "대체 약·치료법 제안"),
+        ("위험을 피하려면 다른 약물로 교체할 수 있습니다.", "대체 약·치료법 제안"),
+        ("전문가와 상담하여 안전하고 적절한 치료 방법을 찾는 것이 중요합니다.", "대체 약·치료법 제안"),
+        ("안전하게 치료를 받기 위한 다른 방법에 대해 조언을 구해야 합니다.", "대체 약·치료법 제안"),
+        ("자렐토의 효과가 강해져 출혈 위험이 커진다는 연구 결과가 있습니다.", "근거 없는 연구 인용"),
+        # 일반 언급은 막지 않는다
+        ("함께 복용 중인 다른 약이 있으면 의사나 약사에게 알려 주세요.", None),
+        # 용어집에 없는 용어를 모델이 제 지식으로 풀면 막고, 용어집에 있는 용어의 풀이는 허용한다
+        ("'위장관계 이상반응'은 위나 소화기 부분에서 불편함이 생긴다는 뜻이에요.", "출처 없는 용어 풀이"),
+        ("'위장관계 이상반응'은 위나 소장에서 문제가 생길 수 있다는 의미예요.", "출처 없는 용어 풀이"),  # "의미예요"도 잡는다
+        ("횡문근융해는 근육이 심하게 손상돼 독성 물질이 혈액으로 들어간다는 뜻이에요.", None),
+        ("케토라신정은 통증과 염증을 줄이는 약이에요.", None),
         ("근육이 해.TryParse()损坏", "한자·가나 섞임"),
         ("", "빈 응답"),
     ],

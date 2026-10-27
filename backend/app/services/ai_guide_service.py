@@ -9,6 +9,7 @@ from app.core.logging import logger
 from app.models.analysis_result import AnalysisResult
 from app.schemas.analysis import AnalysisGuideResponse, QuickCheckResponse
 from app.services.drug_service import DrugService
+from app.services.glossary import find_entries
 from app.services.ollama_client import OllamaClient, OllamaUnavailableError
 from app.services.user_service import UserService
 
@@ -48,7 +49,15 @@ _CLOSING = {
     "allergy": "이 약을 먹기 전에(이미 먹고 있다면 지금 바로) 의사나 약사에게 알레르기가 있다고 알리고 복용해도 되는지 확인하세요.",
     "pregnancy": "임신 중이라는 사실을 의사나 약사에게 알리고 이 약을 계속 써도 되는지 상담하세요.",
     "age": "나이에 맞는 약인지 의사나 약사와 상담하세요.",
-    "combination": "약을 임의로 끊거나 바꾸지 말고 처방한 의사나 약사와 상담하세요.",
+    # 처방·조제 때의 DUR 점검은 의사·약사가 이미 받으므로 처방자를 지목하지 않고 "알리고 확인"으로 말한다.
+    # 끊으면 위험한 약이 있어 "임의로 끊지 말라"는 남긴다.
+    "combination": "의사나 약사에게 이 두 약을 함께 쓰고 있다고 알리고 확인해 보세요. 이미 드시는 중이라면 임의로 끊거나 바꾸지는 마세요.",
+    # 이 앱의 경고가 값을 하는 곳은 처방 점검에 잡히지 않는 약(일반의약품 등)을 사용자가 더할 때이므로, 일반의약품이 낀
+    # 조합에는 그 상황에 맞는 문장을 쓴다.
+    "combination_otc": (
+        "처방 없이 산 약은 처방 점검에 잡히지 않을 수 있어요. 함께 드시기 전에 의사나 약사에게 이 두 약을 같이 써도 되는지 확인해 보세요. "
+        "이미 드시는 중이라면 임의로 끊거나 바꾸지는 마세요."
+    ),
 }
 
 
@@ -60,28 +69,53 @@ def _no_findings_text(drug_count: int) -> str:
     )
 
 
-def closing_for(check: QuickCheckResponse) -> str:
-    """걸린 판정 종류에 맞는 대응 문장(위험한 것부터). 해당 없으면 일반 상담 안내."""
+def closing_for(check: QuickCheckResponse, otc_involved: bool = False) -> str:
+    """걸린 판정 종류에 맞는 대응 문장(위험한 것부터). 해당 없으면 일반 상담 안내.
+
+    otc_involved: 병용·중복 판정에 일반의약품이 낀 경우 — 처방 점검에 안 잡히는 약을 더하는 상황에 맞는 문장을 쓴다."""
     kinds = [
         ("allergy", check.allergy_conflicts),
         ("pregnancy", check.pregnancy_cautions),
         ("age", check.age_cautions),
-        ("combination", check.findings),
+        ("combination_otc" if otc_involved else "combination", check.findings),
     ]
     lines = [_CLOSING[kind] for kind, items in kinds if items]
     return "\n".join(lines) or "걱정되는 점이 있으면 의사나 약사와 상담하세요."
 
-_SYSTEM_PROMPT = """당신은 의약품 병용 위험을 설명하는 보조 도우미입니다.
-아래 원칙을 반드시 지키세요:
-1. 오직 사용자가 제공한 [판정 결과]와 [약품 정보] 안의 내용만 근거로 설명하세요.
-   그 안에 없는 증상, 장기, 기전, 확률을 덧붙이거나 지어내지 마세요.
-2. 이 판정은 이미 식약처 공공데이터(DUR)와 사용자 건강정보로 확정된 결과입니다.
+# 설명은 DB 근거(DUR 원문·약 분류와 효능·출처 있는 용어 풀이) 안에서만 쓴다. 약 소개와 용어 풀이는 허용하고,
+# 입력에 없는 작용 원리·연구 인용과 대체 약·복용 시간 조절 같은 제안은 금지한다. 말투는 앱 화면과 같은 해요체이며,
+# 맥락 설명만으로는 말투가 따라오지 않아 끝의 말투 예시가 필요하다(예시는 내용이 아니라 말투·순서만 보여 준다).
+_SYSTEM_PROMPT = """당신은 '굿메디슨' 약 관리 앱의 설명 도우미입니다.
+이 앱을 쓰는 사람은 의학 지식이 없는 일반 시민(어르신과 보호자 포함)입니다. 사용자는 내 약 목록 화면에서
+'위험' 또는 '주의' 표시를 보고, 그게 무슨 뜻인지 알고 싶어서 이 설명을 읽습니다.
+사용자가 알고 싶은 것은 ① 내 약에 어떤 문제가 있는지 ② 왜 그런지 ③ 어떻게 하면 되는지입니다.
+말투는 앱 화면과 같은 '~해요', '~예요' 체로, 약국에서 차분히 설명해 주는 약사처럼 짧고 쉽게 쓰세요.
+어려운 의학 용어는 쓰지 말고, 꼭 써야 하면 풀이를 붙이세요.
+
+원칙:
+1. 오직 [판정 결과]·[약품 정보]·[용어 풀이] 안의 내용만 근거로 설명하세요.
+   그 안에 없는 증상, 장기, 작용 원리, 확률, 연구 결과를 덧붙이거나 지어내지 마세요.
+   특히 "위벽을 자극해서"처럼 입력에 없는 이유를 일반 상식으로 만들어 붙이지 마세요.
+2. 왜 위험한지는 "식약처가 정한 기준으로는 …"처럼 [판정 결과]의 이유를 쉬운 말로 옮겨 말하세요.
+3. 이 판정은 이미 식약처 공공데이터(DUR)와 사용자 건강정보로 확정된 결과입니다.
    판정을 바꾸거나 재평가하지 말고, 그대로 받아들여 쉽게 풀어 설명만 하세요.
-3. 알레르기·나이·임신 항목은 약 한 가지에 대한 경고입니다. 두 약 사이의 상호작용처럼
+4. 알레르기·나이·임신 항목은 약 한 가지에 대한 경고입니다. 두 약 사이의 상호작용처럼
    설명하지 마세요.
-4. 복용을 스스로 끊거나 바꾸라고 권하지 마세요. 대응은 "의사나 약사와 상담하세요" 정도로만 쓰세요.
-5. 일반인이 이해하기 쉬운 한국어 문장 3~6개로, 문단은 2개 이하로 쓰세요. 사용자를 "당신"이라고 부르지 마세요.
-   마크다운(**, #, 글머리 기호, 번호 목록), 영어 단어, 한자는 쓰지 마세요."""
+5. 복용을 스스로 끊거나 바꾸라고 권하지 마세요. 대체 약, 다른 치료법, 복용 시간 조절도 제안하지 마세요.
+   대응은 "의사나 약사와 상담하세요" 정도로만 쓰세요.
+6. 첫 문단에서는 [약품 정보]의 분류·효능을 근거로 각 약이 무엇에 쓰는 약인지 한 문장씩 소개하세요.
+   효능이 길면 첫 항목만 짧게 요약하고, 정보가 없는 약은 소개를 생략하세요.
+7. 둘째 문단은 두 문장 이내로 쓰세요. 첫 문장은 식약처가 정한 기준(= [판정 결과]에 적힌 위험)을 말하고,
+   [용어 풀이]에 있는 용어가 나오면 둘째 문장에서 그 풀이만 전하세요. 풀이는 문장을 거의 그대로 옮기고
+   바꿔 말하며 뜻을 바꾸지 마세요. 풀이에 없는 용어는 풀이하지 말고 원문 표현 그대로 쓰세요.
+   왜 그런 위험이 생기는지 원리는 설명하지 마세요.
+8. 전체는 문장 3~6개, 문단은 2개로 쓰세요. 사용자를 "당신"이라고 부르지 마세요.
+   마크다운(**, #, 글머리 기호, 번호 목록), 영어 단어, 한자는 쓰지 마세요.
+
+[말투와 구성 예시 — 내용이 아니라 말투와 순서만 참고하세요]
+가나정은 혈압을 낮추는 약이에요. 다라정은 열을 내리는 약이에요.
+
+식약처가 정한 기준으로는 이 두 약을 함께 먹으면 ○○ 문제가 생길 위험이 있어서, 같이 쓰지 않도록 되어 있어요."""
 
 _MARKDOWN_EMPHASIS = re.compile(r"\*\*|__")
 _MARKDOWN_LINE_PREFIX = re.compile(r"^[ \t]*(?:#{1,6}|[-*•]|\d+[.)])[ \t]+", re.M)
@@ -90,6 +124,18 @@ _HAN_OR_KANA = re.compile(r"[぀-ヿ㐀-䶿一-鿿]")
 _RISK_CODE = re.compile(r"(?<![A-Za-z])(?:critical|caution|safe)(?![A-Za-z])", re.I)
 _STOP_WORD = re.compile(r"중단|끊")
 _NEGATION_AFTER_STOP = re.compile(r"^[^.!?\n]{0,12}?(?:지\s*마|지\s*말|면\s*안)")
+# 금기 조합에 대체 약·다른 치료법·시간차 복용을 권하면 위험하므로 그런 제안 문장은 걸러 낸다.
+_ALTERNATIVE = re.compile(
+    r"대체\s*(?:약|의약품|치료|요법)|대안|교체"
+    r"|다른\s*(?:(?:치료\s*)?(?:방법|법)|옵션|(?:시간|시점)(?:에|대에))"
+    r"|다른\s*약(?:물)?(?:으로|을\s*(?:고려|처방|사용|복용하))"
+    r"|복용\s*시간(?:을|이)?\s*(?:조절|달리|나누)"
+    r"|치료\s*(?:방법|법|계획)(?:을|에\s*대해)?\s*(?:찾|고려|논의|세우)"
+)
+# 입력에 없는 권위 인용("연구 결과가 있습니다")은 근거 없는 주장이므로 걸러 낸다
+_CITATION = re.compile(r"연구\s*(?:결과|에\s*따르면|에서)|임상\s*(?:시험|연구)|논문")
+# "…는 …한다는 뜻이에요"류 정의 문장 — 용어집에 있는 용어가 아니면 모델이 제 지식으로 푼 것이다
+_DEFINITION = re.compile(r"(?:란|이란|은|는)\s[^.!?]*(?:뜻|의미|말)(?:이에요|이예요|예요|해요|입니다|합니다)")
 
 
 def sanitize_guide_text(text: str) -> str:
@@ -100,6 +146,8 @@ def sanitize_guide_text(text: str) -> str:
     text = re.sub(r"알레르(?!기)", "알레르기", text)
     # 지시해도 알레르기 설명 4/10에 "당신이…"가 남았다 — 주어를 빼도 자연스러운 한국어라 지운다
     text = re.sub(r"당신(?:께서|에게|이|은|의)?\s*", "", text)
+    # 해요체 표기 교정: "약이예요" → "약이에요"
+    text = text.replace("이예요", "이에요")
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
@@ -169,6 +217,12 @@ def guide_text_problem(text: str) -> str | None:
         # "임의로 중단하지 마세요"처럼 말리는 문장은 허용하고, 끊으라는 권유만 막는다
         if not _NEGATION_AFTER_STOP.match(text[m.end():]):
             return "복용 중단 권유"
+    if _ALTERNATIVE.search(text):
+        return "대체 약·치료법 제안"
+    if _CITATION.search(text):
+        return "근거 없는 연구 인용"
+    if _DEFINITION.search(text) and not find_entries(text):
+        return "출처 없는 용어 풀이"
     return None
 
 
@@ -199,6 +253,7 @@ class AiGuideService:
             )
 
         prompt = await self._build_prompt(user_id, check)
+        otc_involved = await self._otc_involved(check)
 
         guide_text, is_ai_generated = _FALLBACK_GUIDE_TEXT, False
         try:
@@ -208,7 +263,7 @@ class AiGuideService:
                 if removed:
                     logger.info(f"AI 가이드 문장 제거({', '.join(sorted(set(removed)))}) — 시도 {attempt}")
                 if candidate:
-                    guide_text = f"{candidate}\n\n{closing_for(check)}"
+                    guide_text = f"{candidate}\n\n{closing_for(check, otc_involved)}"
                     is_ai_generated = True
                     break
                 logger.warning(f"AI 가이드 응답에 남길 문장이 없음 — 시도 {attempt}/{_MAX_ATTEMPTS}")
@@ -222,6 +277,14 @@ class AiGuideService:
         return AnalysisGuideResponse(
             risk_level=check.risk_level, guide_text=guide_text, is_ai_generated=is_ai_generated
         )
+
+    async def _otc_involved(self, check: QuickCheckResponse) -> bool:
+        """병용·중복 판정에 일반의약품이 하나라도 끼었는가."""
+        ids = {f.drug1_id for f in check.findings} | {f.drug2_id for f in check.findings}
+        if not ids:
+            return False
+        drugs = await DrugService(self.db).get_drugs_by_ids(list(ids))
+        return any((d.etc_otc_name or "").strip() == "일반의약품" for d in drugs.values())
 
     async def _build_prompt(self, user_id: uuid.UUID, check: QuickCheckResponse) -> str:
         finding_lines = []
@@ -299,9 +362,17 @@ class AiGuideService:
         if len(sections) == 1:
             sections.append("(확인된 문제 없음)")
         sections.append("[약품 정보]\n" + ("\n".join(drug_lines) or "(약품 상세 정보 없음)"))
+        # 판정 문장에 나온 용어 중 출처 있는 풀이가 있는 것만 근거로 넘긴다(없는 용어는 풀이하지 않는다)
+        glossary = find_entries("\n".join(finding_lines + age_lines + pregnancy_lines))
+        if glossary:
+            sections.append("[용어 풀이]\n" + "\n".join(f"- {e.term}: {e.definition}" for e in glossary))
         if health_lines:
             sections.append("[사용자 정보]\n" + "\n".join(health_lines))
-        sections.append("위 정보만 근거로, 왜 위험한지와 어떻게 대응해야 하는지 한국어로만 설명해 주세요.")
+        # 지시에서 "대응"을 빼지 않는다 — 대응 문장은 뒤에서 코드가 붙이지만 지시에서 빼면 답이 짧아져 한국어를 벗어난다
+        # (drop_trailing_advice 주석 참고)
+        sections.append(
+            "위 정보만 근거로, 각 약이 무엇에 쓰는 약인지와 왜 위험한지, 어떻게 대응해야 하는지 한국어로만 설명해 주세요."
+        )
 
         return "\n\n".join(sections)
 
