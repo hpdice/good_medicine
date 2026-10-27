@@ -1,6 +1,6 @@
 # 운영 런북 — 백업·복원 · 키 보관 · 반영 절차
 
-> 기준일 2026-09-30. 배포 구조 자체는 [deploy-tailscale.md](./deploy-tailscale.md)(백엔드),
+> 배포 구조 자체는 [deploy-tailscale.md](./deploy-tailscale.md)(백엔드),
 > [deploy-web-vercel.md](./deploy-web-vercel.md)(웹). 이 문서는 **운영 중 해야 하는 일**만 다룬다.
 
 ---
@@ -13,7 +13,7 @@
 | 항목 | 값 |
 |---|---|
 | 방식 | 컨테이너 안 `pg_dump -Fc`(압축) → `docker cp`로 호스트에 꺼냄 |
-| 위치 | `D:\drugTest\backups\drugtest-YYYYMMDD-HHMMSS.dump` (2026-09-30 기준 약 6MB) |
+| 위치 | `D:\drugTest\backups\drugtest-YYYYMMDD-HHMMSS.dump` |
 | 검증 | `-Verify`: 임시 DB `drugtest_restore_check`에 **실제로 복원**해 핵심 테이블 5개 행 수를 운영과 비교 → 임시 DB 삭제 |
 | 보관 | 14일 (`-KeepDays`로 변경) |
 | 로그 | `D:\drugTest\backups\backup.log` |
@@ -27,15 +27,14 @@ Get-ScheduledTaskInfo -TaskName GoodMedicine-DB-Backup
 Unregister-ScheduledTask -TaskName GoodMedicine-DB-Backup -Confirm:$false
 ```
 
-> ⚠ **백업이 운영 데이터와 같은 PC(D:)에 있다.** 실수로 지운 데이터·잘못된 마이그레이션에서는 복구할 수 있지만,
-> **디스크 고장·PC 분실에는 같이 사라진다.** 주 1회 정도 외부 매체로 사본을 옮길 것.
-> 외부 사본은 **국내**(외장 디스크 등)에 두고, 클라우드에 올린다면 덤프를 먼저 암호화할 것 — 덤프에는 이메일·이름이
-> 평문으로 들어 있어, 해외 클라우드에 그대로 올리면 이 프로젝트가 피하려던 개인정보 국외 이전이 된다.
+> 백업은 운영 데이터와 같은 호스트(D:)에 저장되므로 디스크 장애에 대비해 주기적으로 외부 매체에 사본을 옮긴다.
+> 외부 사본은 **국내**(외장 디스크 등)에 두고, 클라우드에 올린다면 덤프를 먼저 암호화한다 — 덤프에는 이메일·이름이
+> 평문으로 들어 있어, 해외 클라우드에 그대로 올리면 개인정보 국외 이전이 된다.
 
 ## 2. 복원
 
-**검증된 것**: 임시 DB로의 복원(매일 `-Verify`가 수행). **운영 DB에 덮어쓰는 복원은 아직 실제로 해 본 적 없다** —
-필요해지기 전에 한 번 연습해 둘 것(예: 개발 PC의 별도 compose 프로젝트).
+임시 DB로의 복원은 매일 `-Verify`가 수행한다. 운영 DB에 덮어쓰는 복원은 필요해지기 전에 별도 compose 프로젝트에서
+연습해 둔다.
 
 ```powershell
 cd C:\Dev\drugTest
@@ -75,7 +74,7 @@ docker exec drugtest-backend-1 python validate_db.py          # 품질 검증
 | 반영 전 확인 | `docker exec -e PYTHONPATH=/app -w /app drugtest-backend-1 python -m pytest tests/ -q` (push하면 CI에서도 돈다) |
 | Dockerfile·compose 가 바뀌었을 때 | `docker compose build backend` 후 `up -d` (개발) / 배포는 `--build` |
 
-## 5. 운영 정책 (2026-09-30 변경)
+## 5. 운영 정책
 
 ### Rate Limit — 누구를 한 명으로 세나
 
@@ -86,11 +85,13 @@ docker exec drugtest-backend-1 python validate_db.py          # 품질 검증
 | `POST /analysis/guide` | 10회/분 | 로그인 사용자 |
 | `POST /drugs/ocr` | 20회/분 | 로그인 사용자 |
 
-- 이전엔 모든 요청이 Tailscale 컨테이너를 거쳐 들어와 **전 사용자가 IP 하나를 공유**했다(서비스 전체 로그인 5회/15분).
-- 로그인은 IP 한도를 20회/15분으로 풀고, 무차별 대입 방어는 **이메일별 실패 횟수**(`app/core/login_guard.py`, `LOGIN_FAILURE_LIMIT`·`LOGIN_FAILURE_WINDOW_SECONDS`)가 맡는다. 같은 행사장 와이파이처럼 IP를 공유하는 환경에서 정상 사용자가 막히지 않게 하려는 것이다. 한도는 `.env`로 조정할 수 있다.
+- 모든 요청이 Tailscale 컨테이너를 거쳐 들어오므로 출발지 IP를 그대로 쓰면 전 사용자가 IP 하나를 공유하게 된다.
+  그래서 로그인은 IP 한도를 20회/15분으로 두고, 무차별 대입 방어는 **이메일별 실패 횟수**(`app/core/login_guard.py`,
+  `LOGIN_FAILURE_LIMIT`·`LOGIN_FAILURE_WINDOW_SECONDS`)가 맡는다. 같은 와이파이처럼 IP를 공유하는 환경에서 정상
+  사용자가 막히지 않게 하려는 것이다. 한도는 `.env`로 조정할 수 있다.
 - 실제 IP: Tailscale Funnel은 출발지 주소를 `X-Forwarded-For`에 **덮어써서** 넘긴다. 백엔드는 직접 연결 상대가
   `TRUSTED_PROXY_CIDRS`(기본: 루프백·사설망)일 때만 이 헤더를, 그것도 **가장 오른쪽 값**만 믿는다
-  (`app/core/rate_limit.py`). 감사 로그의 IP도 같은 함수를 쓴다(이전엔 위조 가능한 첫 번째 값을 그대로 기록).
+  (`app/core/rate_limit.py`). 감사 로그의 IP도 같은 함수를 쓴다.
 - 한도 저장소는 **메모리**다 — 백엔드를 재시작하면 초기화되고, 워커를 여러 개로 늘리면 워커마다 따로 센다.
   워커를 늘릴 땐 Redis 같은 공유 저장소로 바꿔야 한다.
 
@@ -105,8 +106,7 @@ docker exec drugtest-backend-1 python validate_db.py          # 품질 검증
 | 이미 발급된 Access Token | 요청마다 계정 활성 여부를 확인하므로 **즉시 무효** |
 | 감사 로그(`audit_logs`) | **보존** — 보안 추적용. 사용자 ID·IP·시각만 있고 건강정보는 없음. `delete_account` 기록 추가 |
 
-> 감사 로그의 **보관 기간**은 아직 정하지 않았다. 개인정보 처리방침을 만들 때 기간을 정하고 그보다 오래된 행을
-> 지우는 작업이 필요하다.
+> 감사 로그의 보관 기간은 개인정보 처리방침에서 정하고, 기간이 지난 행을 삭제한다.
 
 ## 6. 공공데이터 월간 갱신
 
@@ -125,16 +125,16 @@ Unregister-ScheduledTask -TaskName GoodMedicine-Monthly-Sync -Confirm:$false
 docker exec drugtest-backend-1 python sync.py status
 ```
 
-- **실패한 페이지는 건너뛰지 않는다**(2026-09-30 수정 전엔 건너뛰고 "완료"로 끝났다). DUR 병용금기는 실패 페이지를
+- **실패한 페이지는 건너뛰지 않는다.** DUR 병용금기는 실패 페이지를
   체크포인트(`sync_state` 볼륨 `/var/lib/goodmedicine/`)로 남겨, 재실행하면 거기서 이어받는다. 월간 스크립트는
   할당량 초과로 멈추면 60분 뒤 최대 3번 이어서 재시도한다.
 - **품질 게이트**(`validate_db.py`): 자기참조·정규순서 위반·중복 쌍·고아 행·규칙 수 하한(약품 30,000 · 병용금기 300 ·
   효능군 200)·알려진 금기 쌍 3개 탐지 여부. 하나라도 걸리면 실패 → 직전 백업으로 복원 검토(2절).
-- **원본 응답 보관·재생**(2026-10-07): 동기화가 받은 API 응답을 `/var/lib/goodmedicine/raw/`(`sync_state` 볼륨)에 엔드포인트·날짜별 gz 파일로 남기고 최근 3개 날짜만 유지한다. 파싱 로직을 고친 뒤엔 `docker exec drugtest-backend-1 python sync.py <소스> --replay`로 API 호출 없이 재적재한다(날짜 지정은 `--replay=YYYYMMDD`). DB 백업에는 포함되지 않는다(API에서 재수집 가능한 캐시). 용량이 부담되면 `.env`의 `RAW_RESPONSE_SAVE=false` 또는 `RAW_KEEP_SNAPSHOTS`를 줄인다.
+- **원본 응답 보관·재생**: 동기화가 받은 API 응답을 `/var/lib/goodmedicine/raw/`(`sync_state` 볼륨)에 엔드포인트·날짜별 gz 파일로 남기고 최근 3개 날짜만 유지한다. 파싱 로직을 고친 뒤엔 `docker exec drugtest-backend-1 python sync.py <소스> --replay`로 API 호출 없이 재적재한다(날짜 지정은 `--replay=YYYYMMDD`). DB 백업에는 포함되지 않는다(API에서 재수집 가능한 캐시). 용량이 부담되면 `.env`의 `RAW_RESPONSE_SAVE=false` 또는 `RAW_KEEP_SNAPSHOTS`를 줄인다.
 - 원천이 금기 사유 문장을 고치면 반영되고, 그 규칙의 `risk_tags`는 비워져 다음 `extract_risk_tags`에서 다시 뽑힌다.
 - 동기화 중에도 서비스는 계속 동작한다(판정은 읽기만). 다만 공공 API 일일 할당량을 쓰므로 같은 날 수동 동기화는 피한다.
 
-## 7. 외부 감시 (사람이 설정해야 함)
+## 7. 외부 감시
 
 `/health`는 이제 DB까지 확인해 장애 시 **503**을 준다. 하지만 PC가 꺼지면 PC 안의 무엇도 알릴 수 없으므로,
 **PC 밖의 무료 감시 서비스**(예: UptimeRobot, Better Stack 등)에 아래 주소를 5분 간격으로 등록하고 알림(메일·앱)을 켠다.
@@ -145,18 +145,12 @@ https://goodmedicine.tail9f1768.ts.net/health      → 200 {"status":"ok","db":"
 
 > 감시 서비스에는 URL만 알려주며 개인정보는 오가지 않는다.
 
-## 8. 남은 운영 과제
+## 8. 운영 점검 항목
 
-| 과제 | 상태 | 비고 |
-|---|---|---|
-| DB 자동 백업 + 복원 검증 | ✅ 2026-09-30 | 1절 |
-| 헬스체크 DB 확인 · Docker healthcheck | ✅ 2026-09-30 | DB 장애 시 503 실측 |
-| CI 백엔드 테스트 | ✅ 2026-09-30 | `.github/workflows/backend-tests.yml` — 로컬에서 같은 절차 재현(통과). GitHub 첫 실행은 push 후 확인 |
-| 버전 고정 (`poetry.lock`, `ollama/ollama:0.32.6`) | ✅ 2026-09-30 | |
-| Docker 로그 용량 상한 (10MB × 5) | ✅ 2026-09-30 | |
-| 공공데이터 월간 갱신 · 누락 방지 · 마지막 동기화 기록 · 품질 게이트 | ✅ 2026-09-30 | 6절 |
-| **암호화 키 별도 보관** | ⬜ **사람** | 3절 — 가장 중요 |
-| **백업 외부 사본 (국내 매체)** | ⬜ 사람 | 1절 — 지금은 운영 데이터와 같은 D: |
-| **외부 감시 등록** | ⬜ 사람 | 7절 |
-| 운영 DB 복원 연습 | ⬜ | 2절 — 임시 DB 복원만 매일 검증 중 |
-| 계정 복구(비밀번호 재설정), 개인정보 처리방침, APK 정식 서명 | 출시 전 | [project-status.md](./project-status.md) "남은 작업" |
+| 항목 | 참고 |
+|---|---|
+| 암호화 키 별도 보관 확인 | 3절 — 분기마다 보관본과 현재 `.env` 대조 |
+| 백업 외부 사본(국내 매체) | 1절 |
+| 외부 감시 등록 | 7절 |
+| 운영 DB 복원 연습 | 2절 |
+| 계정 복구(비밀번호 재설정), 개인정보 처리방침, APK 정식 서명 | 출시 전 — [project-status.md](./project-status.md) "남은 작업" |
