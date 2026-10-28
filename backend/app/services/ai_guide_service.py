@@ -226,6 +226,64 @@ def guide_text_problem(text: str) -> str | None:
     return None
 
 
+def _finding_lines(check: QuickCheckResponse) -> list[str]:
+    lines = []
+    for finding in check.findings:
+        kind = _FINDING_LABEL.get(finding.interaction_type, "주의가 필요한 조합")
+        tags = f" [주요 위험: {', '.join(finding.risk_tags)}]" if finding.risk_tags else ""
+        lines.append(f"- {finding.drug1_name} + {finding.drug2_name}: {kind} — {finding.mechanism or '정보 없음'}{tags}")
+    return lines
+
+
+def _allergy_lines(check: QuickCheckResponse) -> list[str]:
+    return [
+        f"- {c.drug_name}: 등록한 알레르기 '{c.matched_allergy_term}'와 이 약의 성분 '{c.matched_ingredient}'이 겹침"
+        for c in check.allergy_conflicts
+    ]
+
+
+def _age_lines(check: QuickCheckResponse) -> list[str]:
+    return [
+        f"- {c.drug_name}: {_AGE_RULE_LABEL.get(c.rule_type, '연령 관련 주의')} — {c.prohibit_content or '정보 없음'}"
+        for c in check.age_cautions
+    ]
+
+
+def _pregnancy_lines(check: QuickCheckResponse) -> list[str]:
+    return [
+        f"- {c.drug_name}: 임부금기(임신 중 사용을 피해야 함) — {c.prohibit_content or '정보 없음'}"
+        + (f" (적용 범위: {c.remark})" if c.remark else "")
+        for c in check.pregnancy_cautions
+    ]
+
+
+def _involved_drug_ids(check: QuickCheckResponse) -> list[uuid.UUID]:
+    """판정 결과에 나온 모든 약의 id (쌍 판정은 양쪽, 사용자 정보 판정은 해당 약)."""
+    ids: set[uuid.UUID] = set()
+    for finding in check.findings:
+        ids |= {finding.drug1_id, finding.drug2_id}
+    for group in (check.allergy_conflicts, check.age_cautions, check.pregnancy_cautions):
+        ids |= {c.drug_id for c in group}
+    return list(ids)
+
+
+def _drug_line(drug) -> str:
+    """약 한 개의 프롬프트용 한 줄. e약은요 데이터가 없는 약(대부분)은 이름만 남아 한국어 맥락이 짧아지는데,
+    그때 모델이 중국어로 넘어갈 수 있다. 분류명을 넣고 마지막 줄에 "한국어로만" 지시를 두어 막는다."""
+    parts = [f"[{drug.simple_name or drug.item_name}]"]
+    for label, value in (
+        ("분류", drug.class_name),
+        ("효능", drug.efcy_qesitm),
+        ("주의사항", drug.atpn_qesitm),
+        ("상호작용", drug.intrc_qesitm),
+        ("부작용", drug.se_qesitm),
+    ):
+        if value:
+            # 분류명은 짧아 자르지 않고, 허가사항 원문처럼 긴 필드만 줄 경계로 자른다
+            parts.append(f"{label}: {value if label == '분류' else _clip_field(value)}")
+    return " / ".join(parts)
+
+
 class AiGuideService:
     """규칙 기반 판정(AnalysisService.quick_check)이 이미 확정한 결과를 사람이
     읽을 설명으로 풀어쓰는 보조 역할만 한다 — 위험도 판정 자체에는 관여하지 않는다.
@@ -286,73 +344,34 @@ class AiGuideService:
         drugs = await DrugService(self.db).get_drugs_by_ids(list(ids))
         return any((d.etc_otc_name or "").strip() == "일반의약품" for d in drugs.values())
 
-    async def _build_prompt(self, user_id: uuid.UUID, check: QuickCheckResponse) -> str:
-        finding_lines = []
-        for finding in check.findings:
-            kind = _FINDING_LABEL.get(finding.interaction_type, "주의가 필요한 조합")
-            tags = f" [주요 위험: {', '.join(finding.risk_tags)}]" if finding.risk_tags else ""
-            finding_lines.append(
-                f"- {finding.drug1_name} + {finding.drug2_name}: {kind} — {finding.mechanism or '정보 없음'}{tags}"
-            )
-        allergy_lines = [
-            f"- {c.drug_name}: 등록한 알레르기 '{c.matched_allergy_term}'와 이 약의 성분 '{c.matched_ingredient}'이 겹침"
-            for c in check.allergy_conflicts
-        ]
-        age_lines = [
-            f"- {c.drug_name}: {_AGE_RULE_LABEL.get(c.rule_type, '연령 관련 주의')} — {c.prohibit_content or '정보 없음'}"
-            for c in check.age_cautions
-        ]
-        pregnancy_lines = [
-            f"- {c.drug_name}: 임부금기(임신 중 사용을 피해야 함) — {c.prohibit_content or '정보 없음'}"
-            + (f" (적용 범위: {c.remark})" if c.remark else "")
-            for c in check.pregnancy_cautions
-        ]
-
-        drug_ids = (
-            {f.drug1_id for f in check.findings}
-            | {f.drug2_id for f in check.findings}
-            | {c.drug_id for c in check.allergy_conflicts}
-            | {c.drug_id for c in check.age_cautions}
-            | {c.drug_id for c in check.pregnancy_cautions}
-        )
-        drugs = await DrugService(self.db).get_drugs_by_ids(list(drug_ids))
-
-        drug_lines = []
-        for drug in drugs.values():
-            name = drug.simple_name or drug.item_name
-            parts = [f"[{name}]"]
-            # e약은요 데이터가 없는 약(대부분)은 이름만 남아 한국어 맥락이 짧아지는데, 그때 모델이 중국어로
-            # 넘어갈 수 있다. 분류명을 넣고 마지막 줄에 "한국어로만" 지시를 두어 막는다.
-            if drug.class_name:
-                parts.append(f"분류: {drug.class_name}")
-            if drug.efcy_qesitm:
-                parts.append(f"효능: {_clip_field(drug.efcy_qesitm)}")
-            if drug.atpn_qesitm:
-                parts.append(f"주의사항: {_clip_field(drug.atpn_qesitm)}")
-            if drug.intrc_qesitm:
-                parts.append(f"상호작용: {_clip_field(drug.intrc_qesitm)}")
-            if drug.se_qesitm:
-                parts.append(f"부작용: {_clip_field(drug.se_qesitm)}")
-            drug_lines.append(" / ".join(parts))
-
-        # 사용자 건강정보/알레르기 — 복호화 실패는 UserService가 필드별로 격리 처리하므로
-        # 여기서는 있으면 쓰고 없으면 그냥 생략한다 (가이드 생성 전체를 막지 않음).
-        health_lines = []
+    async def _health_lines(self, user_id: uuid.UUID) -> list[str]:
+        """사용자 건강정보/알레르기. 복호화 실패는 UserService가 필드별로 격리 처리하므로 있으면 쓰고
+        없으면 생략한다 (가이드 생성 전체를 막지 않음)."""
+        lines: list[str] = []
         try:
             user = await UserService(self.db).get_user(user_id)
             conditions = getattr(user, "health_conditions", None)
             allergies = getattr(user, "allergy_info", None)
             if conditions:
-                health_lines.append(f"건강 상태: {', '.join(conditions)}")
+                lines.append(f"건강 상태: {', '.join(conditions)}")
             if allergies:
-                health_lines.append(f"알레르기: {', '.join(allergies)}")
+                lines.append(f"알레르기: {', '.join(allergies)}")
         except Exception:
             logger.warning("사용자 건강정보 조회 실패 — 컨텍스트 없이 가이드 생성 진행", exc_info=True)
+        return lines
+
+    async def _build_prompt(self, user_id: uuid.UUID, check: QuickCheckResponse) -> str:
+        finding_lines = _finding_lines(check)
+        age_lines = _age_lines(check)
+        pregnancy_lines = _pregnancy_lines(check)
+        drugs = await DrugService(self.db).get_drugs_by_ids(_involved_drug_ids(check))
+        drug_lines = [_drug_line(drug) for drug in drugs.values()]
+        health_lines = await self._health_lines(user_id)
 
         sections = [f"[판정 결과] 전체 위험도: {_RISK_LABEL.get(check.risk_level, check.risk_level)}"]
         for title, lines in (
             ("함께 먹을 때의 문제", finding_lines),
-            ("알레르기 성분 충돌", allergy_lines),
+            ("알레르기 성분 충돌", _allergy_lines(check)),
             ("나이 관련 DUR 규칙", age_lines),
             ("임신 중 금기", pregnancy_lines),
         ):
