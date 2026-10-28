@@ -11,8 +11,8 @@ from .helpers import _clean, _make_drug_key, _make_simple_name, _parse_ingredien
 class DrugOverviewSyncMixin(_SyncBase):
     async def _sync_drug_overview(self) -> int:
         url = f"{settings.DRUG_OVERVIEW_API_URL}/getDrbEasyDrugList"
-        return await self._run_simple_paginated_sync(
-            url, self._upsert_drug_from_overview, source="overview", log_label="drug overview",
+        return await self._sync_endpoint(
+            url, self._upsert_drug_from_overview, source="overview", label="drug overview",
         )
 
     async def _upsert_drug_from_overview(self, item: dict) -> None:

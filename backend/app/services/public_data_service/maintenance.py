@@ -1,7 +1,6 @@
 """일회성 로컬 보강 배치 — 공공데이터 API를 새로 호출하지 않고 이미 적재된
 데이터끼리 대조해 채운다."""
 import json
-import re
 from pathlib import Path
 
 from sqlalchemy import select
@@ -12,7 +11,12 @@ from app.models.drug_ingredient import DrugIngredient
 from app.models.residual_interaction import ResidualInteraction
 
 from .base import _SyncBase
-from .helpers import _make_simple_name, _parse_main_ingr, make_ingredient_resolver
+from .helpers import (
+    _make_simple_name,
+    _parse_main_ingr,
+    candidate_ingredient_names,
+    make_ingredient_resolver,
+)
 
 
 class MaintenanceMixin(_SyncBase):
@@ -74,19 +78,7 @@ class MaintenanceMixin(_SyncBase):
             if drug_id in covered:
                 continue
 
-            candidates: list[str] = []
-            for ingr_item in ingr_name or []:
-                kor = (ingr_item or {}).get("kor")
-                if kor:
-                    candidates.append(kor)
-            for ingr_item in _parse_main_ingr(main_item_ingr or ""):
-                if ingr_item.get("kor"):
-                    candidates.append(ingr_item["kor"])
-            for paren in re.findall(r'[\(\[（]([^\)\]）]+)[\)\]）]', item_name or ""):
-                for part in re.split(r'[,/·]', paren):
-                    part = part.strip()
-                    if part:
-                        candidates.append(part)
+            candidates = candidate_ingredient_names(ingr_name, main_item_ingr, item_name)
 
             seen_codes: set[str] = set()
             for cand in candidates:

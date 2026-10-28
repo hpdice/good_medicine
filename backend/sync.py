@@ -13,8 +13,7 @@
     build_drug_ingredients  drug_ingredients 로컬 보강 (API 미사용, item_name·ingr_name → 성분코드)
     build_residual          residual_interactions 시드 복원 (DB 완전 초기화 후 재구축 시)
     extract_risk_tags       prohibit_content → 로컬 LLM 위험/증상 태그 1회 추출 (GPU 필요)
-    dur_extra_codes         DUR 기타 엔드포인트(용량/투여기간)에서 성분코드 매핑만 수확
-    dur_age_caution         DUR 특정연령대금기·노인주의 동기화 (성분 테이블만 채움)
+    dur_age_caution        DUR 특정연령대금기·노인주의 동기화 (성분 테이블만 채움)
     dur_pregnancy           DUR 임부금기 동기화 (품목 단위 판정 규칙 + 성분코드 매핑)
     box_detail              복약함에 이미 담긴 약을 허가정보 상세 API로 보강 (효능·용법·주의·성분).
                             새로 담는 약은 담는 순간 자동 보강되므로, 이 기능 도입 전 항목용 1회성
@@ -27,9 +26,8 @@
                             dur_contraindications는 남아 있는 체크포인트가 있으면 그 페이지부터 읽는다.
 
 판정은 성분 단위(drug_ingredients + dur_ingredient_*)만 쓴다. dur_contraindications·
-efcy_dplct 동기화가 이 테이블들을 채운다. dur_extra_codes는 판정엔 미관여하고
-성분코드 해소율만 높인다. 구 품목 테이블(drug_interactions/drug_effect_groups)은
-0006 마이그레이션에서 residual_interactions로 축소·폐기됨.
+efcy_dplct 동기화가 이 테이블들을 채운다. 구 품목 테이블(drug_interactions/
+drug_effect_groups)은 0006 마이그레이션에서 residual_interactions로 축소·폐기됨.
 """
 import asyncio
 import json
@@ -46,16 +44,17 @@ logging.basicConfig(format="%(message)s", level=logging.WARNING)
 for _logger in ("sqlalchemy.engine", "sqlalchemy.pool", "sqlalchemy.dialects", "app"):
     logging.getLogger(_logger).setLevel(logging.WARNING)
 
+# `all`(기본값)이 도는 소스. dur_age_caution·dur_pregnancy는 이름으로만 따로 돌린다.
 SOURCES = ["overview", "dur_contraindications", "efcy_dplct", "approval"]
 
-SOURCE_LABELS = {
-    "overview": "e약은요 기본정보",
-    "dur_contraindications": "DUR 병용금기",
-    "efcy_dplct": "DUR 효능군중복주의",
-    "approval": "의약품 제품 허가정보",
-    "dur_extra_codes": "DUR 기타 성분코드 매핑",
-    "dur_age_caution": "DUR 특정연령대금기·노인주의",
-    "dur_pregnancy": "DUR 임부금기",
+# 소스 이름 -> (표시 이름, PublicDataService 메서드 이름)
+SOURCE_OPS = {
+    "overview": ("e약은요 기본정보", "_sync_drug_overview"),
+    "dur_contraindications": ("DUR 병용금기", "_sync_dur_contraindications"),
+    "efcy_dplct": ("DUR 효능군중복주의", "_sync_efcy_dplct"),
+    "approval": ("의약품 제품 허가정보", "sync_drug_approval"),
+    "dur_age_caution": ("DUR 특정연령대금기·노인주의", "sync_dur_age_caution"),
+    "dur_pregnancy": ("DUR 임부금기", "sync_dur_pregnancy_taboo"),
 }
 
 
@@ -89,46 +88,23 @@ def _record_success(source: str, count: int, elapsed: float) -> None:
         print(f"  (경고) 마지막 동기화 기록 저장 실패: {e}")
 
 
-async def cmd_fill_ingr():
+# 로컬 보강 명령 (공공 API 미사용): 명령 -> (시작 문구, PublicDataService 메서드, 완료 문구, 끝나고 현황 출력 여부)
+LOCAL_JOBS = {
+    "fill_ingr": ("main_item_ingr → ingr_name 일괄 채우기", "fill_ingr_from_main_ingr", "{n:,}건 업데이트", True),
+    "build_drug_ingredients": ("drug_ingredients 로컬 보강 (ingr_name JSONB → 성분코드 이름 매칭)", "build_drug_ingredients_from_jsonb", "{n:,}건 추가 (source='jsonb_fallback')", True),
+    "build_residual": ("residual_interactions 시드 복원 (seed/residual_interactions.json)", "build_residual_from_seed", "{n:,}건 추가", True),
+    "extract_risk_tags": ("risk_tags 추출 (prohibit_content → 로컬 LLM, distinct만)", "extract_risk_tags", "{n:,}개 distinct 문장 태그화", False),
+    "fill_simple_names": ("item_name → simple_name 일괄 채우기", "fill_simple_names", "{n:,}건 업데이트", True),
+}
+
+
+async def run_local_job(start: str, method: str, done: str) -> None:
     from app.db.session import AsyncSessionLocal
     from app.services.public_data_service import PublicDataService
-    print("[시작] main_item_ingr → ingr_name 일괄 채우기")
+    print(f"[시작] {start}")
     async with AsyncSessionLocal() as db:
-        svc = PublicDataService(db)
-        n = await svc.fill_ingr_from_main_ingr()
-    print(f"[완료] {n:,}건 업데이트")
-
-
-async def cmd_build_drug_ingredients():
-    from app.db.session import AsyncSessionLocal
-    from app.services.public_data_service import PublicDataService
-    print("[시작] drug_ingredients 로컬 보강 (ingr_name JSONB → 성분코드 이름 매칭)")
-    async with AsyncSessionLocal() as db:
-        svc = PublicDataService(db)
-        n = await svc.build_drug_ingredients_from_jsonb()
-    print(f"[완료] {n:,}건 추가 (source='jsonb_fallback')")
-
-
-async def cmd_build_residual():
-    from app.db.session import AsyncSessionLocal
-    from app.services.public_data_service import PublicDataService
-    print("[시작] residual_interactions 시드 복원 (seed/residual_interactions.json)")
-    async with AsyncSessionLocal() as db:
-        svc = PublicDataService(db)
-        n = await svc.build_residual_from_seed()
-    print(f"[완료] {n:,}건 추가")
-
-
-async def cmd_extract_risk_tags():
-    from app.db.session import AsyncSessionLocal
-    from app.services.public_data_service import PublicDataService
-    print("[시작] risk_tags 추출 (prohibit_content → 로컬 LLM, distinct만)")
-    async with AsyncSessionLocal() as db:
-        svc = PublicDataService(db)
-        n = await svc.extract_risk_tags()
-    print(f"[완료] {n:,}개 distinct 문장 태그화")
-
-
+        n = await getattr(PublicDataService(db), method)()
+    print(f"[완료] {done.format(n=n)}")
 
 
 async def cmd_box_detail() -> bool:
@@ -167,16 +143,6 @@ async def cmd_box_detail() -> bool:
                 print(f"  (실패) {drug.item_name} — 다음 실행에서 재시도")
     print(f"[완료] 보강 {done}종, 실패 {failed}종")
     return failed == 0
-
-
-async def cmd_fill_simple_names():
-    from app.db.session import AsyncSessionLocal
-    from app.services.public_data_service import PublicDataService
-    print("[시작] item_name → simple_name 일괄 채우기")
-    async with AsyncSessionLocal() as db:
-        svc = PublicDataService(db)
-        n = await svc.fill_simple_names()
-    print(f"[완료] {n:,}건 업데이트")
 
 
 def _bar(count: int, total: int, width: int = 30) -> str:
@@ -243,7 +209,7 @@ async def cmd_status():
     if state:
         print("  ----- 마지막 성공 동기화 (UTC) -----")
         for source, info in sorted(state.items()):
-            label = SOURCE_LABELS.get(source, source)
+            label = SOURCE_OPS.get(source, (source, ""))[0]  # 폐기된 소스의 옛 기록은 이름 그대로
             print(f"  {label:<22}: {info['at']}  ({info['count']:,}건)")
     else:
         print("  마지막 성공 동기화 기록 없음")
@@ -260,7 +226,7 @@ async def run_sync(sources: list[str], replay: str | None = None) -> list[str]:
 
     async with AsyncSessionLocal() as db:
         for source in sources:
-            label = SOURCE_LABELS[source]
+            label, method = SOURCE_OPS[source]
             print(f"\n[시작] {label}")
             start = time.time()
 
@@ -279,23 +245,7 @@ async def run_sync(sources: list[str], replay: str | None = None) -> list[str]:
             service.replay_snapshot = replay
 
             try:
-                if source == "overview":
-                    n = await service._sync_drug_overview()
-                elif source == "dur_contraindications":
-                    n = await service._sync_dur_contraindications()
-                elif source == "efcy_dplct":
-                    n = await service._sync_efcy_dplct()
-                elif source == "approval":
-                    n = await service.sync_drug_approval()
-                elif source == "dur_extra_codes":
-                    n = await service.sync_dur_extra_ingredient_codes()
-                elif source == "dur_age_caution":
-                    n = await service.sync_dur_age_caution()
-                elif source == "dur_pregnancy":
-                    n = await service.sync_dur_pregnancy_taboo()
-                else:
-                    continue
-
+                n = await getattr(service, method)()
                 elapsed = time.time() - start
                 print(f"\r[완료] {label}: {n:,}건  ({elapsed:.1f}초)          ")
                 _record_success(source, n, elapsed)
@@ -305,32 +255,27 @@ async def run_sync(sources: list[str], replay: str | None = None) -> list[str]:
     return failed
 
 
+def parse_args(argv: list[str]) -> tuple[str, str | None]:
+    """(명령, replay 스냅샷). `--replay[=YYYYMMDD]`가 없으면 replay 는 None, 날짜가 없으면 "latest"."""
+    positional = [a for a in argv if not a.startswith("--replay")]
+    replay_flags = [a for a in argv if a.startswith("--replay")]
+    replay = (replay_flags[0].partition("=")[2] or "latest") if replay_flags else None
+    return (positional[0] if positional else "all"), replay
+
+
 async def main_async():
-    args = [a for a in sys.argv[1:] if not a.startswith("--replay")]
-    replay_args = [a for a in sys.argv[1:] if a.startswith("--replay")]
-    replay = None
-    if replay_args:
-        replay = replay_args[0].partition("=")[2] or "latest"
+    cmd, replay = parse_args(sys.argv[1:])
+    if replay:
         print(f"[replay] API 대신 저장된 원본 응답({replay})으로 재적재합니다.")
-    cmd = args[0] if args else "all"
     failed: list[str] = []
 
     if cmd == "status":
         await cmd_status()
-    elif cmd == "fill_ingr":
-        await cmd_fill_ingr()
-        await cmd_status()
-    elif cmd == "build_drug_ingredients":
-        await cmd_build_drug_ingredients()
-        await cmd_status()
-    elif cmd == "build_residual":
-        await cmd_build_residual()
-        await cmd_status()
-    elif cmd == "extract_risk_tags":
-        await cmd_extract_risk_tags()
-    elif cmd == "fill_simple_names":
-        await cmd_fill_simple_names()
-        await cmd_status()
+    elif cmd in LOCAL_JOBS:
+        start, method, done, show_status = LOCAL_JOBS[cmd]
+        await run_local_job(start, method, done)
+        if show_status:
+            await cmd_status()
     elif cmd == "box_detail":
         if not await cmd_box_detail():
             failed = ["box_detail"]
@@ -338,16 +283,7 @@ async def main_async():
         print("전체 동기화를 시작합니다.")
         failed = await run_sync(SOURCES, replay)
         await cmd_status()
-    elif cmd == "dur_extra_codes":
-        failed = await run_sync(["dur_extra_codes"], replay)
-        await cmd_status()
-    elif cmd == "dur_age_caution":
-        failed = await run_sync(["dur_age_caution"], replay)
-        await cmd_status()
-    elif cmd == "dur_pregnancy":
-        failed = await run_sync(["dur_pregnancy"], replay)
-        await cmd_status()
-    elif cmd in SOURCES:
+    elif cmd in SOURCE_OPS:
         failed = await run_sync([cmd], replay)
         await cmd_status()
     else:

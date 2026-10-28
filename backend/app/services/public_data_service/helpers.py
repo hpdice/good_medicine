@@ -4,6 +4,7 @@ import json
 import re
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Iterable, Sequence
+from datetime import date
 from typing import Any
 
 _AGE_CRITERIA_RE = re.compile(r'(\d+)\s*(세|개월)\s*(미만|이상|이하|초과)')
@@ -23,6 +24,16 @@ def _clean_text(value: Any) -> str | None:
     if s and len(s) >= 2 and s[0] == '"' and s[-1] == '"':
         s = s[1:-1].strip()
     return s or None
+
+
+def _parse_permit_date(value: str | None) -> date | None:
+    """'YYYYMMDD' 허가일자. 형식이 다르면 None."""
+    if not value or len(value) != 8:
+        return None
+    try:
+        return date(int(value[:4]), int(value[4:6]), int(value[6:]))
+    except ValueError:
+        return None
 
 
 def _make_drug_key(name: str) -> str:
@@ -120,6 +131,25 @@ def _parse_tag_array(raw: str) -> list[str]:
             seen.add(x.lower())
             out.append(x)
     return out[:4]
+
+
+_PAREN_TEXT_RE = re.compile(r'[\(\[（]([^\)\]）]+)[\)\]）]')
+
+
+def candidate_ingredient_names(
+    ingr_name: list[dict | None] | None, main_item_ingr: str | None, item_name: str | None,
+) -> list[str]:
+    """약 하나의 성분명 후보를 세 군데서 모은다(중복 가능, 순서 유지).
+
+    1. `ingr_name` JSONB 의 kor
+    2. `main_item_ingr` 의 `[Mxxxx]성분명` 파싱 결과
+    3. `item_name` 괄호 안 텍스트 — 외용제(겔·플라스타 등)는 식약처가 DUR 성분코드를 안 붙여 병용금기 원본에
+       INGR_CODE 가 NULL 로 오는 경우가 많은데, 제품명 '뉴펜겔(케토프로펜)'처럼 괄호에 성분명이 노출된다."""
+    names = [item["kor"] for item in ingr_name or [] if item and item.get("kor")]
+    names += [item["kor"] for item in _parse_main_ingr(main_item_ingr or "") if item.get("kor")]
+    for paren in _PAREN_TEXT_RE.findall(item_name or ""):
+        names += [part.strip() for part in re.split(r"[,/·]", paren) if part.strip()]
+    return names
 
 
 def make_ingredient_resolver(pairs: Iterable[Sequence[str | None]]) -> Callable[[str], str | None]:
