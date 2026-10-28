@@ -24,12 +24,11 @@ RUN pip install poetry==1.8.3
 ENV POETRY_VIRTUALENVS_CREATE=false
 
 COPY backend/pyproject.toml backend/poetry.lock* ./
-# 자체 호스팅(내 PC)이라 이미지 크기 이점이 미미해 dev 그룹(pytest·ruff·mypy)도
+# 자체 호스팅(내 PC)이라 이미지 크기 이점이 미미해 dev 그룹(pytest·ruff)도
 # 함께 설치한다 — 컨테이너 안에서 바로 테스트/린트를 돌릴 수 있게.
 RUN poetry install --no-interaction --no-ansi --no-root --with dev
 
 COPY backend/ .
-RUN poetry install --no-interaction --no-ansi --no-root --with dev
 
 # 동기화 상태(체크포인트·마지막 성공 시각) 디렉터리 — compose 의 sync_state 볼륨이 여기 마운트된다.
 # 이미지에 appuser 소유로 먼저 만들어 두면, 새 named volume 이 이 소유권을 이어받는다.
