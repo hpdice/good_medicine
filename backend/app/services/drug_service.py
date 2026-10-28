@@ -69,6 +69,23 @@ def _ingredient_match_clause(stem: str):
     )
 
 
+def _name_prefix(normalized_key: str) -> str:
+    """정규화 키에서 첫 숫자(용량) 앞까지 — '가스핀정5mg' → '가스핀정'."""
+    return re.split(r'\d', normalized_key)[0]
+
+
+def _dosage_rank(drug: Drug, normalized_key: str, target_digits: str) -> int:
+    """같은 이름·다른 용량 후보의 우선순위: 완전 일치 0, 용량 숫자가 서로 시작/포함 1, 그 외 2."""
+    if drug.drug_key == normalized_key:
+        return 0
+    key_digits = re.search(r'\d+', drug.drug_key or "")
+    if key_digits and (
+        target_digits.startswith(key_digits.group()) or key_digits.group().startswith(target_digits)
+    ):
+        return 1
+    return 2
+
+
 class DrugService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -146,105 +163,77 @@ class DrugService:
         )).scalars().all()
         return list(rows)
 
+    async def _match_by_prefix(self, normalized_key: str) -> list[Drug]:
+        """용량을 뗀 이름(첫 숫자 앞까지)으로 `drug_key` 접두 조회. 정확 일치가 있으면 그것이 맨 앞.
+        예: '가스핀정5mg' → '가스핀정' 접두. 완전 일치도 접두 일치에 포함되므로 별도 단계가 필요 없다."""
+        name_prefix = _name_prefix(normalized_key)
+        if len(name_prefix) < 2:
+            return []
+        rows = list((await self.db.execute(
+            select(Drug)
+            .where(Drug.drug_key.startswith(name_prefix))
+            .order_by(case((Drug.drug_key == normalized_key, 0), else_=1), Drug.drug_key)
+            .limit(5)
+        )).scalars().all())
+        # 같은 이름에 용량만 다른 제품(파탁정10mg vs 파탁정20mg)이 여러 개 걸리면 알파벳순이라
+        # "10mg"이 "20mg"보다 앞서 엉뚱한 용량이 뽑힌다. OCR이 '20mg'를 '2000'으로 읽어도 그 숫자가
+        # DB 쪽 용량 숫자로 시작/포함되면 앞세운다.
+        target_digits = re.search(r'\d+', normalized_key)
+        if len(rows) > 1 and target_digits:
+            rows.sort(key=lambda d: _dosage_rank(d, normalized_key, target_digits.group()))
+        return rows
+
+    async def _match_by_ilike(self, name: str) -> list[Drug]:
+        """`item_name`/`simple_name` 부분 문자열 검색(원본 검색어 그대로). 완전일치 → 접두 → 포함 순."""
+        order_expr = case(
+            (Drug.simple_name.ilike(name), 0),
+            (Drug.item_name.ilike(name), 1),
+            (Drug.simple_name.ilike(f"{name}%"), 2),
+            (Drug.item_name.ilike(f"{name}%"), 3),
+            else_=4,
+        )
+        return list((await self.db.execute(
+            select(Drug)
+            .where(or_(Drug.item_name.ilike(f"%{name}%"), Drug.simple_name.ilike(f"%{name}%")))
+            .order_by(order_expr)
+            .limit(5)
+        )).scalars().all())
+
+    async def _match_by_ingredient(self, name: str) -> list[Drug]:
+        """성분명 기반 매칭 — 브랜드명이 성분명을 괄호 안에 숨겨('쿠파린정(와파린나트륨)') 앞 단계가
+        모두 실패하는 '성분명+제형' 입력('와파린정')을 위한 최후 수단.
+        짧은 이름일수록 복합제보다 단일 성분 일반의약품일 가능성이 높아 우선한다
+        ('메트포르민' 검색 시 콤보약보다 '유한메트포르민서방정500mg'을 먼저)."""
+        stem = _extract_ingredient_stem(name)
+        if len(stem) < 2:
+            return []
+        return list((await self.db.execute(
+            select(Drug)
+            .where(_ingredient_match_clause(stem))
+            .order_by(func.length(Drug.item_name), Drug.item_name)
+            .limit(5)
+        )).scalars().all())
+
     async def match_names(self, names: list[str]) -> list[dict]:
-        """약품명 리스트 각각을 drug_key → 용량 제거 prefix → ILIKE → 성분명 순으로 검색."""
+        """약품명 각각을 접두(용량 제거) → ILIKE → 성분명 순으로 찾고, 모두 빈손일 때만 유사도 후보를 낸다.
+
+        유사도(OCR 오인식 보정: '신플렉스'↔'신플랙스')는 틀린 약이 복약함에 들어가지 않도록 `matched`로
+        올리지 않고 `alternatives`(앱의 "유사 약품" 목록)로만 내려 사용자가 직접 고르게 한다.
+        틀린 글자를 사전으로 고치는 게 아니라 DB 이름과의 트라이그램 유사도라 새 약이 나와도 코드 수정이 필요 없다."""
         results = []
         for name in names:
-            normalized_key = _make_drug_key(name)
-
-            # 1순위: 용량 제거 — 첫 숫자 앞까지 잘라서 prefix 검색
-            # 예: '가스핀정5mg' → '가스핀정', '이미그란정50mg' → '이미그란정'
-            name_prefix = re.split(r'\d', normalized_key)[0]
-            name_digits_match = re.search(r'\d+', normalized_key)
-            name_digits = name_digits_match.group() if name_digits_match else None
-            rows = []
-            if len(name_prefix) >= 2:
-                order_expr = case(
-                    (Drug.drug_key == normalized_key, 0),
-                    else_=1,
-                )
-                rows = list((await self.db.execute(
-                    select(Drug)
-                    .where(Drug.drug_key.startswith(name_prefix))
-                    .order_by(order_expr, Drug.drug_key)
-                    .limit(5)
-                )).scalars().all())
-                # 같은 이름에 용량만 다른 제품(파탁정10mg vs 파탁정20mg)이 여러 개 걸리면,
-                # 위 order_expr(완전일치 아니면 전부 동률)은 그냥 drug_key 알파벳순이라
-                # "10mg"이 "20mg"보다 앞서 나와 엉뚱한 용량이 뽑힌다. 그래서 OCR이 '20mg'를 '2000'으로
-                # 긁어도 그 숫자가 DB 쪽 용량 숫자로 시작/포함되면 우선한다.
-                if len(rows) > 1 and name_digits:
-                    target_digits: str = name_digits
-
-                    def _dosage_rank(drug: Drug) -> int:
-                        if drug.drug_key == normalized_key:
-                            return 0
-                        key_digits_match = re.search(r'\d+', drug.drug_key or "")
-                        key_digits = key_digits_match.group() if key_digits_match else None
-                        if key_digits and (
-                            target_digits.startswith(key_digits) or key_digits.startswith(target_digits)
-                        ):
-                            return 1
-                        return 2
-                    rows.sort(key=_dosage_rank)
-
-            # 2순위: drug_key 정규화 완전 일치 (용량 없는 OCR 입력 대비)
-            if not rows:
-                rows = list((await self.db.execute(
-                    select(Drug).where(Drug.drug_key == normalized_key).limit(5)
-                )).scalars().all())
-
-            # 3순위: item_name / simple_name ILIKE 폴백 (원본 검색어 그대로 — 정밀 매칭)
-            if not rows:
-                order_expr = case(
-                    (Drug.simple_name.ilike(name), 0),
-                    (Drug.item_name.ilike(name), 1),
-                    (Drug.simple_name.ilike(f"{name}%"), 2),
-                    (Drug.item_name.ilike(f"{name}%"), 3),
-                    else_=4,
-                )
-                rows = list((await self.db.execute(
-                    select(Drug)
-                    .where(or_(
-                        Drug.item_name.ilike(f"%{name}%"),
-                        Drug.simple_name.ilike(f"%{name}%"),
-                    ))
-                    .order_by(order_expr)
-                    .limit(5)
-                )).scalars().all())
-
-            # 4순위(최후 폴백): 성분명 기반 매칭 — 브랜드명이 성분명을 괄호 안에 숨겨서
-            # ('쿠파린정(와파린나트륨)') 위 3단계가 모두 실패하는 '성분명+제형' 입력 대응
-            # 예: '와파린정' → 성분 '와파린나트륨'을 포함하는 제품.
-            # 앞선 정밀 매칭이 하나도 없을 때만 시도하는 최후 수단이라 순서를 가장 뒤에 둔다.
-            if not rows:
-                stem = _extract_ingredient_stem(name)
-                if len(stem) >= 2:
-                    # 짧은 이름일수록 복합제보다 단일 성분 일반의약품일 가능성이 높아 우선한다
-                    # (예: '메트포르민' 검색 시 콤보약 '가드메트정100/1000밀리그램(아나글립틴,메트포르민)'
-                    # 보다 '유한메트포르민서방정500mg'을 먼저 보여줌).
-                    rows = list((await self.db.execute(
-                        select(Drug)
-                        .where(_ingredient_match_clause(stem))
-                        .order_by(func.length(Drug.item_name), Drug.item_name)
-                        .limit(5)
-                    )).scalars().all())
-
-            # 5순위: OCR 오인식 보정 — 위 4단계가 전부 빈손일 때만, 글자 하나가 틀린 이름
-            # ('신플렉스'↔'신플랙스', '뉴부턴'↔'뉴부틴')을 트라이그램 유사도로 찾는다. 틀린 글자를
-            # 사전으로 고치는 게 아니라 DB 이름과의 유사도라 새 약이 나와도 코드 수정이 필요 없다.
-            # 오인식을 자동 확정하면 엉뚱한 약이 복약함에 들어갈 수 있어 `matched`로는 올리지 않고
-            # `alternatives`(앱의 "유사 약품" 목록)로만 내려, 사용자가 직접 고르게 한다.
-            fuzzy: list[Drug] = []
-            if not rows:
-                fuzzy = await self._fuzzy_candidates(name_prefix if len(name_prefix) >= 3 else normalized_key)
-
-            matched = rows[0] if rows else None
-            alternatives = rows[1:] if len(rows) > 1 else fuzzy
+            key = _make_drug_key(name)
+            rows = (
+                await self._match_by_prefix(key)
+                or await self._match_by_ilike(name)
+                or await self._match_by_ingredient(name)
+            )
+            prefix = _name_prefix(key)
+            fuzzy = [] if rows else await self._fuzzy_candidates(prefix if len(prefix) >= 3 else key)
             results.append({
                 "queried_name": name,
-                "matched": matched,
-                "alternatives": alternatives,
+                "matched": rows[0] if rows else None,
+                "alternatives": rows[1:] if len(rows) > 1 else fuzzy,
             })
         return results
 

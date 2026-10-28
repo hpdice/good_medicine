@@ -4,14 +4,15 @@
 호출부(`api/v1/drugs.py`)도 OCR 직후 바이트를 폐기한다. 이미지의 영구 사본은
 사용자 기기(클라이언트)에만 존재한다.
 
-`extract_candidates`는 Flutter `camera_provider._extractCandidates`의 파이썬 이식본이다 —
-두 곳의 정규식이 항상 같은 결과를 내도록 함께 유지한다.
+약품명 후보 추출(`extract_candidates`)은 서버에만 있다. 앱은 OCR 원문이 아니라 이 결과를 받는다.
 """
 
 import io
 import os
 import re
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 
 import pytesseract
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -68,51 +69,45 @@ def _is_generic_fragment(name: str) -> bool:
     return len(_HANGUL_RE.findall(_GENERIC_WORDS_RE.sub("", name))) < 2
 
 
-def extract_candidates(text: str) -> list[str]:
-    """OCR 원문 → 약품명 후보 리스트 (최대 20개).
+_MAX_CANDIDATES = 20
 
-    1) 줄 단위로 자르고 trim
-    2) "제형으로 끝나는 줄" + "다음 줄이 순수 용량"이면 두 줄을 합침
-    3) 표 형태 라벨(조제 안내문 등)은 Tesseract가 여러 칸(약품명/설명/가격)을 큰
-       공백으로 이어붙여 한 줄로 뽑아내므로, 공백 2칸 이상을 칸 구분으로 보고 더 쪼갠다
-       (일반 줄글은 큰 공백이 없어 그대로 한 조각).
-    4) 각 칸에서 "이름+제형(+용량)" 패턴에 실제로 매칭되는 부분만 정규식으로 뽑는다 —
-       칸 전체를 넣지 않아 옆 칸과 덜 떨어진 쓰레기(가격 등)가 안 섞인다.
-    """
-    lines = [ln.strip() for ln in text.split("\n")]
 
+def _join_split_dosage(lines: list[str]) -> list[str]:
+    """"제형으로 끝나는 줄" 다음 줄이 순수 용량이면 두 줄을 합친다('가스핀정' + '5mg')."""
     merged: list[str] = []
     i = 0
     while i < len(lines):
-        if (
-            _FORM_END_RE.search(lines[i])
-            and i + 1 < len(lines)
-            and _DOSAGE_ONLY_RE.match(lines[i + 1])
-        ):
+        if _FORM_END_RE.search(lines[i]) and i + 1 < len(lines) and _DOSAGE_ONLY_RE.match(lines[i + 1]):
             merged.append(lines[i] + lines[i + 1])
             i += 2
         else:
             merged.append(lines[i])
             i += 1
+    return merged
 
-    out: list[str] = []
-    for merged_line in merged:
-        for cell in _CELL_GAP_RE.split(merged_line):
+
+def _name_matches(text: str) -> Iterator[str]:
+    """OCR 원문에서 한글이 든 칸마다 "이름+제형(+용량)" 패턴에 걸리는 부분만 뽑는다.
+
+    표 형태 라벨(조제 안내문 등)은 Tesseract가 여러 칸(약품명/설명/가격)을 큰 공백으로 이어붙여 한 줄로
+    뽑아내므로, 공백 2칸 이상을 칸 구분으로 보고 더 쪼갠다(일반 줄글은 큰 공백이 없어 그대로 한 조각).
+    칸 전체를 넣지 않고 패턴에 걸리는 부분만 뽑아야 옆 칸과 덜 떨어진 쓰레기(가격 등)가 안 섞인다."""
+    lines = _join_split_dosage([ln.strip() for ln in text.split("\n")])
+    for line in lines:
+        for cell in _CELL_GAP_RE.split(line):
             cell = cell.strip()
-            if not cell or not _HANGUL_RE.search(cell):
-                continue
-            # 셀 안에서도 이름+제형(+용량) 패턴에 실제로 걸리는 부분만 뽑는다 — 셀
-            # 전체를 넣으면 옆 칸과 덜 떨어진 쓰레기(가격 등)가 이름 앞뒤에 남을 수 있음.
-            found = _NAME_FORM_RE.findall(cell) or _NAME_UNIT_RE.findall(cell)
-            for name in found:
-                if 2 <= len(name) <= 50 and name not in out and not _is_generic_fragment(name):
-                    out.append(name)
-                if len(out) >= 20:
-                    break
-            if len(out) >= 20:
+            if cell and _HANGUL_RE.search(cell):
+                yield from _NAME_FORM_RE.findall(cell) or _NAME_UNIT_RE.findall(cell)
+
+
+def extract_candidates(text: str) -> list[str]:
+    """OCR 원문 → 약품명 후보 리스트 (최대 20개)."""
+    out: list[str] = []
+    for name in _name_matches(text):
+        if 2 <= len(name) <= 50 and name not in out and not _is_generic_fragment(name):
+            out.append(name)
+            if len(out) >= _MAX_CANDIDATES:
                 break
-        if len(out) >= 20:
-            break
     # 띠 경계에서 이름 앞이 잘려 읽힌 조각('스펜8시간이알서방정')은 더 긴 후보
     # ('아니스펜8시간이알서방정')에 이미 담겨 있으니 버린다.
     return [c for c in out if not any(o != c and o.endswith(c) for o in out)]
@@ -169,95 +164,119 @@ def _tiled_text(img: Image.Image) -> str:
         return "\n".join(pool.map(_read, tiles))
 
 
+_ENOUGH_CANDIDATES = 3  # 약품명 후보가 이만큼 나오면 충분히 읽힌 것으로 보고 더 시도하지 않는다
+_ANGLES = (0, 90, 180, 270)
+
+
+@dataclass
+class _Best:
+    """지금까지 읽은 것 중 가장 좋은 결과 ("후보가 가장 많이 나온" 시도).
+
+    후보가 1개라도 나오면 바로 멈추면, 그 1개가 "필름코팅정" 같은 일반 설명 문구(진짜 약 이름 아님)인
+    약한 시도에서 멈춰 훨씬 더 잘 읽힌 다른 방향을 아예 보지 못한다. 그래서 후보 수로 고르고,
+    같으면 한글 글자 수가 많은 쪽을 쓴다."""
+
+    text: str = ""
+    candidates: list[str] = field(default_factory=list)
+    hangul: int = -1
+
+    @property
+    def enough(self) -> bool:
+        return len(self.candidates) >= _ENOUGH_CANDIDATES
+
+    def offer(self, text: str, candidates: list[str], hangul: int | None = None) -> None:
+        """hangul 을 주면(통째 읽기) 후보 수가 같을 때 한글이 더 많은 쪽을 택한다. 안 주면(띠 읽기) 후보가 더 많을 때만 바꾼다."""
+        more = len(candidates) > len(self.candidates)
+        tie_win = hangul is not None and len(candidates) == len(self.candidates) and hangul > self.hangul
+        if more or tie_win:
+            self.text, self.candidates = text, candidates
+            if hangul is not None:
+                self.hangul = hangul
+
+
+def _load_image(image_bytes: bytes) -> Image.Image:
+    """업로드 바이트 → RGB/L 이미지(긴 변은 _MAX_SIDE 이하). 폰 사진(4000px)을 그대로 읽으면 앱의 OCR 요청
+    타임아웃(30초)을 넘기므로 줄인다."""
+    with Image.open(io.BytesIO(image_bytes)) as opened:
+        opened.load()
+        logger.warning(
+            "drugs/ocr 입력: bytes=%d size=%s mode=%s format=%s",
+            len(image_bytes), opened.size, opened.mode, opened.format,
+        )
+        img = opened.convert("RGB") if opened.mode not in ("L", "RGB") else opened.copy()
+    return _fit_max_side(img, _MAX_SIDE)
+
+
+def _read_whole(image: Image.Image, angle: int) -> str:
+    rotated = image.rotate(-angle, expand=True) if angle else image
+    return pytesseract.image_to_string(rotated, lang=settings.OCR_TESSERACT_LANG, config=_OCR_CONFIG)
+
+
+def _consider(best: _Best, angle_scores: dict[int, tuple[int, int]], variant_idx: int, angle: int, text: str) -> None:
+    candidates = extract_candidates(text)
+    hangul = len(_HANGUL_RE.findall(text))
+    logger.warning(
+        "drugs/ocr variant=%d angle=%d text_len=%d hangul=%d candidates=%d",
+        variant_idx, angle, len(text), hangul, len(candidates),
+    )
+    # 방향별 (후보 수, 후보 글자 수 합) 최고점 — 띠 OCR을 어느 방향부터 시도할지 정하는 데만 쓴다.
+    # 한글 글자 수는 틀린 방향의 쓰레기 인식에도 늘어나 방향 판단 근거가 못 되고,
+    # 쓰레기 후보는 짧아서 글자 수 합이 맞는 방향 쪽이 크다.
+    score = (len(candidates), sum(len(c) for c in candidates))
+    angle_scores[angle] = max(angle_scores.get(angle, (0, 0)), score)
+    best.offer(text, candidates, hangul)
+
+
+def _read_whole_image(img: Image.Image, best: _Best) -> dict[int, tuple[int, int]]:
+    """통째로 읽기. 원본과 "그레이스케일 + 명암 강제 확장" 두 가지 전처리를 방향 4개로 시도한다.
+
+    컬러 배경(하늘색 그라데이션 등)에 저대비 글자가 올라간 처방전/라벨은 기본 이진화로는 배경과 글자를
+    못 가른다. 똑바로 찍은 대부분의 사진은 원본·정방향 한 번에서 끝나므로(후보 3개 이상이면 충분히 신뢰)
+    나머지 방향은 그게 안 될 때만 병렬로 시도해 지연을 늘리지 않는다. 방향별 점수를 돌려준다."""
+    angle_scores: dict[int, tuple[int, int]] = {}
+    variants = [img, ImageOps.autocontrast(img.convert("L"), cutoff=2)]
+    with ThreadPoolExecutor(max_workers=_TILE_WORKERS) as pool:
+        for variant_idx, variant in enumerate(variants):
+            first = _ANGLES[:1] if variant_idx == 0 else ()
+            rest = _ANGLES[1:] if variant_idx == 0 else _ANGLES
+            for angle in first:
+                _consider(best, angle_scores, variant_idx, angle, _read_whole(variant, angle))
+            if best.enough:
+                break
+            for angle, text in zip(rest, pool.map(lambda a: _read_whole(variant, a), rest)):
+                _consider(best, angle_scores, variant_idx, angle, text)
+            if best.enough:
+                break
+    return angle_scores
+
+
+def _read_tiled(img: Image.Image, best: _Best, angle_scores: dict[int, tuple[int, int]]) -> None:
+    """통째 OCR이 약을 3개 못 채웠으면(사진에 그림자·알약 그림이 섞여 일부 행이 통째로 빠진 경우) 띠로 잘라
+    다시 읽는다. 후보가 나온 방향부터 시도하고, 3개 이상 나오면 멈춘다."""
+    for angle in sorted(angle_scores, key=lambda a: angle_scores[a], reverse=True):
+        if angle_scores[angle][0] == 0:
+            break
+        rotated = img.rotate(-angle, expand=True) if angle else img
+        text = _tiled_text(rotated)
+        candidates = extract_candidates(text)
+        logger.warning("drugs/ocr tiled angle=%d text_len=%d candidates=%d", angle, len(text), len(candidates))
+        best.offer(text, candidates)
+        if best.enough:
+            break
+
+
 def run_ocr(image_bytes: bytes) -> str:
     """이미지 바이트 → OCR 텍스트. 파일을 만들지 않는다(전부 메모리).
 
-    휴대폰으로 약봉투를 옆으로(세로 글자가 가로로 눕게) 찍어 올리는 경우가 있어,
-    정방향에서 약품명 후보가 하나도 안 나오면 90도씩 돌려가며 재시도한다.
-    대부분(정방향 촬영)은 첫 시도에서 바로 끝나 추가 비용이 없다."""
+    휴대폰으로 약봉투를 옆으로(세로 글자가 가로로 눕게) 찍어 올리는 경우가 있어, 정방향에서 약품명 후보가
+    충분히 안 나오면 90도씩 돌려가며 재시도하고, 그래도 모자라면 띠로 잘라 다시 읽는다."""
     try:
-        with Image.open(io.BytesIO(image_bytes)) as img:
-            img.load()
-            logger.warning(
-                "drugs/ocr 입력: bytes=%d size=%s mode=%s format=%s",
-                len(image_bytes), img.size, img.mode, img.format,
-            )
-            if img.mode not in ("L", "RGB"):
-                img = img.convert("RGB")
-
-            # 컬러 배경(하늘색 그라데이션 등)에 저대비 글자가 올라간 처방전/라벨은
-            # 기본 이진화로는 배경과 글자를 못 가른다. 1차: 원본 그대로. 2차: 그레이스케일+명암 강제 확장.
-            # 폰 사진(4000px)을 그대로 읽으면 앱의 OCR 요청 타임아웃(30초)을 넘기므로
-            # 긴 변을 줄이고 방향 시도는 병렬로 돌린다.
-            img = _fit_max_side(img, _MAX_SIDE)
-            variants = [img, ImageOps.autocontrast(img.convert("L"), cutoff=2)]
-
-            # 방향/전처리 8가지 조합을 시도하고 "후보가 가장 많이 나온" 시도를
-            # 채택한다 — 후보가 1개라도 나오면 바로 멈추면, 그 1개가
-            # "필름코팅정" 같은 일반 설명 문구(진짜 약 이름 아님)인 약한 시도에서
-            # 멈춰 훨씬 더 잘 읽힌(한글 인식량이 더 많은) 다른 방향을 아예 보지 못한다.
-            best_text, best_candidates, best_hangul_count = "", [], -1
-            # 방향별 (후보 수, 후보 글자 수 합) 최고점 — 아래 띠 OCR을 어느 방향부터 시도할지 정하는
-            # 데만 쓴다. 한글 글자 수는 틀린 방향의 쓰레기 인식에도 늘어나 방향 판단 근거가 못 되고,
-            # 쓰레기 후보는 짧아서 글자 수 합이 맞는 방향 쪽이 크다.
-            angle_scores: dict[int, tuple[int, int]] = {}
-
-            def _attempt(job: tuple[int, Image.Image, int]) -> tuple[int, int, str]:
-                variant_idx, variant, angle = job
-                rotated = variant.rotate(-angle, expand=True) if angle else variant
-                text = pytesseract.image_to_string(
-                    rotated, lang=settings.OCR_TESSERACT_LANG, config=_OCR_CONFIG,
-                )
-                return variant_idx, angle, text
-
-            def _consider(variant_idx: int, angle: int, text: str) -> None:
-                nonlocal best_text, best_candidates, best_hangul_count
-                candidates = extract_candidates(text)
-                hangul_count = len(_HANGUL_RE.findall(text))
-                logger.warning(
-                    "drugs/ocr variant=%d angle=%d text_len=%d hangul=%d candidates=%d",
-                    variant_idx, angle, len(text), hangul_count, len(candidates),
-                )
-                score = (len(candidates), sum(len(c) for c in candidates))
-                angle_scores[angle] = max(angle_scores.get(angle, (0, 0)), score)
-                if (
-                    len(candidates) > len(best_candidates)
-                    or (len(candidates) == len(best_candidates) and hangul_count > best_hangul_count)
-                ):
-                    best_text, best_candidates, best_hangul_count = text, candidates, hangul_count
-
-            with ThreadPoolExecutor(max_workers=_TILE_WORKERS) as pool:
-                for variant_idx, variant in enumerate(variants):
-                    # 똑바로 찍은 대부분의 사진은 정방향 한 번에서 끝난다(후보 3개 이상이면 충분히
-                    # 신뢰) — 나머지 방향은 그게 안 될 때만 병렬로 시도해 지연을 늘리지 않는다.
-                    jobs = [(variant_idx, variant, a) for a in (0, 90, 180, 270)]
-                    first, rest = jobs[:1] if variant_idx == 0 else [], jobs[1:] if variant_idx == 0 else jobs
-                    for result in map(_attempt, first):
-                        _consider(*result)
-                    if len(best_candidates) >= 3:
-                        return best_text
-                    for result in pool.map(_attempt, rest):
-                        _consider(*result)
-                    if len(best_candidates) >= 3:
-                        return best_text
-
-            # 통째 OCR이 약을 3개 못 채웠으면(사진에 그림자·알약 그림이 섞여 일부 행이 통째로
-            # 빠진 경우) 띠로 잘라 다시 읽는다. 후보가 나온 방향부터 시도하고, 3개 이상 나오면 멈춘다.
-            for angle in sorted(angle_scores, key=lambda a: angle_scores[a], reverse=True):
-                if angle_scores[angle][0] == 0:
-                    break
-                rotated = img.rotate(-angle, expand=True) if angle else img
-                text = _tiled_text(rotated)
-                candidates = extract_candidates(text)
-                logger.warning(
-                    "drugs/ocr tiled angle=%d text_len=%d candidates=%d",
-                    angle, len(text), len(candidates),
-                )
-                if len(candidates) > len(best_candidates):
-                    best_text, best_candidates = text, candidates
-                if len(best_candidates) >= 3:
-                    break
-            return best_text
+        img = _load_image(image_bytes)
+        best = _Best()
+        angle_scores = _read_whole_image(img, best)
+        if not best.enough:
+            _read_tiled(img, best, angle_scores)
+        return best.text
     except UnidentifiedImageError as e:
         raise UnreadableImageError("이미지 형식을 인식할 수 없습니다.") from e
     except pytesseract.TesseractNotFoundError as e:

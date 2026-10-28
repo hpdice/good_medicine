@@ -1,6 +1,5 @@
 """의약품 제품 허가정보(DrugPrdtPrmsnInfoService07)."""
 import re
-from datetime import date
 
 from sqlalchemy import select
 
@@ -8,14 +7,14 @@ from app.config import settings
 from app.models.drug import Drug
 
 from .base import _SyncBase
-from .helpers import _clean, _make_drug_key, _make_simple_name
+from .helpers import _clean, _make_drug_key, _make_simple_name, _parse_permit_date
 
 
 class DrugApprovalSyncMixin(_SyncBase):
     async def sync_drug_approval(self) -> int:
         url = f"{settings.DRUG_APPROVAL_API_URL}/getDrugPrdtPrmsnInq07"
-        return await self._run_simple_paginated_sync(
-            url, self._upsert_drug_from_approval, source="approval", log_label="drug approval",
+        return await self._sync_endpoint(
+            url, self._upsert_drug_from_approval, source="approval", label="drug approval",
         )
 
     async def _upsert_drug_from_approval(self, item: dict) -> None:
@@ -29,13 +28,7 @@ class DrugApprovalSyncMixin(_SyncBase):
 
         drug = await self.db.scalar(select(Drug).where(Drug.item_seq == raw_seq))
 
-        permit_date: date | None = None
-        permit_date_str = _clean(item.get("ITEM_PERMIT_DATE"))
-        if permit_date_str and len(permit_date_str) == 8:
-            try:
-                permit_date = date(int(permit_date_str[:4]), int(permit_date_str[4:6]), int(permit_date_str[6:]))
-            except ValueError:
-                pass
+        permit_date = _parse_permit_date(_clean(item.get("ITEM_PERMIT_DATE")))
 
         prduct_type_raw = _clean(item.get("PRDUCT_TYPE")) or ""
         class_name = re.sub(r'^\[\d+\]', '', prduct_type_raw).strip() or None

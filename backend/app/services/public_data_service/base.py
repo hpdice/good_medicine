@@ -1,11 +1,13 @@
 """동기화 서비스 공통 기반 — HTTP 페이지 조회·재시도, Drug 레코드 확보,
-성분 upsert처럼 여러 소스가 공유하는 인프라만 담는다. 특정 DUR 판정 규칙
+행 upsert처럼 여러 소스가 공유하는 인프라만 담는다. 특정 DUR 판정 규칙
 (병용금기·효능군중복·연령대금기) upsert는 dur_sync.py로 분리."""
 import asyncio
-from datetime import date
+from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -14,7 +16,7 @@ from app.models.drug import Drug
 from app.models.drug_ingredient import DrugIngredient
 
 from . import raw_store
-from .helpers import _make_drug_key, _make_simple_name
+from .helpers import _clean, _make_drug_key, _make_simple_name, _parse_permit_date
 
 
 class _SyncBase:
@@ -24,13 +26,9 @@ class _SyncBase:
         self.db = db
         self._api_key = settings.PUBLIC_DATA_API_KEY
         self._progress_cb = progress_cb
-        # 성분 sweep에서 (drug_id, ingr_code)·(code_a, code_b)가 수천 번 재등장하므로
-        # run 내 in-memory 캐시로 중복 upsert의 DB 왕복을 건너뛴다.
-        self._seen_drug_ingr: set[tuple] = set()
-        self._seen_ingr_contra: set[tuple] = set()
-        self._seen_ingr_effect: set[tuple] = set()
-        self._seen_ingr_age: set[tuple] = set()
-        self._seen_item_pregnancy: set[tuple] = set()
+        # 성분 sweep에서 같은 키((drug_id, ingr_code), (code_a, code_b) 등)가 수천 번 다시
+        # 나오므로, 이번 실행에서 이미 본 키는 DB 왕복 없이 건너뛴다.
+        self._seen: set[tuple] = set()
         # 이번 실행에서 금기 사유 문장이 바뀌어 갱신된 성분쌍 규칙 수(로그·검증용)
         self._updated_ingr_contra = 0
         # item_seq -> Drug — 같은 품목이 병용금기 수십~수백 쌍에 반복 등장하므로
@@ -97,100 +95,81 @@ class _SyncBase:
         return raw_store.load_page(endpoint, snapshot, int(params["pageNo"]))
 
     # ------------------------------------------------------------------ #
-    # 공통 페이지네이션 루프 — 단순형(3곳이 쓰던 걸 통합) /                    #
-    #                        다중 엔드포인트형(2곳이 쓰던 걸 통합)            #
+    # 페이지네이션 — 모든 동기화가 이 한 벌을 쓴다                             #
     # ------------------------------------------------------------------ #
 
-    async def _run_simple_paginated_sync(
-        self, url: str, item_handler, source: str, log_label: str, page_size: int | None = None,
-    ) -> int:
-        """단일 엔드포인트를 totalCount까지 순회하며 `item_handler(item)`을 호출한다.
-        `_sync_drug_overview`/`_sync_efcy_dplct`/`sync_drug_approval`이 각자 복붙해
-        갖고 있던 거의 동일한 루프를 추출한 것(로직 변경 없음). `page_size`는 검증된
-        호출부만 기본값(100)보다 키워서 넘긴다 — 서비스마다 상한이 달라서 전역으로
-        올리면 안전하지 않다(DUR 계열은 500까지 되고 그 이상은 빈 응답)."""
-        size = page_size or self.PAGE_SIZE
-        count = 0
-        page = 1
+    async def _pages(
+        self, url: str, *, size: int, label: str, start: int = 1, delay: float = 0.5,
+    ) -> AsyncIterator[tuple[int, list[dict], int]]:
+        """`url`의 페이지를 (페이지 번호, 항목들, totalCount)로 하나씩 내준다.
+
+        아래 두 경우는 건너뛰지 않고 중단한다 — 건너뛰면 그만큼 규칙이 빠진 채 "완료"로 끝난다.
+        1. 재시도를 다 쓰고도 요청이 실패한 페이지.
+        2. 비어 있는데 정상적인 끝이 아닌 응답. 할당량 초과·스로틀은 HTTP 200 + 빈 body로 와서
+           정상 EOF처럼 보이므로, 오류 메시지가 있거나 totalCount상 아직 마지막 페이지가 아니면 중단으로 본다.
+        적재는 멱등(upsert)이라 재실행하면 안전하게 다시 받는다."""
+        page = start
         async with httpx.AsyncClient(timeout=30) as client:
             while True:
                 params = {"serviceKey": self._api_key, "pageNo": page, "numOfRows": size, "type": "json"}
                 data = await self._fetch_page(client, url, params)
                 if data is None:
-                    # _fetch_page 가 재시도를 다 쓴 상태. 건너뛰면 그 페이지가 빠진 채 "완료"되고,
-                    # API 가 아예 죽으면 끝없이 페이지 번호만 올리며 돌게 된다.
-                    # 중단한다 — 이 루프의 적재는 멱등(upsert)이라 재실행하면 처음부터 안전하게 다시 받는다.
-                    raise RuntimeError(
-                        f"{log_label} page {page} 요청 실패(재시도 소진) — 건너뛰지 않고 중단. 재실행 필요."
-                    )
+                    raise RuntimeError(f"{label} page {page} 요청 실패(재시도 소진) — 건너뛰지 않고 중단. 재실행 필요.")
 
-                items = data.get("body", {}).get("items", [])
+                body = data.get("body", {})
+                items: list[dict] = body.get("items", [])
+                total: int = body.get("totalCount", 0)
                 if not items:
-                    break
+                    err = data.get("OpenAPI_ServiceResponse", {}).get("cmmMsgHeader", {}).get("errMsg")
+                    last_page = -(-total // size) if total else 0
+                    if err or (last_page and page < last_page):
+                        raise RuntimeError(
+                            f"{label} page {page}/{last_page} 빈 응답 (err={err}) — 할당량 초과일 수 있음. "
+                            f"리셋 후 재실행하면 이어서 진행."
+                        )
+                    return
 
-                for item in items:
-                    await item_handler(item)
-                    count += 1
+                yield page, items, total
 
-                await self.db.commit()
-                total = data.get("body", {}).get("totalCount", 0)
-                logger.info(f"Synced {log_label} page {page} ({count}/{total})")
-                await self._emit(source=source, page=page, count=count, total=total)
-
-                if count >= total or len(items) < size:
-                    break
+                if len(items) < size:
+                    return
                 page += 1
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(delay)
 
+    async def _sync_endpoint(
+        self, url: str, handler, *, source: str, label: str, size: int | None = None,
+        start: int = 1, delay: float = 0.5, on_page_done=None,
+    ) -> int:
+        """한 엔드포인트를 끝까지 돌며 `await handler(item)`을 부르고 페이지마다 커밋한다.
+        `on_page_done(다음에 받을 페이지)`는 체크포인트 같은 이어받기 지점 기록용."""
+        count = 0
+        async for page, items, total in self._pages(
+            url, size=size or self.PAGE_SIZE, label=label, start=start, delay=delay,
+        ):
+            for item in items:
+                await handler(item)
+            count += len(items)
+            await self.db.commit()
+            logger.info(f"Synced {label} page {page} ({count}/{total})")
+            await self._emit(source=source, page=page, count=count, total=total)
+            if on_page_done:
+                on_page_done(page + 1)
         return count
 
     async def _run_multi_endpoint_sync(
-        self, ops: dict, item_handler, *, error_label: str, source_prefix: str,
-        retry_hint: str, page_size: int | None = None,
+        self, ops: dict[str, tuple[str, Any]], handler, *, source: str, size: int | None = None,
     ) -> int:
-        """`ops`: {label: (엔드포인트 op, item_handler에 넘길 부가값)}을 순회하며 각각
-        totalCount까지 페이지를 돈다. 페이지 요청이 재시도 끝에 실패하면 건너뛰지 않고
-        RuntimeError. `sync_dur_age_caution`/`sync_dur_extra_ingredient_codes`가
-        각자 갖고 있던 거의 동일한 루프를 추출한 것(로직 변경 없음)."""
-        size = page_size or self.PAGE_SIZE
+        """`ops`: {label: (엔드포인트 op, handler에 넘길 부가값)}을 차례로 돈다.
+        `handler(item, 부가값)`."""
         processed = 0
         for label, (op, extra) in ops.items():
-            url = f"{settings.DUR_PRODUCT_API_URL}/{op}"
-            page = 1
-            ep_count = 0
-            async with httpx.AsyncClient(timeout=30) as client:
-                while True:
-                    params = {
-                        "serviceKey": self._api_key, "pageNo": page,
-                        "numOfRows": size, "type": "json",
-                    }
-                    data = await self._fetch_page(client, url, params)
-                    if data is None:
-                        # 그 페이지를 건너뛰면 조용한 누락이 생기므로 건너뛰지 않는다.
-                        raise RuntimeError(
-                            f"{error_label} [{label}] page {page} 요청 실패(재시도 소진) — 건너뛰지 않고 중단. "
-                            f"할당량 초과일 수 있음 — 리셋 후 `{retry_hint}` 재실행."
-                        )
+            async def handle(item: dict, _extra=extra) -> None:
+                await handler(item, _extra)
 
-                    items = data.get("body", {}).get("items", [])
-                    if not items:
-                        break
-
-                    for item in items:
-                        await item_handler(item, extra)
-                        ep_count += 1
-                        processed += 1
-
-                    await self.db.commit()
-                    total = data.get("body", {}).get("totalCount", 0)
-                    logger.info(f"{error_label} [{label}] page {page} ({ep_count}/{total})")
-                    await self._emit(source=f"{source_prefix}:{label}", page=page, count=ep_count, total=total)
-
-                    if len(items) < size:
-                        break
-                    page += 1
-                    await asyncio.sleep(0.5)
-
+            processed += await self._sync_endpoint(
+                f"{settings.DUR_PRODUCT_API_URL}/{op}", handle,
+                source=f"{source}:{label}", label=f"{source} [{label}]", size=size,
+            )
         return processed
 
     # ------------------------------------------------------------------ #
@@ -201,17 +180,15 @@ class _SyncBase:
         drug_key = _make_drug_key(name)
         return await self.db.scalar(select(Drug).where(Drug.drug_key == drug_key))
 
-    async def _find_or_create_drug_from_dur(
-        self,
-        seq: str | None,
-        name: str,
-        entp: str | None,
-        main_ingr: str | None,
-        permit_date_str: str | None,
-        class_name: str | None,
-        etc_otc_name: str | None,
-    ) -> Drug:
-        """item_seq로 조회하고 없으면 DUR 데이터로 최소 Drug 레코드를 생성한다."""
+    async def _find_or_create_drug_from_dur(self, item: dict, prefix: str = "") -> Drug | None:
+        """DUR 응답 행의 품목을 item_seq(없으면 이름)로 찾고, 없으면 그 행의 정보로 최소 Drug 레코드를
+        만든다. 병용금기 행은 두 번째 품목의 키에 `MIXTURE_`가 붙으므로 `prefix`로 고른다.
+        이름이 없는 행이면 None."""
+        name = _clean(item.get(f"{prefix}ITEM_NAME"))
+        if not name:
+            return None
+        seq = _clean(item.get(f"{prefix}ITEM_SEQ"))
+
         if seq and seq in self._drug_by_seq:
             return self._drug_by_seq[seq]
 
@@ -229,23 +206,16 @@ class _SyncBase:
                 self._drug_by_seq[seq] = drug
             return drug
 
-        permit_date: date | None = None
-        if permit_date_str and len(permit_date_str) == 8:
-            try:
-                permit_date = date(int(permit_date_str[:4]), int(permit_date_str[4:6]), int(permit_date_str[6:]))
-            except ValueError:
-                pass
-
         drug = Drug(
             item_seq=seq or f"DUR_{_make_drug_key(name)}",
             item_name=name,
             simple_name=_make_simple_name(name),
             drug_key=_make_drug_key(name),
-            entp_name=entp,
-            main_item_ingr=main_ingr,
-            item_permit_date=permit_date,
-            class_name=class_name,
-            etc_otc_name=etc_otc_name,
+            entp_name=_clean(item.get(f"{prefix}ENTP_NAME")),
+            main_item_ingr=_clean(item.get(f"{prefix}MAIN_INGR")),
+            item_permit_date=_parse_permit_date(_clean(item.get(f"{prefix}ITEM_PERMIT_DATE"))),
+            class_name=_clean(item.get(f"{prefix}CLASS_NAME")),
+            etc_otc_name=_clean(item.get(f"{prefix}ETC_OTC_NAME")),
         )
         self.db.add(drug)
         await self.db.flush()
@@ -253,24 +223,40 @@ class _SyncBase:
             self._drug_by_seq[seq] = drug
         return drug
 
+    # ------------------------------------------------------------------ #
+    # 행 upsert                                                            #
+    # ------------------------------------------------------------------ #
+
+    def _first_time(self, *key) -> bool:
+        """이번 실행에서 처음 보는 키인가. 처음이면 기억해 둔다."""
+        if key in self._seen:
+            return False
+        self._seen.add(key)
+        return True
+
+    async def _insert_once(
+        self, model, key_cols: tuple[str, ...], values: dict, *, overwrite: bool = False,
+    ) -> None:
+        """`key_cols`가 같은 행이 없으면 넣는다. 이미 있으면 그대로 두고, `overwrite`면 나머지 열을
+        원천 값으로 갱신한다. 유니크 제약이 같은 키에 걸려 있어야 한다."""
+        if not self._first_time(model.__tablename__, *(values[c] for c in key_cols)):
+            return
+        stmt = pg_insert(model).values(**values)
+        if overwrite:
+            stmt = stmt.on_conflict_do_update(
+                index_elements=list(key_cols),
+                set_={c: stmt.excluded[c] for c in values if c not in key_cols},
+            )
+        else:
+            stmt = stmt.on_conflict_do_nothing(index_elements=list(key_cols))
+        await self.db.execute(stmt)
+
     async def _upsert_drug_ingredient(
         self, drug_id, ingr_code: str | None, ingr_kor: str | None
     ) -> None:
         if not ingr_code:
             return
-        key = (drug_id, ingr_code)
-        if key in self._seen_drug_ingr:
-            return
-        self._seen_drug_ingr.add(key)
-
-        existing = await self.db.scalar(
-            select(DrugIngredient).where(
-                DrugIngredient.drug_id == drug_id,
-                DrugIngredient.ingr_code == ingr_code,
-            )
+        await self._insert_once(
+            DrugIngredient, ("drug_id", "ingr_code"),
+            {"drug_id": drug_id, "ingr_code": ingr_code, "ingr_kor": ingr_kor, "source": "dur"},
         )
-        if existing:
-            return
-        self.db.add(DrugIngredient(
-            drug_id=drug_id, ingr_code=ingr_code, ingr_kor=ingr_kor, source="dur",
-        ))

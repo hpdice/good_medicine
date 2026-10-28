@@ -8,7 +8,7 @@
   0. 백엔드 헬스체크 (/health 가 DB 까지 확인)
   1. 백업 (scripts/backup-db.ps1 -Verify — 복원 검증 포함). 실패하면 갱신 자체를 하지 않는다.
   2. 동기화: overview → approval → dur_contraindications → efcy_dplct → dur_age_caution →
-     dur_pregnancy → dur_extra_codes → build_drug_ingredients
+     dur_pregnancy → build_drug_ingredients
      - dur_contraindications 가 일일 할당량 등으로 중단되면(체크포인트가 남음) QuotaWaitMinutes 뒤
        체크포인트부터 다시 시도, 최대 QuotaRetries 번.
   3. extract_risk_tags — 새/바뀐 금기 문장의 위험 태그(로컬 LLM). 실패해도 판정과 무관해 경고만.
@@ -36,7 +36,7 @@ $ErrorActionPreference = "Continue"
 $container = "drugtest-backend-1"
 $checkpoint = "/var/lib/goodmedicine/dur_contraindications_checkpoint.txt"
 $steps = @("overview", "approval", "dur_contraindications", "efcy_dplct",
-           "dur_age_caution", "dur_pregnancy", "dur_extra_codes", "build_drug_ingredients")
+           "dur_age_caution", "dur_pregnancy", "build_drug_ingredients")
 # -File 로 실행하면 "-Only a,b" 가 배열이 아니라 문자열 하나로 넘어오므로 쉼표로 직접 나눈다.
 if ($Only) { $steps = @($Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
 

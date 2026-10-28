@@ -1,7 +1,6 @@
 # 운영 런북 — 백업·복원 · 키 보관 · 반영 절차
 
-> 배포 구조 자체는 [deploy-tailscale.md](./deploy-tailscale.md)(백엔드),
-> [deploy-web-vercel.md](./deploy-web-vercel.md)(웹). 이 문서는 **운영 중 해야 하는 일**만 다룬다.
+> 배포 구조는 [project-status.md](./project-status.md)의 "배포"를 본다. 이 문서는 **운영 중 해야 하는 일**만 다룬다.
 
 ---
 

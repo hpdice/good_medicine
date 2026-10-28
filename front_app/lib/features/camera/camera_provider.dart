@@ -60,7 +60,7 @@ class CameraProvider extends ChangeNotifier {
         ),
       });
       // OCR은 회전·색상 재시도에 더해 약이 3개 미만으로 읽히면 이미지를 띠로 잘라 다시
-      // 읽어서 다른 API보다 오래 걸린다(실측 2026-10-19: 약 4개 봉투 사진 ~20초, 사진이
+      // 읽어서 다른 API보다 오래 걸린다(약 4개 봉투 사진 ~20초, 사진이
       // 복잡하거나 서버가 바쁘면 그 이상). 기본 10초는 물론 30초도 빠듯해 90초로 둔다.
       final res = await ApiClient.dio.post(
         'drugs/ocr',

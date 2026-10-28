@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import select
 
 from app.config import settings
-from app.models.dur_ingredient_rule import DurIngredientContraindication
+from app.models.dur_ingredient_rule import DurIngredientContraindication, DurItemPregnancyTaboo
 from app.services.public_data_service import PublicDataService
 from tests.factories import make_ingr_contraindication
 
@@ -43,7 +43,7 @@ async def test_failed_page_is_not_skipped_and_resume_starts_there(session_factor
     fetched, upserted = [], []
     async with session_factory() as session:
         svc = _service(session, {1: _page(2), 2: None, 3: _page(1)}, fetched, upserted)
-        with pytest.raises(RuntimeError, match="페이지 2"):
+        with pytest.raises(RuntimeError, match="page 2"):
             await svc._sync_dur_contraindications()
 
     assert fetched == [1, 2]                 # 3페이지로 건너뛰지 않았다
@@ -117,7 +117,7 @@ async def test_simple_paginated_sync_stops_instead_of_skipping(session_factory):
 
         svc._fetch_page = fake_fetch
         with pytest.raises(RuntimeError, match="page 2"):
-            await svc._run_simple_paginated_sync("http://x", handler, "test", "테스트", page_size=2)
+            await svc._sync_endpoint("http://x", handler, source="test", label="테스트", size=2)
 
     assert fetched == [1, 2]
     assert len(handled) == 2
@@ -137,9 +137,101 @@ async def test_multi_endpoint_sync_stops_instead_of_skipping(session_factory):
 
         svc._fetch_page = fake_fetch
         with pytest.raises(RuntimeError, match="page 2"):
-            await svc._run_multi_endpoint_sync(
-                {"테스트": ("op", None)}, handler,
-                error_label="테스트", source_prefix="test", retry_hint="sync.py x", page_size=2,
-            )
+            await svc._run_multi_endpoint_sync({"테스트": ("op", None)}, handler, source="test", size=2)
 
     assert fetched == [1, 2]
+
+
+async def test_empty_page_before_the_last_page_is_a_quota_stop_not_eof(session_factory):
+    """할당량 초과는 HTTP 200 + 빈 body로 와서 정상 끝처럼 보인다. totalCount상 아직 마지막
+    페이지가 아니면 "완료"로 끝내지 말고 중단해야 한다(모든 동기화가 같은 루프를 쓴다)."""
+    async with session_factory() as session:
+        svc = PublicDataService(session)
+
+        async def fake_fetch(client, url, params, retries=5):
+            return {1: _page(2, total=10), 2: _page(0, total=10)}.get(params["pageNo"])
+
+        async def handler(item):
+            pass
+
+        svc._fetch_page = fake_fetch
+        with pytest.raises(RuntimeError, match="빈 응답"):
+            await svc._sync_endpoint("http://x", handler, source="test", label="테스트", size=2)
+
+
+async def test_insert_once_inserts_skips_and_overwrites(session_factory):
+    """같은 키가 수천 번 다시 나오는 순회용 헬퍼: 처음엔 넣고, 같은 실행의 반복은 건너뛰고,
+    overwrite면 새 실행에서 원천 값으로 갱신한다."""
+    row = {"item_seq": "S1", "ingr_code": "D1", "ingr_kor": "성분", "prohibit_content": "처음", "remark": None}
+    key = ("item_seq", "ingr_code")
+
+    async with session_factory() as session:
+        svc = PublicDataService(session)
+        await svc._insert_once(DurItemPregnancyTaboo, key, row)
+        await svc._insert_once(DurItemPregnancyTaboo, key, {**row, "prohibit_content": "같은 실행의 반복"})
+        await session.commit()
+
+    async with session_factory() as session:
+        assert (await session.scalar(select(DurItemPregnancyTaboo))).prohibit_content == "처음"
+
+    async with session_factory() as session:  # 새 실행: overwrite 아니면 그대로
+        svc = PublicDataService(session)
+        await svc._insert_once(DurItemPregnancyTaboo, key, {**row, "prohibit_content": "무시됨"})
+        await session.commit()
+    async with session_factory() as session:
+        assert (await session.scalar(select(DurItemPregnancyTaboo))).prohibit_content == "처음"
+
+    async with session_factory() as session:  # 새 실행 + overwrite: 갱신
+        svc = PublicDataService(session)
+        await svc._insert_once(DurItemPregnancyTaboo, key, {**row, "prohibit_content": "고쳐짐"}, overwrite=True)
+        await session.commit()
+    async with session_factory() as session:
+        rows = (await session.scalars(select(DurItemPregnancyTaboo))).all()
+        assert [r.prohibit_content for r in rows] == ["고쳐짐"]
+
+
+async def test_dur_row_handlers_write_rules_and_ingredient_links(session_factory):
+    """실제 응답 모양의 행을 핸들러에 넣어, 약 생성·성분 연결·규칙 적재가 DB까지 닿는지 본다."""
+    from app.models.drug import Drug
+    from app.models.drug_ingredient import DrugIngredient
+    from app.models.dur_ingredient_rule import DurIngredientAgeCaution, DurIngredientEffectGroup
+
+    contra_row = {
+        "ITEM_SEQ": "100", "ITEM_NAME": "가약", "INGR_CODE": "D2", "INGR_KOR_NAME": "성분2",
+        "MIXTURE_ITEM_SEQ": "200", "MIXTURE_ITEM_NAME": "나약", "MIXTURE_INGR_CODE": "D1",
+        "MIXTURE_INGR_KOR_NAME": "성분1", "PROHBT_CONTENT": "함께 쓰면 안 됨",
+    }
+    async with session_factory() as session:
+        svc = PublicDataService(session)
+        await svc._upsert_dur_contraindication(contra_row)
+        await svc._upsert_dur_contraindication(contra_row)  # 같은 행이 반복돼도 한 번만
+        await svc._upsert_efcy_dplct(
+            {"ITEM_SEQ": "100", "ITEM_NAME": "가약", "INGR_CODE": "D2", "DUR_SEQ": "7", "EFFECT_NAME": "해열"})
+        await svc._handle_age_caution_item(
+            {"ITEM_SEQ": "300", "ITEM_NAME": "다약", "INGR_CODE": "D3", "INGR_NAME": "성분3",
+             "PROHBT_CONTENT": "12세 미만 투여 금기"}, "age_taboo")
+        await svc._handle_pregnancy_taboo_item(
+            {"ITEM_SEQ": "300", "ITEM_NAME": "다약", "INGR_CODE": "D3", "INGR_NAME": "성분3",
+             "PROHBT_CONTENT": '"1등급"', "REMARK": "경구"})
+        await svc._upsert_dur_contraindication({"ITEM_NAME": "이름만 있음"})  # 짝이 없으면 건너뜀
+        await session.commit()
+
+    async with session_factory() as session:
+        rule = await session.scalar(select(DurIngredientContraindication))
+        assert (rule.ingr_code_a, rule.ingr_code_b) == ("D1", "D2")        # 정규 순서 a<b
+        assert (rule.ingr_kor_a, rule.ingr_kor_b) == ("성분1", "성분2")     # 이름도 같이 뒤집힘
+        assert len((await session.scalars(select(DurIngredientContraindication))).all()) == 1
+
+        drugs = {d.item_seq: d for d in (await session.scalars(select(Drug))).all()}
+        assert set(drugs) == {"100", "200", "300"}
+        links = {(d.drug_id, d.ingr_code) for d in (await session.scalars(select(DrugIngredient))).all()}
+        assert links == {(drugs["100"].id, "D2"), (drugs["200"].id, "D1"), (drugs["300"].id, "D3")}
+
+        group = await session.scalar(select(DurIngredientEffectGroup))
+        assert (group.ingr_code, group.dur_seq, group.effect_name) == ("D2", "7", "해열")
+
+        age = await session.scalar(select(DurIngredientAgeCaution))
+        assert (age.rule_type, age.age_threshold, age.age_unit, age.age_direction) == ("age_taboo", 12, "세", "미만")
+
+        pregnancy = await session.scalar(select(DurItemPregnancyTaboo))
+        assert (pregnancy.item_seq, pregnancy.prohibit_content, pregnancy.remark) == ("300", "1등급", "경구")
