@@ -23,7 +23,7 @@ class _AiGuideSectionState extends State<AiGuideSection> {
   Future<void> _fetchGuide() async {
     setState(() => _state = _GuideState.loading);
     try {
-      // 로컬 LLM 콜드스타트(모델을 GPU에 새로 올림)는 실측 87~153초 걸림 — 백엔드
+      // 로컬 LLM 콜드스타트(모델을 GPU에 새로 올림)는 87~153초 걸린다 — 백엔드
       // OLLAMA_TIMEOUT_SECONDS(200초)보다 짧게 잡으면 백엔드가 성공하기 전에
       // 여기서 먼저 끊겨버리므로, 항상 그보다 여유있게 잡는다.
       final res = await ApiClient.dio.post(

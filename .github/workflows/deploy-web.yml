@@ -2,7 +2,7 @@
 # 프론트만 Vercel(정적 호스트)에서 돌고, API 는 국내 PC 백엔드(Tailscale Funnel)를 호출한다.
 # 개인정보는 프론트에 없으므로 Vercel(해외) 호스팅은 PIPA 무관.
 #
-# 최초 1회 세팅: docs/deploy-web-vercel.md
+# 최초 1회 세팅: Vercel 프로젝트를 만들고 아래 GitHub Secrets를 등록
 # 필요한 GitHub Secrets: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID, WEB_API_BASE_URL
 name: deploy web (Vercel)
 

@@ -144,7 +144,7 @@ backend/                 FastAPI 백엔드 (Docker 이미지에는 이 폴더만
     models/ schemas/ db/
   alembic/               DB 마이그레이션
   sync.py                공공데이터 동기화 CLI (status · overview · approval · dur_contraindications ·
-                         efcy_dplct · dur_age_caution · dur_pregnancy · dur_extra_codes · build_drug_ingredients · …)
+                         efcy_dplct · dur_age_caution · dur_pregnancy · build_drug_ingredients · …)
   validate_db.py         데이터 품질 게이트 (치명 문제 시 종료 코드 1)
   seed/                  DB 완전 초기화 시 복원하는 잔여 폴백 데이터
   tests/                 pytest
@@ -167,7 +167,6 @@ docker-compose.yml       postgres · backend · ollama   (+ .override.yml 개발
 |---|---|
 | **[docs/project-status.md](docs/project-status.md)** | 현재 상태 — 진행 현황, 시스템 커버리지 명세 |
 | **[docs/operations.md](docs/operations.md)** | 운영 런북 — 백업·복원, 암호화 키 보관, 월간 갱신, 감시 |
-| [docs/deploy-tailscale.md](docs/deploy-tailscale.md) · [docs/deploy-web-vercel.md](docs/deploy-web-vercel.md) | 백엔드(Tailscale Funnel) · 웹(Vercel) 배포 절차 |
 
 ---
 

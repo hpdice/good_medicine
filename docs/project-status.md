@@ -1,7 +1,6 @@
 # 프로젝트 현황
 
-> 현재 상태 스냅샷. 운영 절차는 [operations.md](./operations.md), 배포 절차는
-> [deploy-tailscale.md](./deploy-tailscale.md)·[deploy-web-vercel.md](./deploy-web-vercel.md).
+> 현재 상태 스냅샷. 운영 절차는 [operations.md](./operations.md).
 >
 > 백엔드(API)+Ollama는 `docker compose` + Tailscale Funnel, 프론트 웹은 Vercel, APK는 GitHub Releases로 배포한다.
 
@@ -39,7 +38,7 @@ residual_interactions               :    217건  ← 성분코드 미해소 약�
 ```
 
 성분코드는 DUR 응답(`DURPrdlstInfoService03`)의 `INGR_CODE`/`MIXTURE_INGR_CODE`에서 가져온다. 해소율 보강은
-`sync.py dur_extra_codes`(용량·투여기간 엔드포인트의 성분코드 매핑) · `dur_age_caution` · `dur_pregnancy` ·
+`dur_age_caution` · `dur_pregnancy` ·
 `build_drug_ingredients`(품목명 괄호·주성분 이름 매칭)가 맡는다. 해소되지 않는 약은 대부분 DUR에 상호작용 규칙이
 없는 약이다.
 
@@ -194,8 +193,8 @@ front_app/lib/
 
 | API | 건수 | 비고 |
 |---|---|---|
-| `getCpctyAtentInfoList03` (용량주의) | 6,622건 | 성분코드 매핑만 `sync.py dur_extra_codes`로 사용 |
-| `getMdctnPdAtentInfoList03` (투여기간주의) | 633건 | 성분코드 매핑만 사용 |
+| `getCpctyAtentInfoList03` (용량주의) | 6,622건 | 적재하지 않음(판정용 구조화 기준 없음) |
+| `getMdctnPdAtentInfoList03` (투여기간주의) | 633건 | 적재하지 않음(본문 0건) |
 
 ---
 
