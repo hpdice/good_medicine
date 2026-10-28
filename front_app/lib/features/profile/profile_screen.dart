@@ -99,6 +99,42 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await home.clear();
   }
 
+  Future<void> _deleteAccount() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('회원 탈퇴'),
+        content: const Text(
+            '탈퇴하면 건강 정보·알레르기·복약함·분석 기록이 모두 삭제되고 되돌릴 수 없어요. '
+            '같은 이메일로는 다시 가입할 수 있어요.\n\n탈퇴할까요?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('취소')),
+          FilledButton(
+              style: FilledButton.styleFrom(
+                  backgroundColor: Theme.of(ctx).colorScheme.error),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('탈퇴')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    // 탈퇴에 성공하면 라우터가 이 화면을 걷어내므로, provider는 먼저 꺼내 둔다.
+    final auth = context.read<AuthProvider>();
+    final profile = context.read<ProfileProvider>();
+    final home = context.read<HomeProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final error = await auth.deleteAccount();
+    if (error != null) {
+      messenger.showSnackBar(SnackBar(content: Text(error)));
+      return;
+    }
+    profile.clear();
+    await home.clear();
+    messenger.showSnackBar(const SnackBar(content: Text('탈퇴했습니다.')));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<ProfileProvider>(builder: (context, provider, _) {
@@ -198,6 +234,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         onPressed: saving ? null : _logout,
                         icon: const Icon(Icons.logout_rounded),
                         label: const Text('로그아웃'),
+                      ),
+                      Gap.v24,
+                      TextButton(
+                        onPressed: saving ? null : _deleteAccount,
+                        style: TextButton.styleFrom(
+                            foregroundColor:
+                                Theme.of(context).colorScheme.error),
+                        child: const Text('회원 탈퇴'),
                       ),
                     ],
                   ),

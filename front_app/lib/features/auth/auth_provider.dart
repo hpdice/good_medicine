@@ -60,6 +60,20 @@ class AuthProvider extends ChangeNotifier {
     _set(AuthStatus.idle);
   }
 
+  /// 회원 탈퇴. 서버가 개인정보·복약함·분석 이력을 지우고 토큰을 전부 폐기한다.
+  /// 로그아웃과 달리 서버 호출이 성공했을 때만 기기의 토큰을 지운다 — 실패했는데
+  /// 로그아웃되면 사용자는 탈퇴된 줄 안다. 실패하면 오류 문구를 돌려준다.
+  Future<String?> deleteAccount() async {
+    try {
+      await ApiClient.dio.delete('users/me');
+    } on DioException catch (e) {
+      return describeDioError(e, '회원 탈퇴 실패');
+    }
+    await TokenStorage.clearTokens();
+    _set(AuthStatus.idle);
+    return null;
+  }
+
   void resetState() => _set(AuthStatus.idle);
 
   void _set(AuthStatus s) {
