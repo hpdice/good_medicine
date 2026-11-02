@@ -18,7 +18,7 @@
 | 테스트 | pytest + httpx, 운영 DB와 분리된 테스트 DB, Ollama mock. push·PR 시 GitHub Actions에서 린트·타입 검사·pytest 실행 |
 | AI 설명 | Ollama + Qwen2.5 14B (GPU, 외부 API 미사용) |
 | FCM 푸시 | Firebase 연동. 알림에는 약 이름·ID를 싣지 않는다 |
-| APK 배포 | GitHub Releases — `v*` 태그 push 시 CI가 빌드 |
+| APK 배포 | GitHub Releases — `v*` 태그 push 시 CI가 빌드. 최신 v0.4.0(복용량 입력·하루 용량 초과 화면 포함) |
 
 ---
 
@@ -235,7 +235,6 @@ front_app/lib/
 | 로그인 실패 카운터 영속화 | `login_guard`는 프로세스 메모리 — 재시작 시 초기화, 워커를 늘리면 워커별로 센다 |
 | 폐기된 Refresh Token 재사용 로그 | 만료·위조·재사용이 같은 401이라 탈취 신호를 구분하지 못한다 |
 | DUR 투여기간주의 판정 | 원본에 기간 기준이 없다 |
-| 용량주의 앱 반영 | 복약함 복용량 입력·OCR 복용량은 새 APK부터(웹은 반영됨) |
 | 일반의약품 성분 연결 | 일반의약품은 약 30%만 DUR 성분코드에 이어져 있다(전문의약품 77%) — 심평원 약가 데이터에 적게 들어 있다 |
 | 처방전 표 형식 복용량 | OCR 복용량 읽기 중 처방전 표 형식은 실사진으로 검증하지 못했다 |
 
