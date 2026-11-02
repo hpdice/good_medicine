@@ -6,8 +6,9 @@
 - `dur_ingredient_master`: D코드 ↔ 한글·영문 성분명 — 판정 미사용, 심평원 경로 해소(source='hira_eng')의 기준
 - 판정 규칙(병용금기·효능군중복·특정연령대금기·노인주의)에 성분정보에만 있는 규칙을 `source='ingredient'`로 더한다.
   기존 품목정보 유래 행('product')은 지우지 않는다.
+- 용량주의(`dur_ingredient_dose_caution`)는 성분정보에만 있어 매번 이 응답으로 다시 만든다.
 임부금기는 제형·적응증 범위 때문에 품목 단위 규칙(`dur_item_pregnancy_taboo`)을 그대로 쓴다."""
-from sqlalchemy import func
+from sqlalchemy import delete, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.config import settings
@@ -16,6 +17,7 @@ from app.models.dur_ingredient_master import DurIngredientMaster
 from app.models.dur_ingredient_rule import (
     DurIngredientAgeCaution,
     DurIngredientContraindication,
+    DurIngredientDoseCaution,
     DurIngredientEffectGroup,
 )
 
@@ -23,6 +25,7 @@ from .base import _SyncBase
 from .helpers import (
     age_rules_from_ingredient,
     contraindication_rules_from_ingredient,
+    dose_rules_from_ingredient,
     effect_groups_from_ingredient,
     ingredient_master_from_rows,
     norm_ingr_eng,
@@ -56,6 +59,7 @@ class DurIngredientSyncMixin(_SyncBase):
         )
         await self._write_ingredient_master()
         await self._write_ingredient_rules()
+        await self._write_dose_rules()
         await self.db.commit()
         return rows
 
@@ -120,3 +124,17 @@ class DurIngredientSyncMixin(_SyncBase):
                 added[label] += sum(1 for (src,) in result if src == "ingredient")
 
         logger.info("DUR 성분정보 판정 규칙 추가(신규 또는 갱신): %s", added)
+
+    async def _write_dose_rules(self) -> None:
+        """용량주의는 품목정보 쪽 출처가 없어 이 응답이 전부다 — 지우고 다시 넣는다(같은 트랜잭션, 실패하면 그대로)."""
+        rules = dose_rules_from_ingredient(self._ingr_rows["용량주의"])
+        if not rules:  # 응답이 비면 기존 규칙을 지우지 않는다
+            logger.warning("DUR 성분정보 용량주의 응답이 비어 기존 규칙을 유지")
+            return
+        await self.db.execute(delete(DurIngredientDoseCaution))
+        for (code, mix_codes, form, max_qty), rule in rules.items():
+            self.db.add(DurIngredientDoseCaution(
+                ingr_code=code, mix_codes=mix_codes, form_name=form, max_qty=max_qty, **rule,
+            ))
+        logger.info("DUR 성분정보 용량주의: 규칙 %d개(상한을 읽은 것 %d개)",
+                    len(rules), sum(1 for r in rules.values() if r["limits_mg"]))

@@ -17,10 +17,12 @@ from app.db.session import AsyncSessionLocal
 SEP = "=" * 50
 
 # 규칙 수 하한 — 동기화가 규칙을 지우지는 않으므로, 이보다 적으면 DB가 비었거나 잘못 복원된 것.
-# (현재: 약품 약 3.5만 · 성분 병용금기 1,251 · 효능군 377)
+# (현재: 약품 약 3.5만 · 성분 병용금기 1,251 · 효능군 377 · 용량주의 591 · 함량 있는 약 15,506)
 MIN_DRUGS = 30_000
 MIN_CONTRA_RULES = 300
 MIN_EFFECT_RULES = 200
+MIN_DOSE_RULES = 400
+MIN_AMOUNT_DRUGS = 10_000
 
 # 개수가 0이어야 정상인 점검 (실패 = 품질 게이트 실패): (표시 이름, 개수를 세는 SQL, 문제 메시지)
 MUST_BE_ZERO = [
@@ -93,6 +95,8 @@ async def _overview(db, problems: list[str]) -> None:
             (SELECT count(*) FROM dur_ingredient_contraindications) AS contra,
             (SELECT count(*) FROM dur_ingredient_contraindications WHERE risk_tags IS NOT NULL) AS contra_tagged,
             (SELECT count(*) FROM dur_ingredient_effect_groups) AS effect,
+            (SELECT count(*) FROM dur_ingredient_dose_caution WHERE limits_mg IS NOT NULL) AS dose,
+            (SELECT count(DISTINCT drug_id) FROM drug_ingredients WHERE amount_mg IS NOT NULL) AS amount_drugs,
             (SELECT count(*) FROM residual_interactions) AS residual
     """))).one()
     resolve_pct = row.di_drugs / row.total_drugs * 100 if row.total_drugs else 0
@@ -103,10 +107,14 @@ async def _overview(db, problems: list[str]) -> None:
     print(f"  └ 성분코드 해소 약품:     {row.di_drugs:>8,}건 ({resolve_pct:.1f}%)")
     print(f"  성분 병용금기 규칙:       {row.contra:>8,}건  (risk_tags {row.contra_tagged:,}건)")
     print(f"  성분 효능군중복 규칙:     {row.effect:>8,}건")
+    print(f"  용량주의 규칙(상한 읽음): {row.dose:>8,}건")
+    print(f"  └ 1개당 함량 있는 약품:   {row.amount_drugs:>8,}건")
     print(f"  residual_interactions:    {row.residual:>8,}건")
     for label, value, floor in (("약품 수", row.total_drugs, MIN_DRUGS),
                                 ("병용금기 규칙", row.contra, MIN_CONTRA_RULES),
-                                ("효능군 규칙", row.effect, MIN_EFFECT_RULES)):
+                                ("효능군 규칙", row.effect, MIN_EFFECT_RULES),
+                                ("용량주의 규칙", row.dose, MIN_DOSE_RULES),
+                                ("함량 있는 약품", row.amount_drugs, MIN_AMOUNT_DRUGS)):
         if value < floor:
             problems.append(f"{label} {value:,} < 하한 {floor:,}")
 

@@ -113,6 +113,62 @@ def extract_candidates(text: str) -> list[str]:
     return [c for c in out if not any(o != c and o.endswith(c) for o in out)]
 
 
+# 약봉투의 복용 안내 — 실측 원문: '신플랙스세이프정.. 1회투약량1  1일투여횟수2 총투약일수7'(같은 줄),
+# 이름 다음 줄에 따로 오기도 한다. '투악량'·'1희'·'종투약일수' 같은 오인식이 흔해 낱말 앞부분은 느슨하게 본다.
+# 숫자 바로 뒤에 '일'이 오면 표 머리글('1회 투약량   1일 투여횟수')의 '1일'이라 값으로 치지 않는다.
+_NUM = r"(\d+(?:\.\d+)?)(?!\d|\s*일)"
+_DOSE_FIELDS: tuple[tuple[str, re.Pattern[str], re.Pattern[str]], ...] = (
+    ("units_per_intake", re.compile(rf"투\s*[약악]\s*량\s*[:：]?\s*{_NUM}"),
+     re.compile(r"(\d+(?:\.\d+)?)\s*(?:정|캡슐|알)\s*씩")),
+    ("times_per_day", re.compile(rf"투\s*여\s*[횟휫]\s*수\s*[:：]?\s*{_NUM}"),
+     re.compile(r"(?:1\s*일|하루)\s*(\d{1,2})\s*(?:회|번)")),
+    ("duration_days", re.compile(r"투\s*[약악]\s*일\s*수\s*[:：]?\s*(\d{1,3})"),
+     re.compile(r"(\d{1,3})\s*일\s*분")),
+)
+# 처방전 표: 이름 칸 뒤에 '1회 투약량 · 1일 투여횟수 · 총 투약일수'가 숫자만 차례로 온다('…정500밀리그램  1  3  5').
+# 이름 꼬리(괄호·단위 글자) 다음 첫 세 칸이 모두 숫자일 때만 읽는다.
+_TABLE_ROW_RE = re.compile(
+    r"^[^\d\s]*\s+(\d+(?:\.\d+)?)\s*(?:정|캡슐|알)?\s+(\d{1,2})\s*회?\s+(\d{1,3})\s*일?(?:\s|$)"
+)
+# 앱이 받는 범위(복약함 스키마와 같다) — 벗어나면 오인식으로 보고 버린다
+_DOSE_RANGE = {"units_per_intake": (0.1, 20), "times_per_day": (1, 12), "duration_days": (1, 365)}
+
+
+def _dose_values(segment: str) -> dict[str, float]:
+    raw: dict[str, str] = {}
+    for key, labeled, phrase in _DOSE_FIELDS:
+        m = labeled.search(segment) or phrase.search(segment)
+        if m:
+            raw[key] = m.group(1)
+    if not raw and (row := _TABLE_ROW_RE.match(segment)):
+        raw = dict(zip(("units_per_intake", "times_per_day", "duration_days"), row.groups()))
+    found: dict[str, float] = {}
+    for key, text in raw.items():
+        low, high = _DOSE_RANGE[key]
+        if low <= float(text) <= high:
+            found[key] = float(text)
+    return found
+
+
+def extract_doses(text: str, candidates: list[str]) -> dict[str, dict]:
+    """OCR 원문 → {약품명 후보: {units_per_intake, times_per_day, duration_days}}. 후보가 있는 줄에서 그 이름 뒤
+    (같은 줄의 다음 후보 전까지)를 읽고, 빠진 항목은 바로 다음 줄이 다른 약 이름이 없는 줄일 때 그 줄에서 채운다.
+    띠 읽기로 같은 줄이 여러 번 나오면 항목마다 먼저 읽힌 값을 쓴다. 하나도 못 읽은 후보는 빠진다."""
+    lines = _join_split_dosage([ln.strip() for ln in text.split("\n")])
+    doses: dict[str, dict] = {}
+    for i, line in enumerate(lines):
+        hits = sorted((line.find(c), c) for c in candidates if c in line)
+        for n, (start, name) in enumerate(hits):
+            end = hits[n + 1][0] if n + 1 < len(hits) else len(line)
+            found = _dose_values(line[start + len(name):end])
+            nxt = lines[i + 1] if i + 1 < len(lines) else ""
+            if len(found) < len(_DOSE_RANGE) and nxt and not any(c in nxt for c in candidates):
+                found = {**_dose_values(nxt), **found}
+            for key, value in found.items():
+                doses.setdefault(name, {}).setdefault(key, int(value) if key != "units_per_intake" else value)
+    return doses
+
+
 # (띠 개수, 겹침 비율) — 띠 경계에 걸린 줄은 그 구성에선 읽히지 않으므로 경계가 다르게 떨어지는
 # 두 구성을 모두 읽어 합친다(구성마다 읽히는 약이 달라 한 구성만으로는 일부가 빠진다).
 _TILE_LAYOUTS = ((4, 0.3), (5, 0.3))

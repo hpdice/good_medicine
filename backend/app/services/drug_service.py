@@ -10,9 +10,11 @@ from app.models.drug_ingredient import DrugIngredient
 from app.models.dur_ingredient_rule import (
     DurIngredientAgeCaution,
     DurIngredientContraindication,
+    DurIngredientDoseCaution,
     DurIngredientEffectGroup,
     DurItemPregnancyTaboo,
 )
+from app.models.hira import HiraGenIngredient, HiraItemGenCode
 from app.models.residual_interaction import ResidualInteraction
 from app.services.public_data_service import _make_drug_key
 
@@ -254,6 +256,47 @@ class DrugService:
         for drug_id, ingr_code in result.all():
             mapping.setdefault(drug_id, set()).add(ingr_code)
         return mapping
+
+    async def get_ingredient_amounts_for_drug_list(
+        self, drug_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, dict[str, float]]:
+        """약품 ID → {성분코드: 정·캡슐 1개당 mg}. 함량을 아는 성분만 담는다(용량주의 판정용)."""
+        if not drug_ids:
+            return {}
+        stmt = select(DrugIngredient.drug_id, DrugIngredient.ingr_code, DrugIngredient.amount_mg).where(
+            DrugIngredient.drug_id.in_(drug_ids),
+            DrugIngredient.ingr_code.isnot(None),
+            DrugIngredient.amount_mg.isnot(None),
+        )
+        mapping: dict[uuid.UUID, dict[str, float]] = {}
+        for drug_id, code, amount in (await self.db.execute(stmt)).all():
+            mapping.setdefault(drug_id, {})[code] = amount
+        return mapping
+
+    async def get_hira_form_names(self, item_seqs: set[str]) -> dict[str, set[str]]:
+        """품목기준코드 → 심평원 제형명들. 용량주의 규칙의 제형을 약에 맞출 때 쓴다(함량과 같은 일반명코드에서 온다)."""
+        if not item_seqs:
+            return {}
+        stmt = (
+            select(HiraItemGenCode.item_seq, HiraGenIngredient.form_name)
+            .join(HiraGenIngredient, HiraGenIngredient.gen_code == HiraItemGenCode.gen_code)
+            .where(HiraItemGenCode.item_seq.in_(item_seqs))
+        )
+        forms: dict[str, set[str]] = {}
+        for item_seq, form in (await self.db.execute(stmt)).all():
+            if form:
+                forms.setdefault(item_seq, set()).add(form)
+        return forms
+
+    async def get_ingr_dose_cautions_for_codes(self, codes: set[str]) -> list[DurIngredientDoseCaution]:
+        """주어진 성분코드의 용량주의 규칙 중 하루 최대량을 읽은 것."""
+        if not codes:
+            return []
+        stmt = select(DurIngredientDoseCaution).where(
+            DurIngredientDoseCaution.ingr_code.in_(codes),
+            DurIngredientDoseCaution.limits_mg.isnot(None),
+        )
+        return list((await self.db.execute(stmt)).scalars().all())
 
     async def get_ingredient_kor_for_codes(self, codes: set[str]) -> dict[str, str]:
         """성분코드 → 성분 한글명."""

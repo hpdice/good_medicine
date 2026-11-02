@@ -8,9 +8,10 @@ class QuickCheckRequest(BaseModel):
 
     @field_validator("drug_ids")
     @classmethod
-    def at_least_two(cls, v: list) -> list:
-        if len(v) < 2:
-            raise ValueError("병용금기 확인은 최소 2개 약품이 필요합니다.")
+    def at_least_one(cls, v: list) -> list:
+        # 약 하나만으로도 걸리는 판정(용량 초과·알레르기·나이·임신)이 있어 1개부터 받는다
+        if not v:
+            raise ValueError("확인할 약품이 없습니다.")
         if len(v) > 50:
             raise ValueError("최대 50개까지 확인 가능합니다.")
         return v
@@ -66,6 +67,23 @@ class PregnancyCaution(BaseModel):
     remark: str | None = None
 
 
+class DoseCaution(BaseModel):
+    """DUR 용량주의 — 하루에 먹는 성분 양이 식약처가 정한 1일 최대 투여량을 넘는 경우.
+
+    복약함에 적은 복용량(1회 개수 × 1일 횟수)과 정·캡슐 1개당 함량으로 계산한다. `scope`가 total이면
+    같은 성분이 든 여러 약을 합친 양(예: 아세트아미노펜 4,000mg), product면 복합제 한 품목에 정해진 기준이다.
+    `uncounted_drug_names`는 이 성분이 들었지만 복용량이나 함량을 몰라 합치지 못한 약 — 실제 양은 더 많을 수 있다."""
+
+    drug_ids: list[uuid.UUID]
+    drug_names: list[str]
+    ingredient: str
+    daily_mg: float
+    max_daily_mg: float
+    scope: str  # total / product
+    prohibit_content: str | None = None
+    uncounted_drug_names: list[str] = []
+
+
 class QuickCheckResponse(BaseModel):
     total_drugs: int
     has_contraindication: bool
@@ -76,14 +94,16 @@ class QuickCheckResponse(BaseModel):
     age_taboo_count: int = 0
     elderly_caution_count: int = 0
     pregnancy_taboo_count: int = 0
+    dose_caution_count: int = 0
     findings: list[QuickCheckFinding]
     allergy_conflicts: list[AllergyConflict] = []
     age_cautions: list[AgeCaution] = []
     pregnancy_cautions: list[PregnancyCaution] = []
+    dose_cautions: list[DoseCaution] = []
 
 
 class AnalysisGuideRequest(QuickCheckRequest):
-    """quick_check와 동일한 drug_ids 검증(최소 2개, 최대 50개)을 그대로 재사용."""
+    """quick_check와 동일한 drug_ids 검증(최소 1개, 최대 50개)을 그대로 재사용."""
 
 
 class AnalysisGuideResponse(BaseModel):

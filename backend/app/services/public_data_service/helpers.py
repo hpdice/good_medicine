@@ -215,6 +215,91 @@ def age_rules_from_ingredient(items: Iterable[dict], *, with_age_base: bool) -> 
     return rules
 
 
+_MAX_QTY_UNIT_MG = {"그램": 1000.0, "밀리그램": 1.0, "마이크로그램": 0.001}
+# '4,000밀리그램', '아세트아미노펜 4,000밀리그램', '트리플루리딘으로 160밀리그램'. 괄호('(고령자)', '(미분화)')·
+# '주1회'·'또는'이 섞인 값은 조건이 붙은 기준이라 일부러 맞지 않게 둔다.
+_MAX_QTY_PART_RE = re.compile(
+    r'^\s*(?:([가-힣A-Za-z][^\d/()]*?)\s*(?:으로서|로서|으로|로)?\s+)?([\d,]+(?:\.\d+)?)\s*(그램|밀리그램|마이크로그램)\s*$'
+)
+_MIX_INGR_RE = re.compile(r'\[(D\d+)\][^(/]*\(([^)]*)\)')
+
+
+def parse_max_qty(text: str | None) -> list[tuple[str | None, float]] | None:
+    """DUR 용량주의 `MAX_QTY`(1일 최대 투여량) → [(성분명 또는 None, mg)]. 복합제는 '/'로 성분마다 나뉜다.
+    한 조각이라도 못 읽으면 None(조건부 기준·다른 단위는 판정하지 않는다)."""
+    if not text or not text.strip():
+        return None
+    parts = []
+    for piece in text.split("/"):
+        m = _MAX_QTY_PART_RE.match(piece)
+        if not m:
+            return None
+        name, number, unit = m.groups()
+        mg = round(float(number.replace(",", "")) * _MAX_QTY_UNIT_MG[unit], 6)
+        parts.append((name.strip() if name else None, mg))
+    return parts
+
+
+def _dose_limits(code: str, kor: str | None, mix: dict[str, str], parts: list[tuple[str | None, float]]) -> dict[str, float]:
+    """`parse_max_qty` 결과를 성분코드별 상한으로. 단일제 규칙은 이름과 무관하게 그 성분의 상한이다. 복합제는
+    이름 없는 값은 규칙의 주성분(INGR_CODE), 이름 있는 값은 그 이름이 성분명으로 시작하는 코드 하나에만 붙인다
+    ('로사르탄칼륨 100밀리그램' → 로사르탄). 맞는 코드가 없거나 둘 이상이면 그 값은 버린다."""
+    if not mix:
+        return {code: parts[0][1]} if len(parts) == 1 else {}
+    names = {code: kor or "", **mix}
+    limits: dict[str, float] = {}
+    for name, mg in parts:
+        if name is None:
+            hits = [code]
+        else:
+            hits = [c for c, n in names.items() if n and name.replace(" ", "").startswith(n.replace(" ", ""))]
+        if len(hits) == 1 and hits[0] not in limits:
+            limits[hits[0]] = mg
+    return limits
+
+
+_CONTENT_DOSE_RE = re.compile(r'([\d,]+(?:\.\d+)?)\s*(mg|밀리그램|㎎)(?![A-Za-z/])')
+
+
+def _cites_higher_dose(content: str | None, limit_mg: float) -> bool:
+    """단일제 규칙 원문에 상한보다 큰 용량이 적혀 있으면 적응증마다 기준이 다른 규칙이다(리바록사반: 심방세동 20mg,
+    정맥혈전증 치료 30mg). 사용자의 적응증을 모르니 판정하지 않는다."""
+    return any(float(n.replace(",", "")) > limit_mg for n, _ in _CONTENT_DOSE_RE.findall(content or ""))
+
+
+def dose_rules_from_ingredient(items: Iterable[dict]) -> dict[tuple[str, str, str, str], dict]:
+    """DUR 성분정보 용량주의 행 → {(성분코드, 함께 든 성분코드들, 제형, MAX_QTY): 규칙 값}.
+
+    `MIX_INGR`가 비어 있으면 단일제 규칙(그 성분의 하루 최대량), 있으면 그 조성의 복합제에만 해당하는 규칙이다.
+    `limits_mg`는 {성분코드: 하루 최대 mg} — 기준을 못 읽으면 None이고 판정에 쓰지 않는다(원문은 남긴다)."""
+    rules: dict[tuple[str, str, str, str], dict] = {}
+    for item in _active_rows(items):
+        code = _clean(item.get("INGR_CODE"))
+        max_qty = _clean(item.get("MAX_QTY"))
+        if not code or not max_qty:
+            continue
+        mix = {c: n.strip() for c, n in _MIX_INGR_RE.findall(item.get("MIX_INGR") or "") if c != code}
+        mix_codes = ",".join(sorted(mix))
+        form = _clean(item.get("FORM_NAME")) or ""
+        kor = _clean(item.get("INGR_NAME"))
+        content = _clean_text(item.get("PROHBT_CONTENT"))
+        parts = parse_max_qty(max_qty)
+        limits = (_dose_limits(code, kor, mix, parts) or None) if parts else None
+        if limits and not mix and _cites_higher_dose(content, limits[code]):
+            limits = None
+        key = (code, mix_codes, form, max_qty)
+        rule = rules.setdefault(key, {"ingr_kor": kor, "limits_mg": limits, "contents": [], "remarks": []})
+        rule["contents"].append(content)
+        rule["remarks"].append(_clean_text(item.get("REMARK")))
+    return {
+        key: {
+            "ingr_kor": r["ingr_kor"], "limits_mg": r["limits_mg"],
+            "prohibit_content": _join_unique(r["contents"], "\n"), "remark": _join_unique(r["remarks"], " / "),
+        }
+        for key, r in rules.items()
+    }
+
+
 def _parse_iso_date(value: str | None) -> date | None:
     """'YYYY-MM-DD'. 형식이 다르면 None."""
     try:
@@ -308,6 +393,25 @@ def resolve_hira_components(
             hit = {c for c in hit if mix_type.get(c) == "단일"} or hit
         codes |= hit
     return codes, stage
+
+
+_HIRA_UNIT_MG = {"mg": 1.0, "g": 1000.0, "㎍": 0.001, "μg": 0.001, "µg": 0.001, "mcg": 0.001}
+# 1회 복용량을 '개수'로 셀 수 있는 내복 제형만 — 현탁액용정제는 녹여 나눠 먹어 개수가 아니다
+_UNIT_DOSE_FORM_RE = re.compile(r'정|캡슐')
+
+
+def hira_amount_mg(strength: str | None, unit: str | None, form_name: str | None) -> float | None:
+    """심평원 주성분 함량 → 정·캡슐 1개당 mg. 질량 단위가 아니거나('mg(1mg/mL)', 'I.U', 'mg/정(야간용)')
+    정·캡슐이 아닌 제형이면 None. '(as 암로디핀)'이 붙은 성분은 함량도 그 유효성분 기준으로 적혀 있다."""
+    factor = _HIRA_UNIT_MG.get((unit or "").strip())
+    form = form_name or ""
+    if factor is None or not _UNIT_DOSE_FORM_RE.search(form) or "현탁" in form:
+        return None
+    try:
+        value = float((strength or "").replace(",", ""))
+    except ValueError:
+        return None
+    return value * factor if value > 0 else None
 
 
 def _parse_tag_array(raw: str) -> list[str]:

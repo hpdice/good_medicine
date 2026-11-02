@@ -106,13 +106,16 @@ class CameraProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> addDrugsToBox(List<String> drugIds) async {
+  /// [doses]: 약 ID → 약봉투에서 읽은 복용 안내(없으면 null). 읽은 값은 복약함에 함께 저장해
+  /// 하루 용량 확인에 쓴다 — 사용자가 복약함에서 고칠 수 있다.
+  Future<void> addDrugsToBox(Map<String, OcrDose?> doses) async {
     _isAdding = true;
     _error = null;
     notifyListeners();
     final results = await Future.wait(
-      drugIds.map((id) => ApiClient.dio
-          .post('medicine-box', data: {'drug_id': id})
+      doses.entries.map((e) => ApiClient.dio
+          .post('medicine-box',
+              data: {'drug_id': e.key, ...?e.value?.toBoxFields()})
           .then((_) => true)
           .catchError((_) => false)),
     );

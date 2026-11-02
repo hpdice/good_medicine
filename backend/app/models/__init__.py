@@ -5,6 +5,7 @@ from app.models.dur_ingredient_master import DurIngredientMaster
 from app.models.dur_ingredient_rule import (
     DurIngredientAgeCaution,
     DurIngredientContraindication,
+    DurIngredientDoseCaution,
     DurIngredientEffectGroup,
     DurItemPregnancyTaboo,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "DurIngredientContraindication",
     "DurIngredientEffectGroup",
     "DurIngredientAgeCaution",
+    "DurIngredientDoseCaution",
     "DurItemPregnancyTaboo",
     "DurIngredientMaster",
     "HiraItemGenCode",

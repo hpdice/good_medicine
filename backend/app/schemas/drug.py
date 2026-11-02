@@ -47,10 +47,19 @@ class DrugNameMatchRequest(BaseModel):
     names: list[str]
 
 
+class OcrDose(BaseModel):
+    """약봉투·처방전에서 읽은 복용 안내. 못 읽은 항목은 None — 앱이 복약함에 담을 때 미리 채운다."""
+
+    units_per_intake: float | None = None  # 1회 투약량(정·캡슐 개수)
+    times_per_day: int | None = None  # 1일 투여횟수
+    duration_days: int | None = None  # 총 투약일수
+
+
 class DrugNameMatchResult(BaseModel):
     queried_name: str
     matched: DrugSearchResult | None
     alternatives: list[DrugSearchResult]
+    dose: OcrDose | None = None  # 사진 OCR 경로에서만 채운다
 
     model_config = {"from_attributes": True}
 

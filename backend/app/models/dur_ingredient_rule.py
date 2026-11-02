@@ -143,3 +143,35 @@ class DurIngredientAgeCaution(Base):
         UniqueConstraint("ingr_code", "rule_type", name="uq_dur_ingr_age_caution_code_type"),
         Index("idx_dur_ingr_age_caution_code", "ingr_code"),
     )
+
+
+class DurIngredientDoseCaution(Base):
+    """성분 단위 DUR 용량주의 — 하루 최대 투여량.
+
+    DUR 성분정보 `getCpctyAtentInfoList02` 행 그대로(매 동기화마다 다시 만든다). `mix_codes`가 비어 있으면
+    단일제 규칙(그 성분을 여러 약에서 먹어도 합친 하루 양의 상한, 예: 아세트아미노펜 4,000mg), 있으면 그 조성의
+    복합제 한 품목에만 해당하는 규칙이다(예: 아세트아미노펜+트라마돌 복합제는 아세트아미노펜 2,600mg).
+    `limits_mg`는 `MAX_QTY`에서 읽은 {성분코드: 하루 최대 mg} — '주1회'·'(고령자)'처럼 조건이 붙은 기준은
+    읽지 않고(NULL) 판정에 쓰지 않는다. 제형(`form_name`)마다 기준이 다를 수 있어 quick_check가 제형을 거른다.
+    """
+
+    __tablename__ = "dur_ingredient_dose_caution"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    ingr_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    ingr_kor: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # 복합제 규칙의 나머지 성분코드(정렬, 쉼표 구분). 단일제 규칙은 ''
+    mix_codes: Mapped[str] = mapped_column(String(200), nullable=False, server_default="")
+    form_name: Mapped[str] = mapped_column(Text, nullable=False, server_default="")  # '' = 모든 제형
+    max_qty: Mapped[str] = mapped_column(String(300), nullable=False)  # 원문, 예: '아세트아미노펜 4,000밀리그램'
+    limits_mg: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    prohibit_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("ingr_code", "mix_codes", "form_name", "max_qty", name="uq_dur_ingr_dose_caution_rule"),
+        Index("idx_dur_ingr_dose_caution_code", "ingr_code"),
+    )

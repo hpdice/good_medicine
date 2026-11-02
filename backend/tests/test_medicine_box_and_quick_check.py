@@ -151,7 +151,8 @@ async def test_quick_check_returns_safe_for_unrelated_drugs(client, session_fact
     assert body["findings"] == []
 
 
-async def test_quick_check_requires_at_least_two_drugs(client, session_factory):
+async def test_quick_check_accepts_single_drug_but_not_empty(client, session_factory):
+    """약 하나로도 걸리는 판정(용량·알레르기·나이·임신)이 있어 1개부터 받는다."""
     async with session_factory() as session:
         drug = await make_drug(session, "가스활명수정")
     headers = await _auth_headers(client)
@@ -159,6 +160,10 @@ async def test_quick_check_requires_at_least_two_drugs(client, session_factory):
     res = await client.post(
         "/analysis/quick-check", json={"drug_ids": [str(drug.id)]}, headers=headers
     )
+    assert res.status_code == 200
+    assert res.json()["risk_level"] == "safe"
+
+    res = await client.post("/analysis/quick-check", json={"drug_ids": []}, headers=headers)
     assert res.status_code == 422
 
 

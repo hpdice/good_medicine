@@ -17,8 +17,31 @@ String _summaryLabel(QuickCheckResponse result) {
     if (result.duplicateIngredientCount > 0) '중복 복용 ${result.duplicateIngredientCount}건',
     if (result.duplicateEffectGroupCount > 0) '같은 계열 약 중복 ${result.duplicateEffectGroupCount}건',
     if (result.elderlyCautionCount > 0) '노인 주의 ${result.elderlyCautionCount}건',
+    if (result.doseCautionCount > 0) '하루 용량 초과 ${result.doseCautionCount}건',
   ];
   return parts.isEmpty ? '주의가 필요해요' : parts.join(' · ');
+}
+
+/// 4950 → "4,950mg", 0.25 → "0.25mg".
+String _mg(double v) {
+  if (v != v.roundToDouble()) return '${v}mg';
+  final digits = v.toInt().toString();
+  final grouped = digits.replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
+  return '${grouped}mg';
+}
+
+/// 용량 초과 카드 문구 — 계산 근거(하루 양 대 기준)와, 복용량을 몰라 합치지 못한 약을 함께 알린다.
+String _doseReason(DoseCautionItem d) {
+  final whose = d.scope == 'total' && d.drugNames.length > 1 ? '함께 먹는 양을 합치면 ' : '';
+  final basis = d.scope == 'product' ? '이 복합제의 ' : '';
+  return [
+    '$whose하루 ${d.ingredient} ${_mg(d.dailyMg)} — 식약처 DUR $basis하루 최대 용량 '
+        '${_mg(d.maxDailyMg)}을 넘어요.',
+    if (d.uncountedDrugNames.isNotEmpty)
+      '복용량을 적지 않은 ${d.uncountedDrugNames.join(', ')}에도 이 성분이 있어 실제로는 더 많을 수 있어요.',
+    '복약함에 적은 복용량으로 계산했어요. 처방받은 양이라면 임의로 줄이지 말고 의사·약사와 확인하세요.',
+  ].join('\n');
 }
 
 /// 홈 화면 상단의 위험도 요약 배너. 탭하면 상세 상호작용 시트를 연다.
@@ -39,7 +62,8 @@ class InteractionBanner extends StatelessWidget {
     final onlyDuplicateIngredient = result.duplicateIngredientCount > 0 &&
         result.riskLevel == 'caution' &&
         result.duplicateEffectGroupCount == 0 &&
-        result.elderlyCautionCount == 0;
+        result.elderlyCautionCount == 0 &&
+        result.doseCautionCount == 0;
     final subLabel = isSafe
         ? 'DUR에 등록된 조합만 확인돼요 · 걱정되면 약사와 상담하세요'
         : onlyDuplicateIngredient
@@ -165,6 +189,16 @@ class InteractionBanner extends StatelessWidget {
                     if (a.remark != null) '적용 범위: ${a.remark}',
                     a.prohibitContent ?? '임신 중 사용을 피해야 하는 DUR 규칙입니다.',
                   ].join('\n'),
+                ),
+              ),
+            for (final d in result.doseCautions)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: SingleDrugRiskCard(
+                  drugName: d.drugNames.join(' + '),
+                  tone: RiskTone.caution,
+                  reasonLabel: '하루 용량 초과',
+                  reasonText: _doseReason(d),
                 ),
               ),
             Gap.v8,

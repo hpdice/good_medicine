@@ -49,6 +49,8 @@ _CLOSING = {
     "allergy": "이 약을 먹기 전에(이미 먹고 있다면 지금 바로) 의사나 약사에게 알레르기가 있다고 알리고 복용해도 되는지 확인하세요.",
     "pregnancy": "임신 중이라는 사실을 의사나 약사에게 알리고 이 약을 계속 써도 되는지 상담하세요.",
     "age": "나이에 맞는 약인지 의사나 약사와 상담하세요.",
+    # 복용량은 처방대로일 수도, 사용자가 잘못 적었을 수도 있어 "줄이라"가 아니라 "지금 먹는 양을 알리고 확인"이다
+    "dose": "지금 하루에 먹는 양을 의사나 약사에게 알리고 괜찮은지 확인하세요. 처방받은 양이라면 임의로 줄이거나 끊지는 마세요.",
     # 처방·조제 때의 DUR 점검은 의사·약사가 이미 받으므로 처방자를 지목하지 않고 "알리고 확인"으로 말한다.
     # 끊으면 위험한 약이 있어 "임의로 끊지 말라"는 남긴다.
     "combination": "의사나 약사에게 이 두 약을 함께 쓰고 있다고 알리고 확인해 보세요. 이미 드시는 중이라면 임의로 끊거나 바꾸지는 마세요.",
@@ -77,6 +79,7 @@ def closing_for(check: QuickCheckResponse, otc_involved: bool = False) -> str:
         ("allergy", check.allergy_conflicts),
         ("pregnancy", check.pregnancy_cautions),
         ("age", check.age_cautions),
+        ("dose", check.dose_cautions),
         ("combination_otc" if otc_involved else "combination", check.findings),
     ]
     lines = [_CLOSING[kind] for kind, items in kinds if items]
@@ -100,7 +103,7 @@ _SYSTEM_PROMPT = """당신은 '굿메디슨' 약 관리 앱의 설명 도우미�
 3. 이 판정은 이미 식약처 공공데이터(DUR)와 사용자 건강정보로 확정된 결과입니다.
    판정을 바꾸거나 재평가하지 말고, 그대로 받아들여 쉽게 풀어 설명만 하세요.
 4. 알레르기·나이·임신 항목은 약 한 가지에 대한 경고입니다. 두 약 사이의 상호작용처럼
-   설명하지 마세요.
+   설명하지 마세요. 하루 최대 용량 항목은 먹는 양이 많다는 경고이지 약끼리 작용한다는 뜻이 아닙니다.
 5. 복용을 스스로 끊거나 바꾸라고 권하지 마세요. 대체 약, 다른 치료법, 복용 시간 조절도 제안하지 마세요.
    대응은 "의사나 약사와 상담하세요" 정도로만 쓰세요.
 6. 첫 문단에서는 [약품 정보]의 분류·효능을 근거로 각 약이 무엇에 쓰는 약인지 한 문장씩 소개하세요.
@@ -257,6 +260,22 @@ def _pregnancy_lines(check: QuickCheckResponse) -> list[str]:
     ]
 
 
+def _mg(value: float) -> str:
+    return f"{value:,.0f}mg" if value >= 10 else f"{value:g}mg"
+
+
+def _dose_lines(check: QuickCheckResponse) -> list[str]:
+    lines = []
+    for c in check.dose_cautions:
+        where = "을(를) 합친 하루 양" if c.scope == "total" and len(c.drug_names) > 1 else "의 하루 양"
+        line = (f"- {', '.join(c.drug_names)}{where}: {c.ingredient} {_mg(c.daily_mg)} — "
+                f"식약처 DUR 기준 하루 최대 {_mg(c.max_daily_mg)}을 넘음")
+        if c.uncounted_drug_names:
+            line += f" (복용량을 몰라 합치지 못한 약: {', '.join(c.uncounted_drug_names)})"
+        lines.append(line)
+    return lines
+
+
 def _involved_drug_ids(check: QuickCheckResponse) -> list[uuid.UUID]:
     """판정 결과에 나온 모든 약의 id (쌍 판정은 양쪽, 사용자 정보 판정은 해당 약)."""
     ids: set[uuid.UUID] = set()
@@ -264,6 +283,8 @@ def _involved_drug_ids(check: QuickCheckResponse) -> list[uuid.UUID]:
         ids |= {finding.drug1_id, finding.drug2_id}
     for group in (check.allergy_conflicts, check.age_cautions, check.pregnancy_cautions):
         ids |= {c.drug_id for c in group}
+    for dose in check.dose_cautions:
+        ids |= set(dose.drug_ids)
     return list(ids)
 
 
@@ -300,7 +321,8 @@ class AiGuideService:
         drug_ids: list[uuid.UUID],
         check: QuickCheckResponse,
     ) -> AnalysisGuideResponse:
-        if not (check.findings or check.allergy_conflicts or check.age_cautions or check.pregnancy_cautions):
+        if not (check.findings or check.allergy_conflicts or check.age_cautions or check.pregnancy_cautions
+                or check.dose_cautions):
             # 설명할 문제가 없으면 모델을 부르지 않는다. 프롬프트에 약 정보가 없으면 모델이 약 개수를 틀리게
             # 말하고 "안전하다"고까지 단정하는데, DUR에 없는 상호작용은 못 찾으므로 "안전"을 말하면 안 된다.
             # 정해진 문장 + 약 개수만 사실대로 쓴다.
@@ -374,6 +396,7 @@ class AiGuideService:
             ("알레르기 성분 충돌", _allergy_lines(check)),
             ("나이 관련 DUR 규칙", age_lines),
             ("임신 중 금기", pregnancy_lines),
+            ("하루 최대 용량 초과", _dose_lines(check)),
         ):
             if lines:
                 sections.append(f"[{title}]\n" + "\n".join(lines))

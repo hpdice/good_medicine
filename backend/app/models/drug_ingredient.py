@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, UniqueConstraint, func
+from sqlalchemy import DateTime, Float, ForeignKey, Index, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -33,6 +33,9 @@ class DrugIngredient(Base):
     ingr_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
     ingr_kor: Mapped[str | None] = mapped_column(String(200), nullable=True)
     source: Mapped[str] = mapped_column(String(20), nullable=False, default="dur")
+    # 정·캡슐 1개에 든 이 성분의 양(mg) — 심평원 주성분 함량(sync.py build_drug_amounts). 용량주의 판정에만 쓴다.
+    # 내복 정·캡슐이 아니거나 함량을 못 맞춘 약은 NULL
+    amount_mg: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
