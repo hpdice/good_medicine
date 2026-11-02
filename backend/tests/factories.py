@@ -143,12 +143,13 @@ async def make_ingr_contraindication(
 
 async def make_ingr_effect_group(
     session: AsyncSession, members: list[tuple[str, str]], dur_seq: str,
-    effect_name: str = "테스트 성분 효능군",
+    effect_name: str = "테스트 성분 효능군", sers_name: str | None = None,
 ) -> None:
-    """members: [(ingr_code, ingr_kor), ...] — 같은 dur_seq 효능군 멤버십 (ingr_kor는 무시)."""
+    """members: [(ingr_code, ingr_kor), ...] — 효능군·계열 멤버십 (ingr_kor는 무시).
+    실제 데이터처럼 성분마다 다른 dur_seq를 주려면 성분별로 따로 부른다."""
     for code, _kor in members:
         session.add(DurIngredientEffectGroup(
-            ingr_code=code, dur_seq=dur_seq, effect_name=effect_name,
+            ingr_code=code, dur_seq=dur_seq, effect_name=effect_name, sers_name=sers_name,
         ))
     await session.commit()
 

@@ -16,7 +16,7 @@ from app.models.drug import Drug
 from app.models.drug_ingredient import DrugIngredient
 
 from . import raw_store
-from .helpers import _clean, _make_drug_key, _make_simple_name, _parse_permit_date
+from .helpers import _clean, _make_drug_key, _make_simple_name
 
 
 class _SyncBase:
@@ -39,6 +39,9 @@ class _SyncBase:
         # 원본 응답 보관(bronze). replay_snapshot이 있으면 API 대신 저장된 파일에서 읽는다
         # ("latest" = 엔드포인트별 가장 최근 스냅샷). 재파싱 시엔 새로 저장하지 않는다.
         self.replay_snapshot: str | None = None
+        # DUR 품목정보(`DURPrdlstInfoService03`)만: 이 날짜(YYYYMMDD) 이후 바뀐 행만 받는다(`start_change_date`).
+        # 이미 적재한 행을 다시 받지 않아 병용금기 79만 행 sweep(7시간)이 변경분(수만 행, 수 분)으로 준다.
+        self.change_since: str | None = None
         self._raw_snapshot = raw_store.today_snapshot()
 
     async def _emit(self, **kwargs) -> None:
@@ -112,6 +115,8 @@ class _SyncBase:
         async with httpx.AsyncClient(timeout=30) as client:
             while True:
                 params = {"serviceKey": self._api_key, "pageNo": page, "numOfRows": size, "type": "json"}
+                if self.change_since and url.startswith(settings.DUR_PRODUCT_API_URL):
+                    params["start_change_date"] = self.change_since
                 data = await self._fetch_page(client, url, params)
                 if data is None:
                     raise RuntimeError(f"{label} page {page} 요청 실패(재시도 소진) — 건너뛰지 않고 중단. 재실행 필요.")
@@ -158,16 +163,17 @@ class _SyncBase:
 
     async def _run_multi_endpoint_sync(
         self, ops: dict[str, tuple[str, Any]], handler, *, source: str, size: int | None = None,
+        base_url: str | None = None,
     ) -> int:
         """`ops`: {label: (엔드포인트 op, handler에 넘길 부가값)}을 차례로 돈다.
-        `handler(item, 부가값)`."""
+        `handler(item, 부가값)`. `base_url` 기본값은 DUR 품목정보 서비스."""
         processed = 0
         for label, (op, extra) in ops.items():
             async def handle(item: dict, _extra=extra) -> None:
                 await handler(item, _extra)
 
             processed += await self._sync_endpoint(
-                f"{settings.DUR_PRODUCT_API_URL}/{op}", handle,
+                f"{base_url or settings.DUR_PRODUCT_API_URL}/{op}", handle,
                 source=f"{source}:{label}", label=f"{source} [{label}]", size=size,
             )
         return processed
@@ -213,7 +219,6 @@ class _SyncBase:
             drug_key=_make_drug_key(name),
             entp_name=_clean(item.get(f"{prefix}ENTP_NAME")),
             main_item_ingr=_clean(item.get(f"{prefix}MAIN_INGR")),
-            item_permit_date=_parse_permit_date(_clean(item.get(f"{prefix}ITEM_PERMIT_DATE"))),
             class_name=_clean(item.get(f"{prefix}CLASS_NAME")),
             etc_otc_name=_clean(item.get(f"{prefix}ETC_OTC_NAME")),
         )

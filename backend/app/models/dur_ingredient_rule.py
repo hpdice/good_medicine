@@ -29,6 +29,8 @@ class DurIngredientContraindication(Base):
     risk_tags: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     # 품목쌍에서 합성한 규칙 표식('derived-from-product …'); validate_db가 읽는다
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 'product'(DUR 품목정보 sweep에서 추출) | 'ingredient'(DUR 성분정보 API)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, server_default="product")
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -40,11 +42,13 @@ class DurIngredientContraindication(Base):
 
 
 class DurIngredientEffectGroup(Base):
-    """성분 단위 DUR 효능군중복주의 — 같은 `dur_seq`에 속한 성분코드 멤버십.
+    """성분 단위 DUR 효능군중복주의 — 성분코드의 효능군·계열 멤버십.
 
-    `DURPrdlstInfoService03/getEfcyDplctInfoList03` 응답의 `INGR_CODE` + `DUR_SEQ`.
-    같은 `dur_seq`에 서로 다른 약품의 성분이 2개 이상 매핑되면 효능군중복주의 대상
-    (병용금기와 달리 '주의' 등급).
+    DUR 품목정보(`getEfcyDplctInfoList03`)·성분정보(`getEfcyDplctInfoList02`) 응답의
+    `INGR_CODE` + `DUR_SEQ` + `EFFECT_NAME`(성분정보는 `EFFECT_CODE`) + `SERS_NAME`.
+    `dur_seq`는 성분마다 따로 붙는 행 번호라 묶음 키가 아니다. 같은 **효능군 + 계열**
+    (예: 혈압강하작용의약품 / ARB)에 서로 다른 약품의 성분이 2개 이상이면 효능군중복주의 대상
+    (식약처 정의: "약리기전이 동일하거나 유사한 효능군 내에서 중복 투여", 병용금기와 달리 '주의' 등급).
     """
 
     __tablename__ = "dur_ingredient_effect_groups"
@@ -54,6 +58,9 @@ class DurIngredientEffectGroup(Base):
     ingr_code: Mapped[str] = mapped_column(String(20), nullable=False)
     dur_seq: Mapped[str] = mapped_column(String(20), nullable=False)
     effect_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # 계열(SERS_NAME, 예: 'ARB', '비스테로이드성 소염제') — 판정은 효능군 + 계열 단위
+    sers_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, server_default="product")
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -105,12 +112,12 @@ class DurIngredientAgeCaution(Base):
     두 엔드포인트 다 `dur_seq` 같은 그룹핑 필드가 없고, `TYPE_NAME`이 이미
     "특정연령대금기"/"노인주의"로 구분돼 있어 하나의 테이블에 `rule_type`으로 합친다.
 
-    **주의**: 나이 기준을 담은 구조화 필드가 없다 — 유일한 단서인
-    `PROHBT_CONTENT`(자유 텍스트)를 500건 샘플링한 결과 "OO세 미만" 같은 숫자 패턴은
-    3.6%뿐이고, 대부분 "영아/소아/신생아" 같은 범주어이거나 나이 언급이 아예 없다.
-    그래서 `age_threshold`/`age_unit`/`age_direction`은 정규식으로 뽑히면 채우고
-    실패하면 전부 NULL로 남긴다 — quick_check는 이 세 필드가 모두 있을 때만 나이
-    비교를 하고, NULL이면 판정에 관여시키지 않는다(원문은 표시용으로 남김).
+    **나이 기준**: 품목정보 응답에는 구조화 필드가 없어 `PROHBT_CONTENT`(자유 텍스트)에서
+    "OO세 미만"을 정규식으로 뽑는다(500건 중 3.6%만 성공). DUR 성분정보 응답에는 `AGE_BASE`
+    ("18세 미만", "4주 미만")가 있어 이것으로 채운다 — 단, 같은 성분이 제형마다 기준이 다르면
+    (예: 디클로페낙 주사제 '4주 미만', 정제 '18세 미만') 약의 제형을 모르므로 채우지 않는다.
+    quick_check는 `age_threshold`/`age_unit`/`age_direction`이 모두 있을 때만 나이 비교를 하고,
+    NULL이면 판정에 관여시키지 않는다(원문은 표시용으로 남김).
     노인주의는 반대로 엔드포인트 자체가 이미 "노인 대상"이라는 뜻이라 이 필드들이
     필요 없다 — 성분코드 존재 여부 + 고정 기준(만 65세 이상)만으로 판정한다.
     """
@@ -126,8 +133,9 @@ class DurIngredientAgeCaution(Base):
 
     # PROHBT_CONTENT에서 정규식으로 뽑은 구조화 값 — 셋 다 있을 때만 quick_check가 사용
     age_threshold: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    age_unit: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 세 | 개월
+    age_unit: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 세 | 개월 | 주
     age_direction: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 미만|이상|이하|초과
+    source: Mapped[str] = mapped_column(String(20), nullable=False, server_default="product")
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

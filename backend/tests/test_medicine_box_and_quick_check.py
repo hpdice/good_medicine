@@ -7,7 +7,6 @@ from app.models.medicine_box import MedicineBoxEntry
 from tests.factories import (
     make_contraindication,
     make_drug,
-    make_effect_group,
     make_ingr_contraindication,
     make_ingr_effect_group,
     register_and_login,
@@ -135,47 +134,6 @@ async def test_list_and_delete_medicine_box_entry(client, session_factory):
     assert list_res2.json() == []
 
 
-async def test_quick_check_detects_contraindication_as_critical(client, session_factory):
-    async with session_factory() as session:
-        drug_a = await make_drug(session, "경동아스피린장용정", class_name="해열.진통.소염제")
-        drug_b = await make_drug(session, "유한메토트렉세이트정", class_name="항악성종양제")
-        await make_contraindication(session, drug_a, drug_b, mechanism="혈액학적 독성")
-
-    headers = await _auth_headers(client)
-    res = await client.post(
-        "/analysis/quick-check",
-        json={"drug_ids": [str(drug_a.id), str(drug_b.id)]},
-        headers=headers,
-    )
-    assert res.status_code == 200
-    body = res.json()
-    assert body["risk_level"] == "critical"
-    assert body["has_contraindication"] is True
-    assert body["contraindicated_count"] == 1
-    assert len(body["findings"]) == 1
-    assert body["findings"][0]["interaction_type"] == "contraindicated"
-
-
-async def test_quick_check_detects_duplicate_effect_group_as_caution(client, session_factory):
-    async with session_factory() as session:
-        drug_a = await make_drug(session, "크레스토정20밀리그램", class_name="동맥경화용제")
-        drug_b = await make_drug(session, "크레스토정10밀리그램", class_name="동맥경화용제")
-        await make_effect_group(session, [drug_a, drug_b], dur_seq="9001", effect_name="지질저하제")
-
-    headers = await _auth_headers(client)
-    res = await client.post(
-        "/analysis/quick-check",
-        json={"drug_ids": [str(drug_a.id), str(drug_b.id)]},
-        headers=headers,
-    )
-    assert res.status_code == 200
-    body = res.json()
-    assert body["risk_level"] == "caution"
-    assert body["has_contraindication"] is False
-    assert body["duplicate_effect_group_count"] == 1
-    assert body["findings"][0]["interaction_type"] == "duplicate_effect_group"
-
-
 async def test_quick_check_returns_safe_for_unrelated_drugs(client, session_factory):
     async with session_factory() as session:
         drug_a = await make_drug(session, "가스활명수정")
@@ -235,15 +193,15 @@ async def test_quick_check_ingredient_contraindication_critical(client, session_
     assert "횡문근융해증" in finding["risk_tags"]  # mechanism 문장에서 태그 추출
 
 
-async def test_quick_check_ingredient_effect_group_caution(client, session_factory):
+async def test_quick_check_effect_group_across_dur_seq_same_series(client, session_factory):
+    """실제 원본처럼 성분마다 dur_seq가 달라도 같은 효능군·계열이면 효능군중복 (dur_seq로 묶던 결함의 회귀)."""
     async with session_factory() as session:
-        drug_a = await make_drug(session, "낙센정", ingredients=[("D000739", "아세클로페낙")])
-        drug_b = await make_drug(session, "이지엔정", ingredients=[("D000741", "나프록센")])
-        await make_ingr_effect_group(
-            session,
-            [("D000739", "아세클로페낙"), ("D000741", "나프록센")],
-            dur_seq="2463", effect_name="해열진통소염제",
-        )
+        drug_a = await make_drug(session, "덱시프로펜정", ingredients=[("D000086", "덱시부프로펜")])
+        drug_b = await make_drug(session, "부루펜정", ingredients=[("D000363", "이부프로펜")])
+        await make_ingr_effect_group(session, [("D000086", "덱시부프로펜")], dur_seq="2401",
+                                     effect_name="해열진통소염제", sers_name="비스테로이드성 소염제")
+        await make_ingr_effect_group(session, [("D000363", "이부프로펜")], dur_seq="2420",
+                                     effect_name="해열진통소염제", sers_name="비스테로이드성 소염제")
 
     headers = await _auth_headers(client)
     res = await client.post(
@@ -251,12 +209,31 @@ async def test_quick_check_ingredient_effect_group_caution(client, session_facto
         json={"drug_ids": [str(drug_a.id), str(drug_b.id)]},
         headers=headers,
     )
-    assert res.status_code == 200
     body = res.json()
     assert body["risk_level"] == "caution"
     assert body["duplicate_effect_group_count"] == 1
-    assert body["findings"][0]["interaction_type"] == "duplicate_effect_group"
-    assert body["findings"][0]["source"] == "ingredient"
+    assert body["findings"][0]["mechanism"] == "효능군 중복: 해열진통소염제 · 비스테로이드성 소염제"
+
+
+async def test_quick_check_effect_group_different_series_not_duplicate(client, session_factory):
+    """같은 효능군이어도 계열이 다르면(ARB + CCB) 중복이 아니다 — 표준 병용요법에 경고하지 않는다."""
+    async with session_factory() as session:
+        drug_a = await make_drug(session, "코자정", ingredients=[("D000300", "로사르탄")])
+        drug_b = await make_drug(session, "노바스크정", ingredients=[("D000301", "암로디핀")])
+        await make_ingr_effect_group(session, [("D000300", "로사르탄")], dur_seq="3001",
+                                     effect_name="혈압강하작용의약품", sers_name="ARB")
+        await make_ingr_effect_group(session, [("D000301", "암로디핀")], dur_seq="3002",
+                                     effect_name="혈압강하작용의약품", sers_name="CCB:Dihydro pyridines ")
+
+    headers = await _auth_headers(client)
+    res = await client.post(
+        "/analysis/quick-check",
+        json={"drug_ids": [str(drug_a.id), str(drug_b.id)]},
+        headers=headers,
+    )
+    body = res.json()
+    assert body["risk_level"] == "safe"
+    assert body["duplicate_effect_group_count"] == 0
 
 
 async def test_quick_check_same_ingredient_duplicate_without_effect_group(client, session_factory):

@@ -281,7 +281,7 @@ class DrugService:
     async def get_ingr_effect_groups_for_codes(
         self, codes: set[str]
     ) -> list[DurIngredientEffectGroup]:
-        """주어진 성분코드가 속한 DUR 효능군(dur_seq) 멤버십."""
+        """주어진 성분코드가 속한 DUR 효능군·계열 멤버십."""
         if not codes:
             return []
         stmt = select(DurIngredientEffectGroup).where(

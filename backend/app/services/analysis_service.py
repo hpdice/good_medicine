@@ -30,8 +30,8 @@ def _display_name(drug: Drug) -> str:
 
 def _age_taboo_applies(age_years: int, threshold: int, unit: str, direction: str) -> bool:
     """`age_threshold`/`age_unit`/`age_direction`으로 나이 조건을 계산한다. 생년월일이 아니라
-    출생연도만 수집하므로 "개월" 단위 기준은 근사치(threshold/12)로 연 단위 비교한다."""
-    limit = threshold / 12 if unit == "개월" else threshold
+    출생연도만 수집하므로 "개월"·"주" 단위 기준은 근사치(threshold/12, /52)로 연 단위 비교한다."""
+    limit = threshold / 12 if unit == "개월" else threshold / 52 if unit == "주" else threshold
     return {
         "미만": age_years < limit,
         "이상": age_years >= limit,
@@ -284,19 +284,21 @@ class AnalysisService:
     async def _effect_group_findings(
         self, drugs: dict[uuid.UUID, Drug], code_to_drugs: dict[str, set[uuid.UUID]]
     ) -> list[QuickCheckFinding]:
-        """효능군중복: 성분코드를 dur_seq로 묶어 서로 다른 약품 2개 이상이면 쌍 생성."""
-        groups: dict[str, tuple[str, set[str]]] = {}
+        """효능군중복: 성분코드를 **효능군 + 계열**(예: 혈압강하작용의약품 / ARB)로 묶어 서로 다른 약품
+        2개 이상이면 쌍 생성. `dur_seq`는 성분마다 따로 붙는 번호라 묶음 키로 쓰지 않는다.
+        계열이 다르면(ARB + CCB, 메트포르민 + 설포닐우레아) 같은 효능군이어도 중복이 아니다."""
+        groups: dict[tuple[str, str | None], set[str]] = {}
         for row in await self.drugs.get_ingr_effect_groups_for_codes(set(code_to_drugs)):
-            _, codes = groups.setdefault(row.dur_seq, (row.effect_name, set()))
-            codes.add(row.ingr_code)
+            groups.setdefault((row.effect_name, row.sers_name), set()).add(row.ingr_code)
 
         findings: list[QuickCheckFinding] = []
-        for effect_name, group_codes in groups.values():
+        for (effect_name, sers_name), group_codes in groups.items():
             in_group = set().union(*(code_to_drugs.get(c, set()) for c in group_codes))
+            label = f"{effect_name} · {sers_name}" if sers_name else effect_name
             for id1, id2 in itertools.combinations(sorted(in_group, key=str), 2):
                 findings.append(_finding(
                     drugs[id1], drugs[id2], "duplicate_effect_group",
-                    f"효능군 중복: {effect_name}", [],
+                    f"효능군 중복: {label}", [],
                 ))
         return findings
 

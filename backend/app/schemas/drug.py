@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 
 from pydantic import BaseModel
 
@@ -9,7 +9,6 @@ class DrugResponse(BaseModel):
     item_seq: str
     item_name: str
     entp_name: str | None
-    item_permit_date: date | None
     main_item_ingr: str | None
     ingr_name: list | None
     efcy_qesitm: str | None

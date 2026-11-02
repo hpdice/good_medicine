@@ -8,6 +8,8 @@ from sqlalchemy import select
 from app.core.logging import logger
 from app.models.drug import Drug
 from app.models.drug_ingredient import DrugIngredient
+from app.models.dur_ingredient_master import DurIngredientMaster
+from app.models.hira import HiraGenIngredient, HiraItemGenCode
 from app.models.residual_interaction import ResidualInteraction
 
 from .base import _SyncBase
@@ -16,6 +18,7 @@ from .helpers import (
     _parse_main_ingr,
     candidate_ingredient_names,
     make_ingredient_resolver,
+    resolve_hira_components,
 )
 
 
@@ -94,6 +97,62 @@ class MaintenanceMixin(_SyncBase):
                 await self.db.commit()
         await self.db.commit()
         return count
+
+    async def build_drug_ingredients_from_hira(self) -> int:
+        """성분코드가 없는 약을 심평원 약가마스터로 해소한다 (source='hira_eng', API 미사용).
+
+        `drugs.item_seq` → 심평원 품목기준코드 → 일반명코드 → 영문 일반명 → DUR 성분정보의 영문명
+        (`dur_ingredient_master.ingr_eng_norm`) 완전 일치 → 성분코드. 일반명코드는 판매 중인 포장의 것을
+        먼저 쓰고, 다 취소된 품목이면 취소된 것을 쓴다. 일반명코드가 여럿인데 가리키는 성분이 서로 다르면 맺지 않는다.
+        실측(2026-11-02): 기존 해소 약에 같은 규칙을 돌려 1단계 84%·2단계 92%가 기존 성분코드와 같았고(나머지 대부분은
+        기존 쪽이 복합제 성분 일부를 빠뜨린 경우), 새로 맺어진 약 무작위 100건에 오매칭 0건.
+        이미 성분코드가 있는 약은 건드리지 않는다. 몇 개 약을 해소했는지 돌려준다."""
+        by_eng: dict[str, set[str]] = {}
+        mix_type: dict[str, str | None] = {}
+        kor: dict[str, str | None] = {}
+        for code, ingr_kor, eng_norm, mt in (await self.db.execute(select(
+            DurIngredientMaster.ingr_code, DurIngredientMaster.ingr_kor,
+            DurIngredientMaster.ingr_eng_norm, DurIngredientMaster.mix_type,
+        ))).all():
+            if eng_norm:
+                by_eng.setdefault(eng_norm, set()).add(code)
+            mix_type[code] = mt
+            kor.setdefault(code, ingr_kor)
+        if not by_eng:
+            return 0
+
+        names: dict[str, list[str]] = {}
+        for gen, name in (await self.db.execute(
+            select(HiraGenIngredient.gen_code, HiraGenIngredient.ingr_name)
+            .order_by(HiraGenIngredient.gen_code, HiraGenIngredient.seq)
+        )).all():
+            names.setdefault(gen, []).append(name)
+        live: dict[str, set[str]] = {}
+        cancelled: dict[str, set[str]] = {}
+        for seq, gen, cancelled_on in (await self.db.execute(select(
+            HiraItemGenCode.item_seq, HiraItemGenCode.gen_code, HiraItemGenCode.cancelled_on,
+        ))).all():
+            (cancelled if cancelled_on else live).setdefault(seq, set()).add(gen)
+
+        covered = set((await self.db.execute(select(DrugIngredient.drug_id).distinct())).scalars().all())
+        resolved = 0
+        for drug_id, item_seq in (await self.db.execute(select(Drug.id, Drug.item_seq))).all():
+            if drug_id in covered:
+                continue
+            gens = live.get(item_seq) or cancelled.get(item_seq)
+            if not gens or any(g not in names for g in gens):
+                continue
+            results = [resolve_hira_components(names[g], by_eng, mix_type) for g in sorted(gens)]
+            if any(r is None for r in results) or len({frozenset(r[0]) for r in results if r}) != 1:
+                continue
+            codes = results[0][0] if results[0] else set()
+            for code in sorted(codes):
+                self.db.add(DrugIngredient(drug_id=drug_id, ingr_code=code, ingr_kor=kor.get(code), source="hira_eng"))
+            resolved += 1
+            if resolved % 2000 == 0:
+                await self.db.commit()
+        await self.db.commit()
+        return resolved
 
     SEED_RESIDUAL_PATH = Path(__file__).resolve().parents[3] / "seed" / "residual_interactions.json"
 

@@ -19,6 +19,8 @@ class DrugIngredient(Base):
     source:
       - `dur`: DUR 병용금기/효능군중복 sweep 응답에서 직접 캡처 (신뢰도 높음)
       - `jsonb_fallback`: `ingr_name` JSONB 이름을 정규화해 이름→코드 사전으로 매칭
+      - `permit_detail`: 허가정보 상세 API(복약함에 담을 때)의 성분명으로 매칭
+      - `hira_eng`: 심평원 약가마스터 일반명(영문) ↔ DUR 성분정보 영문명 완전 일치
     """
 
     __tablename__ = "drug_ingredients"

@@ -1,7 +1,7 @@
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 
-from sqlalchemy import Date, DateTime, Index, String, Text, func
+from sqlalchemy import DateTime, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -20,7 +20,6 @@ class Drug(Base):
     item_seq: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
     item_name: Mapped[str] = mapped_column(Text, nullable=False)
     entp_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    item_permit_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     # 성분 정보
     main_item_ingr: Mapped[str | None] = mapped_column(Text, nullable=True)

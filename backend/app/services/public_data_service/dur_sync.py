@@ -1,8 +1,8 @@
 """DUR(병용금기·효능군중복·특정연령대금기·노인주의·임부금기) 동기화.
 
 `DURPrdlstInfoService03` 응답의 `INGR_CODE`/`MIXTURE_INGR_CODE`에서 성분코드를
-캡처해 `drug_ingredients` + `dur_ingredient_*`(판정 규칙) 테이블을 채운다
-(구 DUR 성분정보 API `DURIrdntInfoService`는 폐기됨)."""
+캡처해 `drug_ingredients` + `dur_ingredient_*`(판정 규칙) 테이블을 채운다.
+품목정보는 성분 규칙의 일부만 풀어 주므로, 규칙은 DUR 성분정보(`dur_ingredient_sync.py`)로 보강한다."""
 import os
 
 from sqlalchemy import select
@@ -72,6 +72,13 @@ class DurSyncMixin(_SyncBase):
     # ------------------------------------------------------------------ #
 
     async def _sync_dur_contraindications(self) -> int:
+        if self.change_since:
+            # 변경분 수집은 페이지 번호 체계가 전체 sweep과 달라 체크포인트를 쓰지도 지우지도 않는다.
+            return await self._sync_endpoint(
+                f"{settings.DUR_PRODUCT_API_URL}/getUsjntTabooInfoList03", self._upsert_dur_contraindication,
+                source="dur_contraindications", label=f"DUR 병용금기 ({self.change_since} 이후 변경분)",
+                size=self.DUR_PAGE_SIZE, delay=1.5,
+            )
         start = self._load_checkpoint()
         if start > 1:
             logger.info(f"DUR 병용금기 체크포인트에서 재시작: 페이지 {start}")
@@ -163,9 +170,12 @@ class DurSyncMixin(_SyncBase):
         ingr_code = _clean(item.get("INGR_CODE"))
         await self._upsert_drug_ingredient(drug.id, ingr_code, _clean(item.get("INGR_NAME") or item.get("INGR_KOR_NAME")))
         if ingr_code:
+            # 효능군중복은 효능군 + 계열 단위로 판정한다 — 원천이 계열명을 고쳐 내려주면 반영(overwrite).
             await self._insert_once(
                 DurIngredientEffectGroup, ("ingr_code", "dur_seq"),
-                {"ingr_code": ingr_code, "dur_seq": dur_seq, "effect_name": effect_name},
+                {"ingr_code": ingr_code, "dur_seq": dur_seq, "effect_name": effect_name,
+                 "sers_name": _clean(item.get("SERS_NAME"))},
+                overwrite=True,
             )
 
     # ------------------------------------------------------------------ #

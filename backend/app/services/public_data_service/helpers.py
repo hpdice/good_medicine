@@ -2,8 +2,9 @@
 import html
 import json
 import re
+import unicodedata
 import xml.etree.ElementTree as ET
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import date
 from typing import Any
 
@@ -24,16 +25,6 @@ def _clean_text(value: Any) -> str | None:
     if s and len(s) >= 2 and s[0] == '"' and s[-1] == '"':
         s = s[1:-1].strip()
     return s or None
-
-
-def _parse_permit_date(value: str | None) -> date | None:
-    """'YYYYMMDD' 허가일자. 형식이 다르면 None."""
-    if not value or len(value) != 8:
-        return None
-    try:
-        return date(int(value[:4]), int(value[4:6]), int(value[6:]))
-    except ValueError:
-        return None
 
 
 def _make_drug_key(name: str) -> str:
@@ -113,6 +104,210 @@ def _parse_age_criteria(text: str | None) -> tuple[int | None, str | None, str |
     if not m:
         return None, None, None
     return int(m.group(1)), m.group(2), m.group(3)
+
+
+def norm_ingr_eng(name: str | None) -> str | None:
+    """영문 성분명 비교 키 — 유니코드 호환 정규화, 소문자, 공백 하나로. 염·`(as …)`은 그대로 둔다
+    (완전 일치가 1차, 염 정리는 매칭 단계에서 2차로만 쓴다)."""
+    if not name:
+        return None
+    s = re.sub(r'\s+', ' ', unicodedata.normalize('NFKC', name)).strip().lower()
+    return s or None
+
+
+_AGE_BASE_RE = re.compile(r'^\s*(\d+)\s*(세|개월|주)\s*(미만|이상|이하|초과)\s*$')
+
+
+def parse_age_base(text: str | None) -> tuple[int | None, str | None, str | None]:
+    """DUR 성분정보 `AGE_BASE`("18세 미만", "4주 미만")를 (기준, 단위, 방향)으로. 형식이 다르면 셋 다 None.
+    자유 텍스트용 `_parse_age_criteria`와 달리 값 전체가 이 형식일 때만 읽는다('주'는 '4주 이상 투여' 같은
+    문장과 헷갈리므로 자유 텍스트에서는 읽지 않는다)."""
+    m = _AGE_BASE_RE.match(text or "")
+    if not m:
+        return None, None, None
+    return int(m.group(1)), m.group(2), m.group(3)
+
+
+def ingredient_master_from_rows(
+    rows_by_label: dict[str, list[dict]],
+) -> dict[tuple[str, str | None, str | None], str | None]:
+    """DUR 성분정보 응답(오퍼레이션 라벨별 행) → {(성분코드, 한글, 영문): 단일/복합}.
+    같은 코드의 이름이 둘이면 덮어쓰지 않고 따로 둔다."""
+    names: dict[tuple[str, str | None, str | None], str | None] = {}
+    for items in rows_by_label.values():
+        for item in items:
+            # 병용금기는 한 행에 A(INGR_*)·B(MIXTURE_INGR_*) 두 성분이 있다. 나머지는 A만.
+            for prefix in ("", "MIXTURE_"):
+                code = _clean(item.get(f"{prefix}INGR_CODE"))
+                if code:
+                    kor = _clean(item.get(f"{prefix}INGR_KOR_NAME") or item.get(f"{prefix}INGR_NAME"))
+                    names.setdefault((code, kor, _clean(item.get(f"{prefix}INGR_ENG_NAME"))),
+                                     _clean(item.get(f"{prefix}MIX_TYPE")))
+    return names
+
+
+def _active_rows(items: Iterable[dict]) -> list[dict]:
+    """DUR 성분정보 응답 중 삭제되지 않은 행(`DEL_YN`='정상')."""
+    return [i for i in items if _clean(i.get("DEL_YN")) == "정상"]
+
+
+def _join_unique(values: Iterable[str | None], sep: str) -> str | None:
+    return sep.join(dict.fromkeys(v for v in values if v)) or None
+
+
+def contraindication_rules_from_ingredient(items: Iterable[dict]) -> dict[tuple[str, str], dict]:
+    """DUR 성분정보 병용금기 행 → {(성분코드 a, b) (a<b): 규칙 값}.
+    같은 쌍이 고시 개정·복합제별로 여러 행이면 가장 최근 고시일의 행들만 쓰고, 그 문구·비고를 중복 없이 합친다."""
+    by_pair: dict[tuple[str, str], list[dict]] = {}
+    for item in _active_rows(items):
+        a, b = _clean(item.get("INGR_CODE")), _clean(item.get("MIXTURE_INGR_CODE"))
+        if a and b and a != b:
+            by_pair.setdefault((min(a, b), max(a, b)), []).append(item)
+
+    rules = {}
+    for (a, b), rows in by_pair.items():
+        latest = max(_clean(r.get("NOTIFICATION_DATE")) or "" for r in rows)
+        rows = [r for r in rows if (_clean(r.get("NOTIFICATION_DATE")) or "") == latest]
+        kor = {}
+        for r in rows:
+            kor.setdefault(_clean(r.get("INGR_CODE")), _clean(r.get("INGR_KOR_NAME")))
+            kor.setdefault(_clean(r.get("MIXTURE_INGR_CODE")), _clean(r.get("MIXTURE_INGR_KOR_NAME")))
+        rules[(a, b)] = {
+            "ingr_kor_a": kor.get(a), "ingr_kor_b": kor.get(b),
+            "prohibit_content": _join_unique((_clean_text(r.get("PROHBT_CONTENT")) for r in rows), "\n"),
+            "remark": _join_unique((_clean_text(r.get("REMARK")) for r in rows), " / "),
+        }
+    return rules
+
+
+def effect_groups_from_ingredient(items: Iterable[dict]) -> dict[tuple[str, str], dict]:
+    """DUR 성분정보 효능군중복 행 → {(성분코드, DUR_SEQ): {effect_name, sers_name}}."""
+    groups = {}
+    for item in _active_rows(items):
+        code, seq = _clean(item.get("INGR_CODE")), _clean(item.get("DUR_SEQ"))
+        effect = _clean(item.get("EFFECT_CODE") or item.get("EFFECT_NAME"))
+        if code and seq and effect:
+            groups[(code, seq)] = {"effect_name": effect, "sers_name": _clean(item.get("SERS_NAME"))}
+    return groups
+
+
+def age_rules_from_ingredient(items: Iterable[dict], *, with_age_base: bool) -> dict[str, dict]:
+    """DUR 성분정보 특정연령대금기·노인주의 행 → {성분코드: 규칙 값}. 한 성분에 제형별 행이 여럿이면
+    문구를 합치고, `with_age_base`면 그 행들의 `AGE_BASE`가 하나로 같을 때만 나이 기준을 채운다."""
+    by_code: dict[str, list[dict]] = {}
+    for item in _active_rows(items):
+        code = _clean(item.get("INGR_CODE"))
+        if code:
+            by_code.setdefault(code, []).append(item)
+
+    rules = {}
+    for code, rows in by_code.items():
+        threshold = unit = direction = None
+        if with_age_base:
+            bases = {_clean(r.get("AGE_BASE")) for r in rows}
+            if len(bases) == 1:
+                threshold, unit, direction = parse_age_base(bases.pop())
+        rules[code] = {
+            "ingr_kor": _clean(rows[0].get("INGR_NAME") or rows[0].get("INGR_KOR_NAME")),
+            "prohibit_content": _join_unique((_clean_text(r.get("PROHBT_CONTENT")) for r in rows), "\n"),
+            "age_threshold": threshold, "age_unit": unit, "age_direction": direction,
+        }
+    return rules
+
+
+def _parse_iso_date(value: str | None) -> date | None:
+    """'YYYY-MM-DD'. 형식이 다르면 None."""
+    try:
+        return date.fromisoformat(value) if value else None
+    except ValueError:
+        return None
+
+
+def hira_item_gen_codes_from_rows(rows: Iterable[dict]) -> dict[tuple[str, str], dict]:
+    """심평원 의약품표준코드 CSV 행(포장 단위) → {(품목기준코드, 일반명코드): 값}.
+    일반명코드가 빈 행(한약재·취소 품목 다수)은 버린다. 같은 (품목, 코드)의 포장 중 하나라도 취소되지 않았으면
+    `cancelled_on`=None, 모두 취소됐으면 가장 늦은 취소일."""
+    out: dict[tuple[str, str], dict] = {}
+    for r in rows:
+        seq, gen = _clean(r.get("품목기준코드")), _clean(r.get("일반명코드(성분명코드)"))
+        if not seq or not gen:
+            continue
+        cancelled = _parse_iso_date(_clean(r.get("취소일자")))
+        cur = out.get((seq, gen))
+        if cur is None:
+            out[(seq, gen)] = {
+                "etc_otc": _clean(r.get("전문일반구분")), "atc_code": _clean(r.get("국제표준코드(ATC코드)")),
+                "cancelled_on": cancelled, "_live": cancelled is None,
+            }
+            continue
+        cur["etc_otc"] = cur["etc_otc"] or _clean(r.get("전문일반구분"))
+        cur["atc_code"] = cur["atc_code"] or _clean(r.get("국제표준코드(ATC코드)"))
+        if cancelled is None:
+            cur["_live"] = True
+        elif cur["cancelled_on"] is None or cancelled > cur["cancelled_on"]:
+            cur["cancelled_on"] = cancelled
+    for v in out.values():
+        if v.pop("_live"):
+            v["cancelled_on"] = None
+    return out
+
+
+def hira_gen_ingredients_from_rows(rows: Iterable[dict]) -> dict[tuple[str, int], dict]:
+    """심평원 의약품주성분 CSV 행 → {(일반명코드, 순번): 값}. 복합제는 성분별 행이 원본 순서대로 1, 2, …"""
+    out: dict[tuple[str, int], dict] = {}
+    counts: dict[str, int] = {}
+    for r in rows:
+        gen, name = _clean(r.get("일반명코드")), _clean(r.get("일반명"))
+        if not gen or not name:
+            continue
+        counts[gen] = counts.get(gen, 0) + 1
+        out[(gen, counts[gen])] = {
+            "ingr_name": name, "form_code": _clean(r.get("제형구분코드")), "form_name": _clean(r.get("제형")),
+            "route": _clean(r.get("투여")), "strength": _clean(r.get("함량")), "unit": _clean(r.get("단위")),
+            "class_no": _clean(r.get("분류번호")),
+        }
+    return out
+
+
+# 심평원 영문 일반명에서만 떼는 염·수화물 표기 (DUR 쪽 이름은 떼지 않는다 — 모르핀/모르핀황산염처럼
+# DUR이 염별로 코드를 따로 두는 경우가 있어, 양쪽을 떼면 다른 염 코드까지 붙는다)
+_SALT_WORDS = frozenset({
+    "hydrochloride", "hcl", "dihydrochloride", "hydrobromide", "sodium", "disodium", "potassium", "calcium",
+    "magnesium", "mesylate", "mesilate", "dimesylate", "maleate", "fumarate", "hemifumarate", "succinate",
+    "tartrate", "bitartrate", "citrate", "besylate", "besilate", "sulfate", "sulphate", "bisulfate",
+    "phosphate", "diphosphate", "acetate", "bromide", "nitrate", "lactate", "gluconate", "tosylate",
+    "napadisilate", "malate", "oxalate", "pamoate", "embonate", "camsylate", "esylate", "xinafoate",
+    "propionate", "dipropionate", "valerate", "butyrate", "furoate", "hydrate", "monohydrate", "dihydrate",
+    "trihydrate", "sesquihydrate", "hemihydrate", "anhydrous", "micronized", "arginine", "lysine",
+    "tromethamine", "meglumine", "trometamol", "salt", "ester", "hyclate", "monosodium", "dipotassium",
+})
+_AS_PART_RE = re.compile(r'\(as ([^)]*)\)')
+
+
+def resolve_hira_components(
+    names: Sequence[str], by_eng: Mapping[str, set[str]], mix_type: Mapping[str, str | None],
+) -> tuple[set[str], int] | None:
+    """심평원 일반명코드의 성분 이름들(영문) → (DUR 성분코드 집합, 단계). 하나라도 못 맞추면 None
+    (복합제는 전 성분이 맞아야 해소로 친다). 모두 정규화 후 **완전 일치**만 쓴다(부분 일치는 오매칭 — 우레아→히드록시우레아).
+    1단계: 이름 그대로, 또는 '(as X)'의 X가 DUR 영문명과 같음. 2단계: 심평원 이름에서 염·수화물 낱말을 뗀 것이
+    DUR 영문명과 같음. 성분이 하나뿐이면 같은 이름의 '복합' 코드는 빼고 '단일' 코드를 쓴다."""
+    codes: set[str] = set()
+    stage = 1
+    for name in names:
+        key = norm_ingr_eng(name)
+        m = _AS_PART_RE.search(name)
+        hit = by_eng.get(key or "") or (by_eng.get(norm_ingr_eng(m.group(1)) or "") if m else None)
+        if not hit and key:
+            stripped = " ".join(t for t in re.sub(r'[(),]', ' ', _AS_PART_RE.sub(' ', key)).split()
+                                if t not in _SALT_WORDS)
+            hit = by_eng.get(stripped) if stripped else None
+            stage = 2 if hit else stage
+        if not hit:
+            return None
+        if len(names) == 1:
+            hit = {c for c in hit if mix_type.get(c) == "단일"} or hit
+        codes |= hit
+    return codes, stage
 
 
 def _parse_tag_array(raw: str) -> list[str]:
