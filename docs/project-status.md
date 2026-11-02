@@ -25,22 +25,27 @@
 ## 데이터 적재 현황
 
 ```
-drugs 전체                          : 35,529건
+drugs 전체                          : 35,869건
 ├─ 효능정보(efcy)                   : 약 4,900건 ← e약은요 + 약 추가 시 허가정보로 보강
 └─ 성분 JSONB(ingr_name)            : 약 7,600건 ← main_item_ingr 파싱
 
-drug_ingredients                    : 24,846건  ← 성분 단위 판정 조인 브리지 (drugs의 61.5%인 21,842건 해소)
-dur_ingredient_contraindications    :    357건  ← DUR 병용금기 (성분쌍)
-dur_ingredient_effect_groups        :    259건  ← DUR 효능군중복주의 (성분 단위)
-dur_ingredient_age_caution          :    203건  ← 특정연령대금기 123 + 노인주의 80
-dur_item_pregnancy_taboo            : 15,682행 (15,408 품목) ← 임부금기 (품목 단위)
+drug_ingredients                    : 27,353건  ← 성분 단위 판정 조인 브리지 (drugs의 65.7%인 23,552건 해소)
+└─ amount_mg(정·캡슐 1개당 함량)    : 15,506개 약 ← 심평원 주성분 (용량주의용)
+dur_ingredient_contraindications    :  1,251건  ← DUR 병용금기 (성분쌍, 품목정보 357 + 성분정보 894)
+dur_ingredient_effect_groups        :    377건  ← DUR 효능군중복주의 (효능군 + 계열로 묶음)
+dur_ingredient_age_caution          :    290건  ← 특정연령대금기 185 + 노인주의 105
+dur_ingredient_dose_caution         :    619건  ← DUR 용량주의 (하루 최대 용량, 판정 사용 591)
+dur_item_pregnancy_taboo            : 15,683행  ← 임부금기 (품목 단위)
 residual_interactions               :    217건  ← 성분코드 미해소 약이 낀 잔여 폴백 (시드로 고정)
+dur_ingredient_master               :  1,499개  ← DUR 성분코드 ↔ 한글·영문명 (판정 미사용)
+hira_item_gen_codes / hira_gen_ingredients : 52,995 / 59,631행 ← 심평원 약가마스터
 ```
 
-성분코드는 DUR 응답(`DURPrdlstInfoService03`)의 `INGR_CODE`/`MIXTURE_INGR_CODE`에서 가져온다. 해소율 보강은
-`dur_age_caution` · `dur_pregnancy` ·
-`build_drug_ingredients`(품목명 괄호·주성분 이름 매칭)가 맡는다. 해소되지 않는 약은 대부분 DUR에 상호작용 규칙이
-없는 약이다.
+성분코드는 DUR 품목정보(`DURPrdlstInfoService03`)의 `INGR_CODE`/`MIXTURE_INGR_CODE`에서 가져온다. 해소율 보강은
+`dur_age_caution` · `dur_pregnancy` · `build_drug_ingredients`(품목명 괄호·주성분 이름 매칭) ·
+`build_drug_ingredients_hira`(심평원 영문 성분명 ↔ DUR 영문명 완전 일치)가 맡는다. 판정 규칙은 DUR 성분정보
+(`DURIrdntInfoService03`)로 보강한다 — 품목정보는 성분 규칙의 일부만 품목 쌍으로 풀어 준다. 해소되지 않는 약은 대부분
+DUR에 성분 자체가 없는 약(비타민·한약 엑스 등)이다.
 
 ### DB 품질 검증 (`validate_db.py`)
 
@@ -167,7 +172,7 @@ front_app/lib/
 판정은 **성분(ingredient) 단위**가 정식 경로다.
 
 - 복약함 약품을 `drug_ingredients`로 DUR 성분코드에 해소한 뒤 `dur_ingredient_contraindications`·
-  `dur_ingredient_effect_groups`를 조회한다.
+  `dur_ingredient_effect_groups`(효능군 + 계열로 묶음)를 조회한다.
 - `residual_interactions`는 성분 규칙으로 재현되지 않는 쌍만 담고 있어 **항상 함께 조회·병합**한다. finding에는
   `source`(`ingredient`|`residual`)가 붙는다.
 - **알레르기 충돌**: `users.allergy_info`를 `drug_ingredients.ingr_kor`(+ 미해소 약은 `drugs.ingr_name`)와 대소문자·공백 무시
@@ -179,13 +184,14 @@ front_app/lib/
 | 동일 성분 중복 (→ caution) | 탐지 | 서로 다른 약이 같은 성분코드를 가질 때 |
 | DUR 효능군중복주의 (→ caution) | 탐지 | 성분 `dur_ingredient_effect_groups` (+ residual 폴백) |
 | 알레르기 성분 충돌 (→ critical) | 탐지 | 프로필 `allergy_info` 대 성분명. 미등록이면 스킵 |
-| 특정연령대금기 (→ critical) | 부분 탐지 | `dur_ingredient_age_caution`. 원본에 나이 기준이 구조화돼 있지 않아 숫자로 파싱되는 규칙(123건 중 10건)만 판정에 쓴다. 출생연도 미등록이면 스킵 |
+| 특정연령대금기 (→ critical) | 부분 탐지 | `dur_ingredient_age_caution`. DUR 성분정보의 나이 기준(`AGE_BASE`)이 하나로 정해진 규칙(185건 중 163건)만 판정에 쓴다. 출생연도 미등록이면 스킵 |
 | 노인주의 (→ caution) | 탐지 | 고정 기준 만 65세 이상. 출생연도 미등록이면 스킵 |
 | 임부금기 (→ critical) | 탐지 | **품목 단위** `dur_item_pregnancy_taboo`(전체 약의 43.4%). 제형·적응증 범위('경구'·'외용' 등) 때문에 성분으로 합치지 않는다. 프로필에서 "임신 중"을 켠 경우에만 판정 |
-| DUR 병용주의(별도 등급)·용량주의·투여기간주의 | 미탐지 | 병용주의는 품목 단위 공개 API가 없고, 용량·투여기간주의는 원본에 판정할 구조화 기준이 없다 |
+| DUR 용량주의 (→ caution) | 부분 탐지 | 복약함 복용량(1회 개수 × 하루 횟수) × 정·캡슐 1개당 함량을 하루 최대 용량과 비교. 같은 성분은 여러 약을 합산, 규칙과 약의 제형이 맞을 때만. 복용량을 안 적었거나 시럽·가루약이면 스킵 |
+| DUR 병용주의(별도 등급)·투여기간주의 | 미탐지 | 병용주의는 품목 단위 공개 API가 없고, 투여기간주의는 원본에 판정할 기준이 없다 |
 | DUR에 등록되지 않은 조합 | 판정 불가 | AI로 추정하지 않는다 |
 
-> **주의:** 와파린은 국내 DUR 병용금기에 등록된 상호작용이 없다(성분 단위로 바꿔도 0건). 타이레놀(아세트아미노펜) ×
+> **주의:** 와파린의 국내 DUR 병용금기는 메나테트레논·이그라티모드와의 2건뿐이고 아세트아미노펜과의 규칙은 없다. 타이레놀(아세트아미노펜) ×
 > 와파린은 탐지되지 않으며, 이는 코드가 아니라 공공데이터 범위의 한계다. `safe`는 "DUR에 등록된 규칙에 걸리지 않음"이라는
 > 뜻이며 안전 보증이 아니다.
 
@@ -193,7 +199,7 @@ front_app/lib/
 
 | API | 건수 | 비고 |
 |---|---|---|
-| `getCpctyAtentInfoList03` (용량주의) | 6,622건 | 적재하지 않음(판정용 구조화 기준 없음) |
+| `getCpctyAtentInfoList03` (용량주의) | 6,622건 | 쓰지 않음 — 용량주의는 성분정보(`getCpctyAtentInfoList02`)의 `MAX_QTY`로 판정 |
 | `getMdctnPdAtentInfoList03` (투여기간주의) | 633건 | 적재하지 않음(본문 0건) |
 
 ---
@@ -228,7 +234,8 @@ front_app/lib/
 | 복약 알림 실기기 검증 | 단위 테스트·빌드는 통과, 실기기에서 알림 표시와 재부팅 후 유지 여부는 확인 필요 |
 | 로그인 실패 카운터 영속화 | `login_guard`는 프로세스 메모리 — 재시작 시 초기화, 워커를 늘리면 워커별로 센다 |
 | 폐기된 Refresh Token 재사용 로그 | 만료·위조·재사용이 같은 401이라 탈취 신호를 구분하지 못한다 |
-| DUR 용량주의·투여기간주의 판정 | 원본에 용량·기간 기준 필드가 없어 구조화 선행 필요 |
+| DUR 투여기간주의 판정 | 원본에 기간 기준이 없다 |
+| 용량주의 앱 반영 | 복약함 복용량 입력·OCR 복용량은 새 APK부터 |
 
 ---
 

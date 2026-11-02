@@ -57,7 +57,7 @@ class InteractionBanner extends StatelessWidget {
     final isSafe = tone == RiskTone.safe;
 
     // 걸린 규칙이 없다는 건 "DUR에 등록된 위험이 없다"는 뜻이지 안전 보증이 아니다
-    // (예: 와파린은 DUR 병용금기 등록이 0건). 그래서 "괜찮아요"로 단정하지 않는다.
+    // (예: 타이레놀 × 와파린은 DUR 병용금기에 없다). 그래서 "괜찮아요"로 단정하지 않는다.
     final label = isSafe ? '확인된 위험이 없어요' : _summaryLabel(result);
     final onlyDuplicateIngredient = result.duplicateIngredientCount > 0 &&
         result.riskLevel == 'caution' &&
