@@ -35,8 +35,8 @@ raw 테이블이라 그대로는 쓸 수 없다. 이 프로젝트는
 사진 촬영/선택 (image_picker)                                    drugs
   │ 이미지 업로드                                                drug_ingredients (약품→성분코드)
   ▼                                                              dur_ingredient_contraindications
-POST /drugs/ocr ─▶ 서버 OCR(Tesseract) ─▶ 후보 추출 ─▶ 매칭      dur_ingredient_effect_groups
-  │                                                              dur_ingredient_age_caution
+POST /drugs/ocr ─▶ 서버 OCR(Tesseract) ─▶ 후보·복용량 추출 ─▶ 매칭 dur_ingredient_effect_groups
+  │                                                              dur_ingredient_age_caution · dose_caution
   ▼                                                              dur_item_pregnancy_taboo
 사용자가 체크박스로 확인                                         residual_interactions (잔여 폴백)
   │ POST /medicine-box ───────────▶ MedicineBoxService           medicine_box_entries · users · analysis_results
@@ -45,7 +45,7 @@ POST /drugs/ocr ─▶ 서버 OCR(Tesseract) ─▶ 후보 추출 ─▶ 매칭 
   │ POST /analysis/quick-check ───▶ AnalysisService.quick_check
   ▼                                    │  (DB 규칙 조회만, AI 없음)
 위험 배너 표시           복약함 약품 ─▶ 성분코드 해소 ─┬─ 병용금기 / 알레르기 / 특정연령대금기 / 임부금기 → critical
-(critical / caution / safe)                          ├─ 동일 성분·효능군 중복 / 노인주의 → caution
+(critical / caution / safe)                          ├─ 동일 성분·효능군 중복 / 노인주의 / 하루 용량 초과 → caution
   │                                                  └─ residual_interactions 폴백 항상 병합
   ▼ (사용자가 "AI 설명 보기" 탭)
   │ POST /analysis/guide ─────────▶ AiGuideService.generate_guide
@@ -73,9 +73,10 @@ POST /drugs/ocr ─▶ 서버 OCR(Tesseract) ─▶ 후보 추출 ─▶ 매칭 
 | 임부금기 해당 (`dur_item_pregnancy_taboo`, 프로필에서 "임신 중" 설정 시) | **critical** |
 | 위 해당 없고 같은 성분 중복 또는 `dur_ingredient_effect_groups` 효능군 중복 존재 | **caution** |
 | 위 없고 노인주의 해당(만 65세 이상, 출생연도 등록 시) | **caution** |
+| 위 없고 하루 용량 초과(`dur_ingredient_dose_caution`, 복약함에 1회 개수·하루 횟수를 적은 정·캡슐) | **caution** |
 | 아무것도 없음 | **safe** |
 
-알레르기·연령대·임부 판정은 `quick_check`가 `user_id`를 받았을 때만 동작하고(비로그인 경로 없음),
+알레르기·연령대·임부·용량 판정은 `quick_check`가 `user_id`를 받았을 때만 동작하고(비로그인 경로 없음),
 해당 정보를 등록하지 않았으면 그 검사만 건너뛴다. `safe`는 "DUR에 등록된 규칙에 걸리지 않음"이라는 뜻이며
 안전 보증이 아니다.
 
@@ -85,11 +86,10 @@ POST /drugs/ocr ─▶ 서버 OCR(Tesseract) ─▶ 후보 추출 ─▶ 매칭 
 
 | 순위 | 방식 |
 |---|---|
-| 1 | `drug_key` prefix 검색 (정확 일치 우선 정렬) |
-| 2 | 정규화 `drug_key` 완전 일치 |
-| 3 | `item_name`/`simple_name` ILIKE 부분 문자열 |
-| 4 | `ingr_name` JSONB 성분명 기반 재검색 — "와파린정"처럼 브랜드명이 성분명을 괄호에 숨긴 입력 대응 |
-| 5 | 앞 단계가 모두 빈손일 때만 유사도 기반 후보 — 자동 확정하지 않고 "유사 약품"으로만 제시 |
+| 1 | `drug_key` prefix 검색 (완전 일치 우선, 수출 전용 품목은 뒤로) |
+| 2 | `item_name`/`simple_name` ILIKE 부분 문자열 |
+| 3 | `ingr_name` JSONB 성분명 기반 재검색 — "와파린정"처럼 브랜드명이 성분명을 괄호에 숨긴 입력 대응 |
+| 4 | 앞 단계가 모두 빈손일 때만 유사도 기반 후보 — 자동 확정하지 않고 "유사 약품"으로만 제시 |
 
 ### AI 설명 (`AiGuideService`)
 
@@ -144,7 +144,8 @@ backend/                 FastAPI 백엔드 (Docker 이미지에는 이 폴더만
     models/ schemas/ db/
   alembic/               DB 마이그레이션
   sync.py                공공데이터 동기화 CLI (status · overview · approval · dur_contraindications ·
-                         efcy_dplct · dur_age_caution · dur_pregnancy · build_drug_ingredients · …)
+                         efcy_dplct · dur_age_caution · dur_pregnancy · dur_ingredient · hira_master ·
+                         build_drug_ingredients(_hira) · build_drug_amounts · …)
   validate_db.py         데이터 품질 게이트 (치명 문제 시 종료 코드 1)
   seed/                  DB 완전 초기화 시 복원하는 잔여 폴백 데이터
   tests/                 pytest
@@ -214,11 +215,11 @@ GPU가 없는 환경에서는 `/analysis/guide`가 안내 문구로만 응답한
 
 ## 커버리지 한계
 
-판정은 DUR에 등록된 규칙만 대상으로 하므로, 등록되지 않은 조합은 탐지하지 못한다. 예: 와파린은 국내 DUR
-병용금기에 등록된 상호작용이 없어 타이레놀×와파린은 탐지되지 않는다. 특정연령대금기는 원본 응답에 나이 기준을
-담은 구조화 필드가 없어, 자유 텍스트에서 나이 기준을 뽑을 수 있는 규칙만 판정에 쓰인다. 병용주의(별도 등급)·
-용량주의·투여기간주의는 아직 판정에 쓰지 않는다. 상세는 [docs/project-status.md](docs/project-status.md)
-"시스템 커버리지 명세" 참고.
+판정은 DUR에 등록된 규칙만 대상으로 하므로, 등록되지 않은 조합은 탐지하지 못한다. 예: 와파린의 국내 DUR
+병용금기는 메나테트레논·이그라티모드 2건뿐이라 타이레놀×와파린은 탐지되지 않는다. 판정은 약을 DUR 성분코드에
+이어야 하는데 전체 약의 65.6%만 이어져 있다(일반의약품은 약 30%). 특정연령대금기는 DUR 성분정보의 나이 기준이
+있는 185건 중 163건만, 용량주의는 정·캡슐에 복용량을 적은 약만 판정한다. 병용주의(별도 등급)·투여기간주의는
+판정에 쓰지 않는다. 상세는 [docs/project-status.md](docs/project-status.md) "시스템 커버리지" 참고.
 
 ---
 

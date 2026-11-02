@@ -29,8 +29,8 @@ drugs 전체                          : 35,869건
 ├─ 효능정보(efcy)                   : 약 4,900건 ← e약은요 + 약 추가 시 허가정보로 보강
 └─ 성분 JSONB(ingr_name)            : 약 7,600건 ← main_item_ingr 파싱
 
-drug_ingredients                    : 27,353건  ← 성분 단위 판정 조인 브리지 (drugs의 65.7%인 23,552건 해소)
-└─ amount_mg(정·캡슐 1개당 함량)    : 15,506개 약 ← 심평원 주성분 (용량주의용)
+drug_ingredients                    : 29,240건  ← 성분 단위 판정 조인 브리지 (drugs의 65.6%인 23,538건 해소)
+└─ amount_mg(정·캡슐 1개당 함량)    : 15,539개 약 ← 심평원 주성분 (용량주의용)
 dur_ingredient_contraindications    :  1,251건  ← DUR 병용금기 (성분쌍, 품목정보 357 + 성분정보 894)
 dur_ingredient_effect_groups        :    377건  ← DUR 효능군중복주의 (효능군 + 계열로 묶음)
 dur_ingredient_age_caution          :    290건  ← 특정연령대금기 185 + 노인주의 105
@@ -43,7 +43,8 @@ hira_item_gen_codes / hira_gen_ingredients : 52,995 / 59,631행 ← 심평원 �
 
 성분코드는 DUR 품목정보(`DURPrdlstInfoService03`)의 `INGR_CODE`/`MIXTURE_INGR_CODE`에서 가져온다. 해소율 보강은
 `dur_age_caution` · `dur_pregnancy` · `build_drug_ingredients`(품목명 괄호·주성분 이름 매칭) ·
-`build_drug_ingredients_hira`(심평원 영문 성분명 ↔ DUR 영문명 완전 일치)가 맡는다. 판정 규칙은 DUR 성분정보
+`build_drug_ingredients_hira`(심평원 영문 성분명 ↔ DUR 영문명 완전 일치 — 일부 성분만 이어진 복합제에는 빠진 성분을 보탠다)가 맡는다.
+한글 이름 매칭은 완전 일치·접두 일치만 쓰고, 접두가 맞아도 남는 부분이 다른 성분 이름이면 맺지 않는다('포비돈' ≠ 포비돈요오드). 판정 규칙은 DUR 성분정보
 (`DURIrdntInfoService03`)로 보강한다 — 품목정보는 성분 규칙의 일부만 품목 쌍으로 풀어 준다. 해소되지 않는 약은 대부분
 DUR에 성분 자체가 없는 약(비타민·한약 엑스 등)이다.
 
@@ -54,7 +55,7 @@ DUR에 성분 자체가 없는 약(비타민·한약 엑스 등)이다.
 | 자기 자신 상호작용 | 0건 |
 | 깨진 참조(residual_interactions·drug_ingredients) | 0건 |
 | DUR 비정상 item_seq | 0건 |
-| drug_key 중복 | 허용 174그룹 (수출용·개량신약 variants) |
+| drug_key 중복 | 허용 184그룹 (수출용·개량신약 variants) |
 | item_name 3자 미만 | 허용 3건 (API 원본이 짧은 이름) |
 | 허가일자·분류명 누락 | 허용 (API 원본에 없음) |
 
@@ -145,11 +146,10 @@ front_app/lib/
 
 | 순위 | 방식 | 설명 |
 |---|---|---|
-| 1 | prefix 검색 | `drug_key`에서 숫자 앞부분으로 prefix 조회, 정확 일치 우선 |
-| 2 | 정확 `drug_key` 매칭 | 정규화 키 완전 일치 |
-| 3 | ILIKE 폴백 | `item_name`/`simple_name` 부분 문자열 검색 |
-| 4 | 성분명 기반 매칭 | 제형·용량을 뗀 성분명으로 `ingr_name` JSONB + `item_name` 재검색 ('와파린정'처럼 브랜드명이 성분명을 괄호에 숨긴 입력) |
-| 5 | 유사도 후보 | 앞 단계가 모두 빈손일 때만. 자동 확정하지 않고 "유사 약품"으로만 제시 |
+| 1 | prefix 검색 | `drug_key`에서 숫자 앞부분으로 prefix 조회, 완전 일치 우선, 수출 전용 품목은 뒤로 |
+| 2 | ILIKE 폴백 | `item_name`/`simple_name` 부분 문자열 검색 |
+| 3 | 성분명 기반 매칭 | 제형·용량을 뗀 성분명으로 `ingr_name` JSONB + `item_name` 재검색 ('와파린정'처럼 브랜드명이 성분명을 괄호에 숨긴 입력) |
+| 4 | 유사도 후보 | 앞 단계가 모두 빈손일 때만. 자동 확정하지 않고 "유사 약품"으로만 제시 |
 
 ### 백엔드 연결
 - 에뮬레이터: `http://10.0.2.2:8001/api/v1/`
@@ -235,7 +235,9 @@ front_app/lib/
 | 로그인 실패 카운터 영속화 | `login_guard`는 프로세스 메모리 — 재시작 시 초기화, 워커를 늘리면 워커별로 센다 |
 | 폐기된 Refresh Token 재사용 로그 | 만료·위조·재사용이 같은 401이라 탈취 신호를 구분하지 못한다 |
 | DUR 투여기간주의 판정 | 원본에 기간 기준이 없다 |
-| 용량주의 앱 반영 | 복약함 복용량 입력·OCR 복용량은 새 APK부터 |
+| 용량주의 앱 반영 | 복약함 복용량 입력·OCR 복용량은 새 APK부터(웹은 반영됨) |
+| 일반의약품 성분 연결 | 일반의약품은 약 30%만 DUR 성분코드에 이어져 있다(전문의약품 77%) — 심평원 약가 데이터에 적게 들어 있다 |
+| 처방전 표 형식 복용량 | OCR 복용량 읽기 중 처방전 표 형식은 실사진으로 검증하지 못했다 |
 
 ---
 
