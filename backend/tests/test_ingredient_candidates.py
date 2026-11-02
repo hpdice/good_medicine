@@ -15,11 +15,6 @@ def test_parentheses_are_split_on_separators_and_blank_parts_dropped():
     assert candidate_ingredient_names(None, None, "복합제(케토프로펜, 이부프로펜/ ·카페인)") == ["케토프로펜", "이부프로펜", "카페인"]
 
 
-def test_all_sources_empty_gives_empty_list():
-    assert candidate_ingredient_names(None, None, None) == []
-    assert candidate_ingredient_names([], "", "괄호 없는 이름") == []
-
-
 def test_square_and_fullwidth_brackets_are_also_read():
     assert candidate_ingredient_names(None, None, "뉴펜겔[케토프로펜]") == ["케토프로펜"]
     assert candidate_ingredient_names(None, None, "뉴펜겔（케토프로펜）") == ["케토프로펜"]

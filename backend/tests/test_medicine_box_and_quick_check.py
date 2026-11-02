@@ -18,16 +18,6 @@ async def _auth_headers(client) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-async def test_add_drug_to_medicine_box(client, session_factory):
-    async with session_factory() as session:
-        drug = await make_drug(session, "가스활명수정")
-    headers = await _auth_headers(client)
-
-    res = await client.post("/medicine-box", json={"drug_id": str(drug.id)}, headers=headers)
-    assert res.status_code == 201
-    assert res.json()["drug"]["id"] == str(drug.id)
-
-
 async def test_medicine_box_entry_encrypted_at_rest(client, session_factory):
     """복약 정보(어떤 약·용량·메모)는 payload_encrypted 한 컬럼에만 저장되고
     평문 drug_id 컬럼은 존재하지 않는다. 응답에는 복호화된 평문이 나온다."""

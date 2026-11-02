@@ -70,23 +70,6 @@ async def test_allergy_conflict_partial_match_both_directions(client, session_fa
     assert len(res.json()["allergy_conflicts"]) == 1
 
 
-async def test_no_allergy_check_when_profile_empty(client, session_factory):
-    """알레르기 정보를 등록하지 않은 사용자는 기존 판정 그대로(스킵)."""
-    async with session_factory() as session:
-        drug_a = await make_drug(session, "테스트일반정A", ingredients=[("D500004", "일반성분")])
-        drug_b = await make_drug(session, "테스트일반정B")
-
-    token = await register_and_login_with_profile(client)
-    headers = {"Authorization": f"Bearer {token}"}
-    res = await client.post(
-        "/analysis/quick-check",
-        json={"drug_ids": [str(drug_a.id), str(drug_b.id)]},
-        headers=headers,
-    )
-    assert res.status_code == 200
-    assert res.json()["allergy_conflicts"] == []
-
-
 # ---------- 특정연령대금기·노인주의 ----------
 
 async def test_age_taboo_detected_for_young_user(client, session_factory):

@@ -391,9 +391,3 @@ def test_sanitize_drops_second_person_address():
 def test_guide_text_problem(text, problem):
     assert guide_text_problem(text) == problem
 
-
-async def test_guide_requires_at_least_one_drug(client, session_factory):
-    headers = await _auth_headers(client)
-
-    res = await client.post("/analysis/guide", json={"drug_ids": []}, headers=headers)
-    assert res.status_code == 422

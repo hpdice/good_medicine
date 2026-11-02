@@ -100,8 +100,8 @@ async def test_match_names_prefers_precise_match_over_ingredient_fallback(
 _OCR_SAMPLE_TEXT = "OO약국\n아스피린정100mg\n1일 3회\n타이레놀정\n500mg\n용법: 식후 30분\n"
 
 
-def test_extract_candidates_ports_dart_regex():
-    """서버 후보 추출이 Flutter _extractCandidates와 같은 규칙인지 (제형+용량 병합 포함)."""
+def test_extract_candidates_joins_split_dosage_and_skips_instructions():
+    """이름 줄 다음의 순수 용량 줄을 합치고('타이레놀정' + '500mg'), 복용 안내 문장은 후보로 넣지 않는다."""
     got = extract_candidates(_OCR_SAMPLE_TEXT)
     assert "아스피린정100mg" in got
     assert "타이레놀정500mg" in got  # "타이레놀정" + 다음 줄 "500mg" 병합

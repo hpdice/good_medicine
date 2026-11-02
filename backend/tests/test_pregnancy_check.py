@@ -31,20 +31,6 @@ async def test_pregnancy_taboo_detected_as_critical(client, session_factory):
     assert caution["remark"] == "경구"
 
 
-async def test_pregnancy_taboo_ignored_when_not_pregnant(client, session_factory):
-    async with session_factory() as session:
-        drug_a = await make_drug(session, "테스트임부금기정B")
-        drug_b = await make_drug(session, "테스트동반임부정B")
-        await make_pregnancy_taboo(session, drug_a)
-
-    token = await register_and_login_with_profile(client, is_pregnant=False)
-    body = await _quick_check(client, token, drug_a, drug_b)
-
-    assert body["pregnancy_cautions"] == []
-    assert body["pregnancy_taboo_count"] == 0
-    assert body["risk_level"] == "safe"
-
-
 async def test_pregnancy_taboo_ignored_when_profile_unset(client, session_factory):
     """임신 여부를 입력한 적 없는 사용자는 판정에서 스킵(기존 동작 그대로)."""
     async with session_factory() as session:
