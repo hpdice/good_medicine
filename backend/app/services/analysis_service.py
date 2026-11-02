@@ -2,7 +2,8 @@ import itertools
 import re
 import uuid
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from datetime import date
 
 from sqlalchemy import select
@@ -93,6 +94,85 @@ def _rule_fits_form(rule_form: str, drug_kind: str | None) -> bool:
     if not rule_form or "고형제" in rule_form:
         return True
     return drug_kind is not None and drug_kind in {_dose_form_kind(t) for t in _FORM_SEP.split(rule_form)}
+
+
+def _single_form_kind(forms: Iterable[str]) -> str | None:
+    """심평원 제형명들 → 약 하나의 제형. 일반명코드가 여럿이라 제형이 갈리면 모른다(None)."""
+    found = {_dose_form_kind(f) for f in forms} - {None}
+    return found.pop() if len(found) == 1 else None
+
+
+@dataclass
+class _DoseInputs:
+    """용량주의 판정 재료. `daily_mg`는 약 → {성분코드: 하루 mg}(복용량·함량을 둘 다 아는 약만)."""
+    drugs: dict[uuid.UUID, Drug]
+    codes_by_drug: dict[uuid.UUID, set[str]]
+    daily_mg: dict[uuid.UUID, dict[str, float]]
+    kinds: dict[uuid.UUID, str | None]
+    names: dict[str, str]
+
+    def caution(self, counted: list[uuid.UUID], uncounted: list[uuid.UUID], rule: DurIngredientDoseCaution,
+                code: str, daily: float, limit: float, scope: str) -> DoseCaution:
+        return DoseCaution(
+            drug_ids=counted, drug_names=[_display_name(self.drugs[d]) for d in counted],
+            ingredient=self.names.get(code) or rule.ingr_kor or code, daily_mg=round(daily, 3), max_daily_mg=limit,
+            scope=scope, prohibit_content=rule.prohibit_content,
+            uncounted_drug_names=[_display_name(self.drugs[d]) for d in uncounted],
+        )
+
+
+def _total_dose_cautions(
+    dose: _DoseInputs, single_rules: list[DurIngredientDoseCaution],
+) -> tuple[list[DoseCaution], set[tuple[uuid.UUID, str]]]:
+    """단일제 규칙 — 같은 성분이 든 약들의 하루 양을 합쳐 비교. 경고와 경고에 들어간 (약, 성분코드)를 돌려준다."""
+    by_code: dict[str, list[DurIngredientDoseCaution]] = {}
+    for rule in single_rules:
+        if rule.ingr_code in (rule.limits_mg or {}):
+            by_code.setdefault(rule.ingr_code, []).append(rule)
+
+    cautions: list[DoseCaution] = []
+    flagged: set[tuple[uuid.UUID, str]] = set()
+    for code, group in sorted(by_code.items()):
+        counted: list[uuid.UUID] = []
+        uncounted: list[uuid.UUID] = []
+        rule_by_limit: dict[float, DurIngredientDoseCaution] = {}
+        for drug_id in sorted((d for d, codes in dose.codes_by_drug.items() if code in codes), key=str):
+            # 이 약의 제형에 해당하는 상한이 하나로 정해질 때만 센다(없거나 여럿이면 이 약은 이 판정 밖)
+            fitting = {(r.limits_mg or {})[code]: r for r in group if _rule_fits_form(r.form_name, dose.kinds[drug_id])}
+            if len(fitting) != 1:
+                continue
+            if code in dose.daily_mg.get(drug_id, {}):
+                counted.append(drug_id)
+                rule_by_limit.update(fitting)
+            else:
+                uncounted.append(drug_id)
+        if not counted:
+            continue
+        # 제형이 다른 약끼리 상한이 다르면 큰 쪽으로 비교한다(오경고보다 놓치는 쪽을 택함)
+        limit = max(rule_by_limit)
+        total = sum(dose.daily_mg[d][code] for d in counted)
+        if total > limit:
+            cautions.append(dose.caution(counted, uncounted, rule_by_limit[limit], code, total, limit, "total"))
+            flagged |= {(d, code) for d in counted}
+    return cautions, flagged
+
+
+def _product_dose_cautions(
+    dose: _DoseInputs, mix_rules: list[DurIngredientDoseCaution], flagged: set[tuple[uuid.UUID, str]],
+) -> list[DoseCaution]:
+    """복합제 규칙 — 조성이 규칙과 정확히 같은 약 한 품목만. 이미 합산 경고에 든 (약, 성분)은 다시 내지 않는다."""
+    cautions: list[DoseCaution] = []
+    for rule in mix_rules:
+        composition = {rule.ingr_code, *rule.mix_codes.split(",")}
+        for drug_id, codes in dose.codes_by_drug.items():
+            if codes != composition or drug_id not in dose.daily_mg or not _rule_fits_form(rule.form_name, dose.kinds[drug_id]):
+                continue
+            for code, limit in (rule.limits_mg or {}).items():
+                mg = dose.daily_mg[drug_id].get(code)
+                if mg is not None and mg > limit and (drug_id, code) not in flagged:
+                    cautions.append(dose.caution([drug_id], [], rule, code, mg, limit, "product"))
+                    flagged.add((drug_id, code))
+    return cautions
 
 
 def _drugs_by_code(codes_by_drug: dict[uuid.UUID, set[str]]) -> dict[str, set[uuid.UUID]]:
@@ -294,71 +374,20 @@ class AnalysisService:
         if not daily_units or not codes_by_drug:
             return []
         amounts = await self.drugs.get_ingredient_amounts_for_drug_list(list(daily_units))
-        daily_mg = {
-            drug_id: {code: mg * daily_units[drug_id] for code, mg in per_code.items()}
-            for drug_id, per_code in amounts.items()
-        }
         rules = await self.drugs.get_ingr_dose_cautions_for_codes(set().union(*codes_by_drug.values()))
-        names = await self.drugs.get_ingredient_kor_for_codes({c for r in rules for c in (r.limits_mg or {})})
         forms = await self.drugs.get_hira_form_names({d.item_seq for d in drugs.values() if d.item_seq})
-        kinds: dict[uuid.UUID, str | None] = {}
-        for drug_id, drug in drugs.items():
-            found = {_dose_form_kind(f) for f in forms.get(drug.item_seq, ())} - {None}
-            kinds[drug_id] = found.pop() if len(found) == 1 else None
-
-        def caution(counted: list[uuid.UUID], uncounted: list[uuid.UUID], rule: DurIngredientDoseCaution,
-                    code: str, daily: float, limit: float, scope: str) -> DoseCaution:
-            return DoseCaution(
-                drug_ids=counted, drug_names=[_display_name(drugs[d]) for d in counted],
-                ingredient=names.get(code) or rule.ingr_kor or code, daily_mg=round(daily, 3), max_daily_mg=limit,
-                scope=scope, prohibit_content=rule.prohibit_content,
-                uncounted_drug_names=[_display_name(drugs[d]) for d in uncounted],
-            )
-
-        singles: dict[str, list[DurIngredientDoseCaution]] = {}
-        for rule in rules:
-            if not rule.mix_codes and rule.ingr_code in (rule.limits_mg or {}):
-                singles.setdefault(rule.ingr_code, []).append(rule)
-
-        cautions: list[DoseCaution] = []
-        flagged: set[tuple[uuid.UUID, str]] = set()
-        for code, group in sorted(singles.items()):
-            counted: list[uuid.UUID] = []
-            uncounted: list[uuid.UUID] = []
-            rule_by_limit: dict[float, DurIngredientDoseCaution] = {}
-            for drug_id in sorted((d for d, codes in codes_by_drug.items() if code in codes), key=str):
-                # 이 약의 제형에 해당하는 상한이 하나로 정해질 때만 센다(없거나 여럿이면 이 약은 이 판정 밖)
-                fitting = {(r.limits_mg or {})[code]: r for r in group if _rule_fits_form(r.form_name, kinds[drug_id])}
-                if len(fitting) != 1:
-                    continue
-                limit, rule = next(iter(fitting.items()))
-                if code in daily_mg.get(drug_id, {}):
-                    counted.append(drug_id)
-                    rule_by_limit[limit] = rule
-                else:
-                    uncounted.append(drug_id)
-            if not counted:
-                continue
-            # 제형이 다른 약끼리 상한이 다르면 큰 쪽으로 비교한다(오경고보다 놓치는 쪽을 택함)
-            limit = max(rule_by_limit)
-            total = sum(daily_mg[d][code] for d in counted)
-            if total > limit:
-                cautions.append(caution(counted, uncounted, rule_by_limit[limit], code, total, limit, "total"))
-                flagged |= {(d, code) for d in counted}
-
-        for rule in rules:
-            if not rule.mix_codes:
-                continue
-            composition = {rule.ingr_code, *rule.mix_codes.split(",")}
-            for drug_id, codes in codes_by_drug.items():
-                if codes != composition or drug_id not in daily_mg or not _rule_fits_form(rule.form_name, kinds[drug_id]):
-                    continue
-                for code, limit in (rule.limits_mg or {}).items():
-                    mg = daily_mg[drug_id].get(code)
-                    if mg is not None and mg > limit and (drug_id, code) not in flagged:
-                        cautions.append(caution([drug_id], [], rule, code, mg, limit, "product"))
-                        flagged.add((drug_id, code))
-        return cautions
+        dose = _DoseInputs(
+            drugs=drugs,
+            codes_by_drug=codes_by_drug,
+            daily_mg={
+                drug_id: {code: mg * daily_units[drug_id] for code, mg in per_code.items()}
+                for drug_id, per_code in amounts.items()
+            },
+            kinds={drug_id: _single_form_kind(forms.get(drug.item_seq, ())) for drug_id, drug in drugs.items()},
+            names=await self.drugs.get_ingredient_kor_for_codes({c for r in rules for c in (r.limits_mg or {})}),
+        )
+        cautions, flagged = _total_dose_cautions(dose, [r for r in rules if not r.mix_codes])
+        return cautions + _product_dose_cautions(dose, [r for r in rules if r.mix_codes], flagged)
 
     # ------------------------------------------------------------------ #
     # 성분(ingredient) 단위 — 정식 경로                                     #

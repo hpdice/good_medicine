@@ -93,6 +93,19 @@ async def test_match_names_prefers_precise_match_over_ingredient_fallback(
     assert result["matched"]["id"] == str(precise.id)
 
 
+async def test_match_names_prefers_domestic_product_over_export_only(client, session_factory):
+    """수출용 품목은 국내 품목과 매칭키가 같다('판콜에이내복액') — 브랜드명으로 찾으면 국내 품목이 확정돼야 한다."""
+    async with session_factory() as session:
+        await make_drug(session, "판콜에이내복액(Pancold A Oral Liquid 30mL)(수출용)")
+        domestic = await make_drug(session, "판콜에이내복액")
+    token = await register_and_login(client)
+    res = await client.post(
+        "/drugs/match-names", json={"names": ["판콜에이", "판콜에이내복액"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert [r["matched"]["id"] for r in res.json()] == [str(domestic.id)] * 2
+
+
 # --------------------------------------------------------------------------- #
 # POST /drugs/ocr — 서버 OCR (tesseract 호출은 mock, 이미지는 저장 안 함)        #
 # --------------------------------------------------------------------------- #

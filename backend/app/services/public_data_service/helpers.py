@@ -365,6 +365,9 @@ _SALT_WORDS = frozenset({
     "propionate", "dipropionate", "valerate", "butyrate", "furoate", "hydrate", "monohydrate", "dihydrate",
     "trihydrate", "sesquihydrate", "hemihydrate", "anhydrous", "micronized", "arginine", "lysine",
     "tromethamine", "meglumine", "trometamol", "salt", "ester", "hyclate", "monosodium", "dipotassium",
+    # 제형 설명어 — 'acetaminophen(encapsulated)'(타이레놀8시간이알서방정)·'aspirin(enteric coated)'·
+    # 'calcium carbonate(precipitated)'. 함량은 유효성분 기준 그대로다('enteric coated 215mg'처럼 숫자가 붙으면 남아서 안 맞는다)
+    "encapsulated", "enteric", "coated", "precipitated", "usp",
 })
 _AS_PART_RE = re.compile(r'\(as ([^)]*)\)')
 
@@ -452,11 +455,13 @@ def candidate_ingredient_names(
 
 
 def make_ingredient_resolver(pairs: Iterable[Sequence[str | None]]) -> Callable[[str], str | None]:
-    """`(성분명, DUR 성분코드)` 쌍에서 "성분명 → 코드" 해소 함수를 만든다.
+    """`(성분명, DUR 성분코드)` 쌍에서 "성분명 → 코드" 해소 함수를 만든다. 같은 이름이 여러 번 오면 앞의 것을 쓴다.
 
     정규화한 이름이 완전히 같으면 그 코드, 아니면 접두(염 형태 차이: '트리메부틴' ↔
-    '트리메부틴말레산염')가 맞는 코드. substring 매칭은 '우레아→히드록시우레아' 같은
-    오매칭이 나서 쓰지 않는다."""
+    '트리메부틴말레산염')가 맞는 코드 중 가장 긴 이름의 것. substring 매칭은 '우레아→히드록시우레아' 같은
+    오매칭이 나서 쓰지 않는다. 접두가 맞아도 남는 부분이 다른 성분을 가리키면 버린다(`_is_form_rest`) —
+    '포비돈'→포비돈요오드, '미분화'→미분화 시클레소니드, '니코틴산아미드'→니코틴 같은 오매칭이 실제로 있었다.
+    `pairs`에는 DUR이 직접 준 이름만 넣어야 한다 — 이 함수가 맺은 행까지 넣으면 한 번 잘못 맺은 이름이 다음 매칭의 기준이 된다."""
     name_to_code: dict[str, str] = {}
     for ingr_kor, ingr_code in pairs:
         if not ingr_kor or not ingr_code:
@@ -464,7 +469,14 @@ def make_ingredient_resolver(pairs: Iterable[Sequence[str | None]]) -> Callable[
         key = _make_drug_key(ingr_kor)
         if key and key not in name_to_code:
             name_to_code[key] = ingr_code
-    code_keys = sorted(name_to_code)
+    code_keys = sorted(name_to_code, key=len, reverse=True)
+    other_names = [k for k in name_to_code if len(k) >= 3]
+
+    def _is_form_rest(rest: str) -> bool:
+        if rest.endswith(_FORM_REST_SUFFIXES):  # 염·수화물·용매화물·엑스 — '에스암로디핀' + '니코틴산염'
+            return True
+        # '산'·'아미드'가 붙으면 다른 화합물이다(니코틴 → 니코틴산 → 니코틴산아미드)
+        return not rest.startswith(("산", "아미드")) and not any(name in rest for name in other_names)
 
     def _resolve(cand: str) -> str | None:
         key = _make_drug_key(cand)
@@ -474,11 +486,20 @@ def make_ingredient_resolver(pairs: Iterable[Sequence[str | None]]) -> Callable[
         if code:
             return code
         for ck in code_keys:
-            if ck.startswith(key) or key.startswith(ck):
+            if key.startswith(ck):
+                rest = key[len(ck):]
+            elif ck.startswith(key):
+                rest = ck[len(key):]
+            else:
+                continue
+            if _is_form_rest(rest):
                 return name_to_code[ck]
         return None
 
     return _resolve
+
+
+_FORM_REST_SUFFIXES = ("염", "수화물", "설폭시드", "에탄올레이트", "엑스")
 
 
 def clean_html_text(value: str | None) -> str:

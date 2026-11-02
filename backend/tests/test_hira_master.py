@@ -58,6 +58,9 @@ _MIX = {"D000006": "단일", "D001642": "단일", "D1": "단일", "D2": "단일"
 def test_resolve_hira_components_exact_as_part_and_salt_stage():
     assert resolve_hira_components(["clopidogrel bisulfate (as clopidogrel)"], _BY_ENG, _MIX) == ({"D2"}, 1)
     assert resolve_hira_components(["tamsulosin hydrochloride"], _BY_ENG, _MIX) == ({"D1"}, 2)
+    # 제형 설명어도 뗀다(타이레놀8시간이알서방정 'acetaminophen(encapsulated)') — 숫자가 붙은 설명은 그대로 남아 안 맞는다
+    assert resolve_hira_components(["tamsulosin(encapsulated)"], _BY_ENG, _MIX) == ({"D1"}, 2)
+    assert resolve_hira_components(["tamsulosin(enteric coated 215mg)"], _BY_ENG, _MIX) is None
     # 염이 다른 DUR 코드(모르핀황산염)까지 붙지 않는다 — DUR 쪽 이름에서는 염을 떼지 않음
     assert resolve_hira_components(["morphine hydrochloride"], _BY_ENG, _MIX) == ({"D000006"}, 2)
     # 단일제는 같은 이름의 '복합' 코드를 빼고 '단일'만

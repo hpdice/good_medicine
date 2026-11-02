@@ -34,8 +34,8 @@ class MedicineBoxEntry(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
-    # {drug_id, prescribed_date, dosage_per_intake, intake_frequency, intake_duration_days,
-    #  units_per_intake, times_per_day, intake_times, reminder_enabled, notes} 를 JSON 직렬화 후 AES-256-GCM 암호화한 base64 문자열
+    # {drug_id, prescribed_date, intake_duration_days, units_per_intake, times_per_day,
+    #  intake_times, reminder_enabled, notes} 를 JSON 직렬화 후 AES-256-GCM 암호화한 base64 문자열
     payload_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
 
     # 상태 (판정/필터에 필요 — 평문 유지)

@@ -22,8 +22,6 @@ MedicineBoxEntry _entry({
       'efcy_qesitm': null,
       'item_image': null,
     },
-    'dosage_per_intake': null,
-    'intake_frequency': null,
     'intake_duration_days': intakeDurationDays,
     'intake_times': intakeTimes,
     'reminder_enabled': reminderEnabled,
