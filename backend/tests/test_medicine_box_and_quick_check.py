@@ -27,7 +27,7 @@ async def test_medicine_box_entry_encrypted_at_rest(client, session_factory):
 
     res = await client.post(
         "/medicine-box",
-        json={"drug_id": str(drug.id), "dosage_per_intake": "1정", "notes": "아침 식후 복용"},
+        json={"drug_id": str(drug.id), "units_per_intake": 1, "notes": "아침 식후 복용"},
         headers=headers,
     )
     assert res.status_code == 201

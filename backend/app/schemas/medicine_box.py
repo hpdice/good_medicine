@@ -27,8 +27,6 @@ TimesPerDay = Annotated[int, Field(ge=1, le=12)]
 class MedicineBoxAddManual(BaseModel):
     drug_id: uuid.UUID
     prescribed_date: date | None = None
-    dosage_per_intake: str | None = None
-    intake_frequency: str | None = None
     intake_duration_days: int | None = None
     units_per_intake: UnitsPerIntake | None = None
     times_per_day: TimesPerDay | None = None
@@ -40,8 +38,6 @@ class MedicineBoxAddManual(BaseModel):
 
 
 class MedicineBoxUpdate(BaseModel):
-    dosage_per_intake: str | None = None
-    intake_frequency: str | None = None
     intake_duration_days: int | None = None
     # 복용량은 null을 보내면 지운다(다른 필드는 null = 변경 없음)
     units_per_intake: UnitsPerIntake | None = None
@@ -58,8 +54,6 @@ class MedicineBoxEntryResponse(BaseModel):
     id: uuid.UUID
     drug: DrugSearchResult
     prescribed_date: date | None
-    dosage_per_intake: str | None
-    intake_frequency: str | None
     intake_duration_days: int | None
     units_per_intake: float | None = None
     times_per_day: int | None = None

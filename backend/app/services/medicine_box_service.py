@@ -25,8 +25,6 @@ from app.services.drug_service import DrugService
 _PAYLOAD_FIELDS = {
     "drug_id",
     "prescribed_date",
-    "dosage_per_intake",
-    "intake_frequency",
     "intake_duration_days",
     "units_per_intake",
     "times_per_day",
@@ -67,8 +65,6 @@ class MedicineBoxService:
             id=entry.id,
             drug=DrugSearchResult.model_validate(drug),
             prescribed_date=payload.get("prescribed_date"),
-            dosage_per_intake=payload.get("dosage_per_intake"),
-            intake_frequency=payload.get("intake_frequency"),
             intake_duration_days=payload.get("intake_duration_days"),
             units_per_intake=payload.get("units_per_intake"),
             times_per_day=payload.get("times_per_day"),
