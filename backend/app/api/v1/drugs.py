@@ -30,6 +30,7 @@ from app.services.ocr_service import (
     OcrError,
     UnreadableImageError,
     extract_candidates,
+    extract_doses,
     run_ocr,
 )
 
@@ -85,6 +86,9 @@ async def ocr_match_drugs(
 
     candidates = extract_candidates(text)
     matches = await DrugService(db).match_names(candidates) if candidates else []
+    doses = extract_doses(text, candidates)
+    for m in matches:
+        m["dose"] = doses.get(m["queried_name"])
     matched_count = sum(1 for m in matches if m.get("matched"))
     # 디버깅용 — 이미지 자체는 이 시점엔 이미 폐기됨, 텍스트만 로그에 남는다.
     logger.warning(

@@ -28,6 +28,8 @@ _PAYLOAD_FIELDS = {
     "dosage_per_intake",
     "intake_frequency",
     "intake_duration_days",
+    "units_per_intake",
+    "times_per_day",
     "intake_times",
     "reminder_enabled",
     "notes",
@@ -68,6 +70,8 @@ class MedicineBoxService:
             dosage_per_intake=payload.get("dosage_per_intake"),
             intake_frequency=payload.get("intake_frequency"),
             intake_duration_days=payload.get("intake_duration_days"),
+            units_per_intake=payload.get("units_per_intake"),
+            times_per_day=payload.get("times_per_day"),
             intake_times=payload.get("intake_times"),
             reminder_enabled=payload.get("reminder_enabled", False),
             is_current=entry.is_current,
@@ -145,6 +149,10 @@ class MedicineBoxService:
         entry = await self._get_entry_for_user(user_id, entry_id)
 
         changes = data.model_dump(exclude_none=True, mode="json")
+        changes.update({
+            k: None for k in ("units_per_intake", "times_per_day")
+            if k in data.model_fields_set and getattr(data, k) is None
+        })
         if "is_current" in changes:
             entry.is_current = changes.pop("is_current")
         payload = self._enc.decrypt(entry.payload_encrypted)

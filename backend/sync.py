@@ -11,10 +11,15 @@
     efcy_dplct              DUR 효능군중복주의 동기화 (성분 테이블만 채움)
     approval                의약품 허가정보 동기화
     build_drug_ingredients  drug_ingredients 로컬 보강 (API 미사용, item_name·ingr_name → 성분코드)
+    build_drug_ingredients_hira  drug_ingredients 심평원 경로 보강 (hira_master 적재 후, 미해소 약만, source='hira_eng')
+    build_drug_amounts      drug_ingredients.amount_mg — 정·캡슐 1개당 성분 함량(심평원 주성분, 용량주의 판정용)
     build_residual          residual_interactions 시드 복원 (DB 완전 초기화 후 재구축 시)
     extract_risk_tags       prohibit_content → 로컬 LLM 위험/증상 태그 1회 추출 (GPU 필요)
     dur_age_caution        DUR 특정연령대금기·노인주의 동기화 (성분 테이블만 채움)
     dur_pregnancy           DUR 임부금기 동기화 (품목 단위 판정 규칙 + 성분코드 매핑)
+    dur_ingredient          DUR 성분정보 7종 → 성분코드 조회표 + 판정 규칙 보강(품목정보에 없는 규칙을 source=ingredient로 추가)
+    hira_master             심평원 약가마스터 CSV 2종(SYNC_STATE_DIR/hira/) → 품목↔일반명코드, 일반명코드 성분 구성.
+                            같은 파일이면 건너뛰고, 새 파일이면 바뀐 행만 쓴다 (API 미사용)
     box_detail              복약함에 이미 담긴 약을 허가정보 상세 API로 보강 (효능·용법·주의·성분).
                             새로 담는 약은 담는 순간 자동 보강되므로, 이 기능 도입 전 항목용 1회성
     all                     overview·dur_contraindications·efcy_dplct·approval 순 (기본값)
@@ -24,6 +29,9 @@
                             날짜 생략 시 엔드포인트별 가장 최근 스냅샷. 원본은 동기화 때마다
                             SYNC_STATE_DIR/raw/ 에 자동 보관된다(최근 RAW_KEEP_SNAPSHOTS개 유지).
                             dur_contraindications는 남아 있는 체크포인트가 있으면 그 페이지부터 읽는다.
+    --since=YYYYMMDD        DUR 품목정보 4종(병용금기·효능군중복·연령·임부)을 이 날짜 이후 바뀐 행만 받는다.
+                            생략하면 마지막 성공 동기화 3일 전부터(기록이 없으면 전체). 이미 적재한 행은 다시 받지 않는다.
+    --full                  DUR 품목정보도 전체를 받는다(병용금기는 약 7시간).
 
 판정은 성분 단위(drug_ingredients + dur_ingredient_*)만 쓴다. dur_contraindications·
 efcy_dplct 동기화가 이 테이블들을 채운다. 구 품목 테이블(drug_interactions/
@@ -35,7 +43,7 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 os.environ.setdefault("DEBUG", "false")
 os.environ["DEBUG"] = "false"
@@ -44,7 +52,7 @@ logging.basicConfig(format="%(message)s", level=logging.WARNING)
 for _logger in ("sqlalchemy.engine", "sqlalchemy.pool", "sqlalchemy.dialects", "app"):
     logging.getLogger(_logger).setLevel(logging.WARNING)
 
-# `all`(기본값)이 도는 소스. dur_age_caution·dur_pregnancy는 이름으로만 따로 돌린다.
+# `all`(기본값)이 도는 소스. dur_age_caution·dur_pregnancy·dur_ingredient는 이름으로만 따로 돌린다.
 SOURCES = ["overview", "dur_contraindications", "efcy_dplct", "approval"]
 
 # 소스 이름 -> (표시 이름, PublicDataService 메서드 이름)
@@ -55,6 +63,7 @@ SOURCE_OPS = {
     "approval": ("의약품 제품 허가정보", "sync_drug_approval"),
     "dur_age_caution": ("DUR 특정연령대금기·노인주의", "sync_dur_age_caution"),
     "dur_pregnancy": ("DUR 임부금기", "sync_dur_pregnancy_taboo"),
+    "dur_ingredient": ("DUR 성분정보 (조회표·판정 규칙)", "sync_dur_ingredient"),
 }
 
 
@@ -95,7 +104,26 @@ LOCAL_JOBS = {
     "build_residual": ("residual_interactions 시드 복원 (seed/residual_interactions.json)", "build_residual_from_seed", "{n:,}건 추가", True),
     "extract_risk_tags": ("risk_tags 추출 (prohibit_content → 로컬 LLM, distinct만)", "extract_risk_tags", "{n:,}개 distinct 문장 태그화", False),
     "fill_simple_names": ("item_name → simple_name 일괄 채우기", "fill_simple_names", "{n:,}건 업데이트", True),
+    "build_drug_ingredients_hira": ("drug_ingredients 심평원 경로 보강 (품목→일반명코드→영문 일반명→성분코드)", "build_drug_ingredients_from_hira", "{n:,}개 약 해소 (source='hira_eng')", True),
+    "build_drug_amounts": ("drug_ingredients.amount_mg 채우기 (심평원 주성분 함량, 내복 정·캡슐)", "build_drug_amounts", "{n:,}개 약 함량 채움", False),
+    "hira_master": ("심평원 약가마스터 CSV 적재 (SYNC_STATE_DIR/hira/)", "load_hira_master", "{n:,}행 추가·갱신·삭제", False),
 }
+
+# 변경일(`start_change_date`)로 변경분만 받을 수 있는 DUR 품목정보 소스
+CHANGE_DATE_SOURCES = {"dur_contraindications", "efcy_dplct", "dur_age_caution", "dur_pregnancy"}
+CHANGE_DATE_MARGIN_DAYS = 3  # 원천의 변경일 기록이 하루 이틀 늦게 찍혀도 놓치지 않게
+
+
+def _change_since(source: str, since: str | None, full: bool) -> str | None:
+    """이 소스를 변경분으로 받을 기준일(YYYYMMDD). None이면 전체."""
+    if source not in CHANGE_DATE_SOURCES or full:
+        return None
+    if since:
+        return since
+    last = _load_state().get(source, {}).get("at")
+    if not last:
+        return None
+    return (datetime.fromisoformat(last) - timedelta(days=CHANGE_DATE_MARGIN_DAYS)).strftime("%Y%m%d")
 
 
 async def run_local_job(start: str, method: str, done: str) -> None:
@@ -216,7 +244,9 @@ async def cmd_status():
     print("============================\n")
 
 
-async def run_sync(sources: list[str], replay: str | None = None) -> list[str]:
+async def run_sync(
+    sources: list[str], replay: str | None = None, since: str | None = None, full: bool = False,
+) -> list[str]:
     """실패한 소스 이름 목록을 돌려준다. 호출부가 이 목록으로 종료 코드를 정해
     자동 실행(작업 스케줄러)에서 실패를 알 수 있게 한다."""
     from app.db.session import AsyncSessionLocal
@@ -243,6 +273,10 @@ async def run_sync(sources: list[str], replay: str | None = None) -> list[str]:
 
             service = PublicDataService(db, progress_cb=_cb)
             service.replay_snapshot = replay
+            # replay는 저장된 페이지를 그대로 읽으므로 변경분 필터를 걸지 않는다.
+            service.change_since = None if replay else _change_since(source, since, full)
+            if service.change_since:
+                print(f"  {service.change_since} 이후 바뀐 행만 받습니다 (전체는 --full)")
 
             try:
                 n = await getattr(service, method)()
@@ -255,16 +289,21 @@ async def run_sync(sources: list[str], replay: str | None = None) -> list[str]:
     return failed
 
 
-def parse_args(argv: list[str]) -> tuple[str, str | None]:
-    """(명령, replay 스냅샷). `--replay[=YYYYMMDD]`가 없으면 replay 는 None, 날짜가 없으면 "latest"."""
-    positional = [a for a in argv if not a.startswith("--replay")]
+def parse_args(argv: list[str]) -> tuple[str, str | None, str | None, bool]:
+    """(명령, replay 스냅샷, 변경분 기준일, 전체 여부).
+    `--replay[=YYYYMMDD]`가 없으면 replay 는 None, 날짜가 없으면 "latest"."""
+    positional = [a for a in argv if not a.startswith("--")]
     replay_flags = [a for a in argv if a.startswith("--replay")]
     replay = (replay_flags[0].partition("=")[2] or "latest") if replay_flags else None
-    return (positional[0] if positional else "all"), replay
+    since_flags = [a.partition("=")[2] for a in argv if a.startswith("--since=")]
+    since = since_flags[0] if since_flags else None
+    if since and not (len(since) == 8 and since.isdigit()):
+        raise SystemExit(f"--since 형식은 YYYYMMDD: {since}")
+    return (positional[0] if positional else "all"), replay, since, "--full" in argv
 
 
 async def main_async():
-    cmd, replay = parse_args(sys.argv[1:])
+    cmd, replay, since, full = parse_args(sys.argv[1:])
     if replay:
         print(f"[replay] API 대신 저장된 원본 응답({replay})으로 재적재합니다.")
     failed: list[str] = []
@@ -281,10 +320,10 @@ async def main_async():
             failed = ["box_detail"]
     elif cmd == "all":
         print("전체 동기화를 시작합니다.")
-        failed = await run_sync(SOURCES, replay)
+        failed = await run_sync(SOURCES, replay, since, full)
         await cmd_status()
     elif cmd in SOURCE_OPS:
-        failed = await run_sync([cmd], replay)
+        failed = await run_sync([cmd], replay, since, full)
         await cmd_status()
     else:
         print(__doc__)

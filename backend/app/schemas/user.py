@@ -27,7 +27,6 @@ class UserLogin(BaseModel):
 
 class UserUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
-    phone_number: str | None = Field(default=None, max_length=20)
     health_conditions: list[str] | None = None
     allergy_info: list[str] | None = None
     birth_year: int | None = Field(default=None, ge=1900, le=2100)
@@ -39,7 +38,6 @@ class UserResponse(BaseModel):
     id: uuid.UUID
     email: str
     name: str
-    phone_number: str | None
     is_active: bool
     created_at: datetime
 

@@ -69,8 +69,8 @@ class HomeProvider extends ChangeNotifier {
     }
   }
 
-  /// 복용 시각/알림 on-off 등 복약함 항목 수정. 성공 시 목록을 갱신한다 —
-  /// 알림 재스케줄은 이 갱신된 `_entries`를 구독하는 쪽(알림 서비스)에서 처리.
+  /// 복용량·복용 시각·알림 on-off 등 복약함 항목 수정. 성공 시 목록을 갱신하고,
+  /// 복용량이 바뀌면 용량 판정이 달라지므로 위험도도 다시 확인한다.
   Future<bool> updateEntry(String entryId, Map<String, dynamic> changes) async {
     try {
       final res =
@@ -79,6 +79,10 @@ class HomeProvider extends ChangeNotifier {
       _entries = [
         for (final e in _entries) e.id == entryId ? updated : e,
       ];
+      if (changes.containsKey('units_per_intake') ||
+          changes.containsKey('times_per_day')) {
+        await _autoCheck();
+      }
       await MedicationReminderService.reschedule(_entries);
       notifyListeners();
       return true;
@@ -95,8 +99,9 @@ class HomeProvider extends ChangeNotifier {
   }
 
   Future<void> _autoCheck() async {
+    // 약 하나로도 걸리는 판정(하루 용량 초과·알레르기·나이·임신)이 있어 1개부터 확인한다.
     final ids = _entries.map((e) => e.drug.id).toList();
-    if (ids.length < 2) {
+    if (ids.isEmpty) {
       _checkResult = null;
       _riskMap = {};
       return;
@@ -150,6 +155,12 @@ class HomeProvider extends ChangeNotifier {
     // 임부금기도 병용금기와 같은 급(critical) — 임신 중으로 등록한 사용자의 약 1개 단위.
     for (final a in result.pregnancyCautions) {
       bump(a.drugId, DrugRisk.contraindicated);
+    }
+    // 하루 용량 초과는 DUR '주의' 등급 — 합계에 들어간 약 모두에 표시한다.
+    for (final d in result.doseCautions) {
+      for (final id in d.drugIds) {
+        bump(id, DrugRisk.caution);
+      }
     }
   }
 }

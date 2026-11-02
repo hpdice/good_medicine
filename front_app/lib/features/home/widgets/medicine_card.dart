@@ -74,6 +74,14 @@ class MedicineCard extends StatelessWidget {
                                 fontSize: 12,
                                 color: scheme.onSurfaceVariant)),
                       ],
+                      if (entry.doseLabel case final dose?) ...[
+                        const SizedBox(height: 2),
+                        Text(dose,
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: scheme.primary)),
+                      ],
                       if (drug.efcyQesitm != null && !isExpanded) ...[
                         const SizedBox(height: 3),
                         Text(drug.efcyQesitm!,
@@ -108,7 +116,7 @@ class MedicineCard extends StatelessWidget {
                       ? scheme.primary
                       : scheme.onSurfaceVariant,
                 ),
-                tooltip: '복약 알림 설정',
+                tooltip: '복용량·알림 설정',
                 onPressed: onEditReminder,
               ),
               IconButton(

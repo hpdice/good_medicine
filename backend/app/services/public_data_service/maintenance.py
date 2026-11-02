@@ -1,13 +1,16 @@
 """일회성 로컬 보강 배치 — 공공데이터 API를 새로 호출하지 않고 이미 적재된
 데이터끼리 대조해 채운다."""
 import json
+from collections.abc import Callable
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core.logging import logger
 from app.models.drug import Drug
 from app.models.drug_ingredient import DrugIngredient
+from app.models.dur_ingredient_master import DurIngredientMaster
+from app.models.hira import HiraGenIngredient, HiraItemGenCode
 from app.models.residual_interaction import ResidualInteraction
 
 from .base import _SyncBase
@@ -15,7 +18,9 @@ from .helpers import (
     _make_simple_name,
     _parse_main_ingr,
     candidate_ingredient_names,
+    hira_amount_mg,
     make_ingredient_resolver,
+    resolve_hira_components,
 )
 
 
@@ -94,6 +99,127 @@ class MaintenanceMixin(_SyncBase):
                 await self.db.commit()
         await self.db.commit()
         return count
+
+    async def build_drug_ingredients_from_hira(self) -> int:
+        """성분코드가 없는 약을 심평원 약가마스터로 해소한다 (source='hira_eng', API 미사용).
+
+        `drugs.item_seq` → 심평원 품목기준코드 → 일반명코드 → 영문 일반명 → DUR 성분정보의 영문명
+        (`dur_ingredient_master.ingr_eng_norm`) 완전 일치 → 성분코드. 일반명코드는 판매 중인 포장의 것을
+        먼저 쓰고, 다 취소된 품목이면 취소된 것을 쓴다. 일반명코드가 여럿인데 가리키는 성분이 서로 다르면 맺지 않는다.
+        실측(2026-11-02): 기존 해소 약에 같은 규칙을 돌려 1단계 84%·2단계 92%가 기존 성분코드와 같았고(나머지 대부분은
+        기존 쪽이 복합제 성분 일부를 빠뜨린 경우), 새로 맺어진 약 무작위 100건에 오매칭 0건.
+        이미 성분코드가 있는 약은 건드리지 않는다. 몇 개 약을 해소했는지 돌려준다."""
+        by_eng, mix_type, kor = await self._dur_master_index()
+        if not by_eng:
+            return 0
+
+        names: dict[str, list[str]] = {}
+        for gen, name in (await self.db.execute(
+            select(HiraGenIngredient.gen_code, HiraGenIngredient.ingr_name)
+            .order_by(HiraGenIngredient.gen_code, HiraGenIngredient.seq)
+        )).all():
+            names.setdefault(gen, []).append(name)
+        gens_of = await self._hira_gen_codes_by_item()
+
+        covered = set((await self.db.execute(select(DrugIngredient.drug_id).distinct())).scalars().all())
+        resolved = 0
+        for drug_id, item_seq in (await self.db.execute(select(Drug.id, Drug.item_seq))).all():
+            if drug_id in covered:
+                continue
+            gens = gens_of(item_seq)
+            if not gens or any(g not in names for g in gens):
+                continue
+            results = [resolve_hira_components(names[g], by_eng, mix_type) for g in sorted(gens)]
+            if any(r is None for r in results) or len({frozenset(r[0]) for r in results if r}) != 1:
+                continue
+            codes = results[0][0] if results[0] else set()
+            for code in sorted(codes):
+                self.db.add(DrugIngredient(drug_id=drug_id, ingr_code=code, ingr_kor=kor.get(code), source="hira_eng"))
+            resolved += 1
+            if resolved % 2000 == 0:
+                await self.db.commit()
+        await self.db.commit()
+        return resolved
+
+    async def _dur_master_index(
+        self,
+    ) -> tuple[dict[str, set[str]], dict[str, str | None], dict[str, str | None]]:
+        """DUR 성분정보 조회표 → (정규화 영문명 → 성분코드들, 코드 → 단일/복합, 코드 → 한글명)."""
+        by_eng: dict[str, set[str]] = {}
+        mix_type: dict[str, str | None] = {}
+        kor: dict[str, str | None] = {}
+        for code, ingr_kor, eng_norm, mt in (await self.db.execute(select(
+            DurIngredientMaster.ingr_code, DurIngredientMaster.ingr_kor,
+            DurIngredientMaster.ingr_eng_norm, DurIngredientMaster.mix_type,
+        ))).all():
+            if eng_norm:
+                by_eng.setdefault(eng_norm, set()).add(code)
+            mix_type[code] = mt
+            kor.setdefault(code, ingr_kor)
+        return by_eng, mix_type, kor
+
+    async def _hira_gen_codes_by_item(self) -> Callable[[str], set[str] | None]:
+        """품목기준코드 → 일반명코드들. 판매 중인 포장의 코드를 먼저 쓰고, 다 취소된 품목이면 취소된 것을 쓴다."""
+        live: dict[str, set[str]] = {}
+        cancelled: dict[str, set[str]] = {}
+        for seq, gen, cancelled_on in (await self.db.execute(select(
+            HiraItemGenCode.item_seq, HiraItemGenCode.gen_code, HiraItemGenCode.cancelled_on,
+        ))).all():
+            (cancelled if cancelled_on else live).setdefault(seq, set()).add(gen)
+        return lambda item_seq: live.get(item_seq) or cancelled.get(item_seq)
+
+    async def build_drug_amounts(self) -> int:
+        """내복 정·캡슐 약의 1개당 성분 함량(mg)을 심평원 주성분에서 `drug_ingredients.amount_mg`에 채운다(API 미사용).
+
+        일반명코드의 성분마다 영문명을 DUR 성분코드로 맞추고(`resolve_hira_components`와 같은 완전 일치 규칙),
+        그 약에 이미 있는 성분코드 행에만 함량을 쓴다 — 성분코드 해소는 바꾸지 않는다. 투여경로가 내복(일반명코드
+        7번째 글자 'A')이 아니거나, 정·캡슐이 아니거나, 일반명코드가 여럿인데 함량이 서로 다르면 비워 둔다.
+        같은 코드에 맞는 성분이 둘이면(속방·서방층 등) 더한다. 매번 전부 다시 계산한다. 함량을 채운 약 수를 돌려준다."""
+        by_eng, mix_type, _ = await self._dur_master_index()
+        comps: dict[str, list[tuple[str, float | None]]] = {}
+        for gen, name, strength, unit, form in (await self.db.execute(select(
+            HiraGenIngredient.gen_code, HiraGenIngredient.ingr_name, HiraGenIngredient.strength,
+            HiraGenIngredient.unit, HiraGenIngredient.form_name,
+        ))).all():
+            comps.setdefault(gen, []).append((name, hira_amount_mg(strength, unit, form)))
+        gens_of = await self._hira_gen_codes_by_item()
+
+        def amounts_of(gen: str) -> dict[str, float] | None:
+            if gen[6:7] != "A" or gen not in comps:
+                return None
+            out: dict[str, float] = {}
+            for name, mg in comps[gen]:
+                hit = resolve_hira_components([name], by_eng, mix_type)
+                if mg is None or hit is None or len(hit[0]) != 1:
+                    continue
+                code = next(iter(hit[0]))
+                out[code] = round(out.get(code, 0.0) + mg, 6)
+            return out or None
+
+        rows_by_drug: dict = {}  # drug_id -> {성분코드: drug_ingredients.id}
+        for row_id, drug_id, code in (await self.db.execute(
+            select(DrugIngredient.id, DrugIngredient.drug_id, DrugIngredient.ingr_code)
+        )).all():
+            rows_by_drug.setdefault(drug_id, {})[code] = row_id
+
+        params, filled = [], set()
+        for drug_id, item_seq in (await self.db.execute(select(Drug.id, Drug.item_seq))).all():
+            gens = gens_of(item_seq)
+            if drug_id not in rows_by_drug or not gens:
+                continue
+            per_gen = [amounts_of(g) for g in sorted(gens)]
+            if per_gen[0] is None or any(a != per_gen[0] for a in per_gen):
+                continue
+            for code, mg in per_gen[0].items():
+                if code in rows_by_drug[drug_id]:
+                    params.append({"id": rows_by_drug[drug_id][code], "amount_mg": mg})
+                    filled.add(drug_id)
+
+        await self.db.execute(update(DrugIngredient).values(amount_mg=None))
+        if params:
+            await self.db.execute(update(DrugIngredient), params)  # 기본키(id)로 행마다 갱신
+        await self.db.commit()
+        return len(filled)
 
     SEED_RESIDUAL_PATH = Path(__file__).resolve().parents[3] / "seed" / "residual_interactions.json"
 

@@ -1,17 +1,22 @@
 import itertools
+import re
 import uuid
 from collections import Counter
 from collections.abc import Sequence
 from datetime import date
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.encryption import get_encryptor
 from app.core.logging import logger
 from app.models.drug import Drug
-from app.models.dur_ingredient_rule import DurIngredientAgeCaution
+from app.models.dur_ingredient_rule import DurIngredientAgeCaution, DurIngredientDoseCaution
+from app.models.medicine_box import MedicineBoxEntry
 from app.schemas.analysis import (
     AgeCaution,
     AllergyConflict,
+    DoseCaution,
     PregnancyCaution,
     QuickCheckFinding,
     QuickCheckResponse,
@@ -23,6 +28,9 @@ from app.services.user_service import UserService
 # 개별 규칙에 나이 기준이 없다 — 통상적인 한국 노인 기준(만 65세)을 고정값으로 쓴다.
 ELDERLY_AGE_THRESHOLD = 65
 
+# 용량주의 규칙의 제형(FORM_NAME)을 나누는 구분자 — '정제/캡슐', '서방성캡슐제, 펠렛'
+_FORM_SEP = re.compile(r"[/,]")
+
 
 def _display_name(drug: Drug) -> str:
     return drug.simple_name or drug.item_name
@@ -30,8 +38,8 @@ def _display_name(drug: Drug) -> str:
 
 def _age_taboo_applies(age_years: int, threshold: int, unit: str, direction: str) -> bool:
     """`age_threshold`/`age_unit`/`age_direction`으로 나이 조건을 계산한다. 생년월일이 아니라
-    출생연도만 수집하므로 "개월" 단위 기준은 근사치(threshold/12)로 연 단위 비교한다."""
-    limit = threshold / 12 if unit == "개월" else threshold
+    출생연도만 수집하므로 "개월"·"주" 단위 기준은 근사치(threshold/12, /52)로 연 단위 비교한다."""
+    limit = threshold / 12 if unit == "개월" else threshold / 52 if unit == "주" else threshold
     return {
         "미만": age_years < limit,
         "이상": age_years >= limit,
@@ -56,15 +64,35 @@ def _risk_level(
     allergy_conflicts: list[AllergyConflict],
     age_cautions: list[AgeCaution],
     pregnancy_cautions: Sequence[PregnancyCaution] = (),
+    dose_cautions: Sequence[DoseCaution] = (),
 ) -> str:
     types = {f.interaction_type for f in findings}
     has_age_taboo = any(a.rule_type == "age_taboo" for a in age_cautions)
     has_elderly_caution = any(a.rule_type == "elderly_caution" for a in age_cautions)
     if "contraindicated" in types or allergy_conflicts or has_age_taboo or pregnancy_cautions:
         return "critical"
-    if "duplicate_ingredient" in types or "duplicate_effect_group" in types or has_elderly_caution:
+    # 용량주의는 DUR에서 '주의' 등급이다(병용금기처럼 금기가 아님)
+    if "duplicate_ingredient" in types or "duplicate_effect_group" in types or has_elderly_caution or dose_cautions:
         return "caution"
     return "safe"
+
+
+def _dose_form_kind(form: str) -> str | None:
+    """제형명 → 정제(tablet) / 캡슐(capsule) / 서방형(sr). 함량을 아는 약은 내복 정·캡슐뿐이라 셋으로만 가른다.
+    같은 성분도 제형마다 하루 최대량이 다르다(클로미프라민: 조루증용 정제 15mg, 우울증용 캡슐은 별도)."""
+    if "서방" in form:
+        return "sr"
+    if "캡슐" in form:
+        return "capsule"
+    return "tablet" if "정" in form else None
+
+
+def _rule_fits_form(rule_form: str, drug_kind: str | None) -> bool:
+    """규칙 제형이 비었거나 '고형제'(아세트아미노펜 '고형제/반고형제/액제')면 모든 정·캡슐에 해당한다.
+    그 밖에는 약의 제형을 알고 그 제형이 규칙에 들어 있을 때만 해당한다."""
+    if not rule_form or "고형제" in rule_form:
+        return True
+    return drug_kind is not None and drug_kind in {_dose_form_kind(t) for t in _FORM_SEP.split(rule_form)}
 
 
 def _drugs_by_code(codes_by_drug: dict[uuid.UUID, set[str]]) -> dict[str, set[uuid.UUID]]:
@@ -108,23 +136,26 @@ class AnalysisService:
         allergy_conflicts, age_cautions, pregnancy_cautions = await self._user_findings(
             user_id, drugs, codes_by_drug
         )
+        dose_cautions = await self._dose_findings(user_id, drugs, codes_by_drug) if user_id else []
 
         kinds = Counter(f.interaction_type for f in findings)
         age_kinds = Counter(a.rule_type for a in age_cautions)
         return QuickCheckResponse(
             total_drugs=len(drugs),
             has_contraindication=kinds["contraindicated"] > 0,
-            risk_level=_risk_level(findings, allergy_conflicts, age_cautions, pregnancy_cautions),
+            risk_level=_risk_level(findings, allergy_conflicts, age_cautions, pregnancy_cautions, dose_cautions),
             contraindicated_count=kinds["contraindicated"],
             duplicate_effect_group_count=kinds["duplicate_effect_group"],
             duplicate_ingredient_count=kinds["duplicate_ingredient"],
             age_taboo_count=age_kinds["age_taboo"],
             elderly_caution_count=age_kinds["elderly_caution"],
             pregnancy_taboo_count=len(pregnancy_cautions),
+            dose_caution_count=len(dose_cautions),
             findings=findings,
             allergy_conflicts=allergy_conflicts,
             age_cautions=age_cautions,
             pregnancy_cautions=pregnancy_cautions,
+            dose_cautions=dose_cautions,
         )
 
     async def _user_findings(
@@ -231,6 +262,105 @@ class AnalysisService:
         return cautions
 
     # ------------------------------------------------------------------ #
+    # 용량주의 — 복약함에 적은 복용량 × 1개당 함량 대 DUR 1일 최대 투여량        #
+    # ------------------------------------------------------------------ #
+
+    async def _daily_units(self, user_id: uuid.UUID, drug_ids: set[uuid.UUID]) -> dict[uuid.UUID, float]:
+        """약품 ID → 하루에 먹는 개수(1회 개수 × 1일 횟수). 복약함에 둘 다 적힌 약만."""
+        enc = get_encryptor()
+        rows = await self.db.execute(select(MedicineBoxEntry.payload_encrypted).where(
+            MedicineBoxEntry.user_id == user_id, MedicineBoxEntry.is_current == True,  # noqa: E712
+        ))
+        units: dict[uuid.UUID, float] = {}
+        for (token,) in rows.all():
+            try:
+                payload = enc.decrypt(token)
+            except Exception:  # 손상된 항목 하나 때문에 판정 전체가 실패하지 않게 건너뛴다
+                logger.warning("복약함 항목 복호화 실패 — 용량 판정에서 제외")
+                continue
+            per_intake, per_day = payload.get("units_per_intake"), payload.get("times_per_day")
+            drug_id = uuid.UUID(payload["drug_id"])
+            if drug_id in drug_ids and per_intake and per_day:
+                units[drug_id] = float(per_intake) * int(per_day)
+        return units
+
+    async def _dose_findings(
+        self, user_id: uuid.UUID, drugs: dict[uuid.UUID, Drug], codes_by_drug: dict[uuid.UUID, set[str]]
+    ) -> list[DoseCaution]:
+        """① 단일제 규칙: 같은 성분이 든 약들의 하루 양을 합쳐 그 성분의 하루 최대량과 비교(아세트아미노펜이 든
+        감기약 + 해열제). ② 복합제 규칙: 조성이 규칙과 정확히 같은 약 한 품목의 하루 양을 그 기준과 비교.
+        복용량이나 함량을 모르는 약은 합치지 못해 실제 양보다 적게 잡히므로, 넘을 때만 경고하고 그 약 이름을 함께 알린다."""
+        daily_units = await self._daily_units(user_id, set(drugs))
+        if not daily_units or not codes_by_drug:
+            return []
+        amounts = await self.drugs.get_ingredient_amounts_for_drug_list(list(daily_units))
+        daily_mg = {
+            drug_id: {code: mg * daily_units[drug_id] for code, mg in per_code.items()}
+            for drug_id, per_code in amounts.items()
+        }
+        rules = await self.drugs.get_ingr_dose_cautions_for_codes(set().union(*codes_by_drug.values()))
+        names = await self.drugs.get_ingredient_kor_for_codes({c for r in rules for c in (r.limits_mg or {})})
+        forms = await self.drugs.get_hira_form_names({d.item_seq for d in drugs.values() if d.item_seq})
+        kinds: dict[uuid.UUID, str | None] = {}
+        for drug_id, drug in drugs.items():
+            found = {_dose_form_kind(f) for f in forms.get(drug.item_seq, ())} - {None}
+            kinds[drug_id] = found.pop() if len(found) == 1 else None
+
+        def caution(counted: list[uuid.UUID], uncounted: list[uuid.UUID], rule: DurIngredientDoseCaution,
+                    code: str, daily: float, limit: float, scope: str) -> DoseCaution:
+            return DoseCaution(
+                drug_ids=counted, drug_names=[_display_name(drugs[d]) for d in counted],
+                ingredient=names.get(code) or rule.ingr_kor or code, daily_mg=round(daily, 3), max_daily_mg=limit,
+                scope=scope, prohibit_content=rule.prohibit_content,
+                uncounted_drug_names=[_display_name(drugs[d]) for d in uncounted],
+            )
+
+        singles: dict[str, list[DurIngredientDoseCaution]] = {}
+        for rule in rules:
+            if not rule.mix_codes and rule.ingr_code in (rule.limits_mg or {}):
+                singles.setdefault(rule.ingr_code, []).append(rule)
+
+        cautions: list[DoseCaution] = []
+        flagged: set[tuple[uuid.UUID, str]] = set()
+        for code, group in sorted(singles.items()):
+            counted: list[uuid.UUID] = []
+            uncounted: list[uuid.UUID] = []
+            rule_by_limit: dict[float, DurIngredientDoseCaution] = {}
+            for drug_id in sorted((d for d, codes in codes_by_drug.items() if code in codes), key=str):
+                # 이 약의 제형에 해당하는 상한이 하나로 정해질 때만 센다(없거나 여럿이면 이 약은 이 판정 밖)
+                fitting = {(r.limits_mg or {})[code]: r for r in group if _rule_fits_form(r.form_name, kinds[drug_id])}
+                if len(fitting) != 1:
+                    continue
+                limit, rule = next(iter(fitting.items()))
+                if code in daily_mg.get(drug_id, {}):
+                    counted.append(drug_id)
+                    rule_by_limit[limit] = rule
+                else:
+                    uncounted.append(drug_id)
+            if not counted:
+                continue
+            # 제형이 다른 약끼리 상한이 다르면 큰 쪽으로 비교한다(오경고보다 놓치는 쪽을 택함)
+            limit = max(rule_by_limit)
+            total = sum(daily_mg[d][code] for d in counted)
+            if total > limit:
+                cautions.append(caution(counted, uncounted, rule_by_limit[limit], code, total, limit, "total"))
+                flagged |= {(d, code) for d in counted}
+
+        for rule in rules:
+            if not rule.mix_codes:
+                continue
+            composition = {rule.ingr_code, *rule.mix_codes.split(",")}
+            for drug_id, codes in codes_by_drug.items():
+                if codes != composition or drug_id not in daily_mg or not _rule_fits_form(rule.form_name, kinds[drug_id]):
+                    continue
+                for code, limit in (rule.limits_mg or {}).items():
+                    mg = daily_mg[drug_id].get(code)
+                    if mg is not None and mg > limit and (drug_id, code) not in flagged:
+                        cautions.append(caution([drug_id], [], rule, code, mg, limit, "product"))
+                        flagged.add((drug_id, code))
+        return cautions
+
+    # ------------------------------------------------------------------ #
     # 성분(ingredient) 단위 — 정식 경로                                     #
     # ------------------------------------------------------------------ #
 
@@ -284,19 +414,21 @@ class AnalysisService:
     async def _effect_group_findings(
         self, drugs: dict[uuid.UUID, Drug], code_to_drugs: dict[str, set[uuid.UUID]]
     ) -> list[QuickCheckFinding]:
-        """효능군중복: 성분코드를 dur_seq로 묶어 서로 다른 약품 2개 이상이면 쌍 생성."""
-        groups: dict[str, tuple[str, set[str]]] = {}
+        """효능군중복: 성분코드를 **효능군 + 계열**(예: 혈압강하작용의약품 / ARB)로 묶어 서로 다른 약품
+        2개 이상이면 쌍 생성. `dur_seq`는 성분마다 따로 붙는 번호라 묶음 키로 쓰지 않는다.
+        계열이 다르면(ARB + CCB, 메트포르민 + 설포닐우레아) 같은 효능군이어도 중복이 아니다."""
+        groups: dict[tuple[str, str | None], set[str]] = {}
         for row in await self.drugs.get_ingr_effect_groups_for_codes(set(code_to_drugs)):
-            _, codes = groups.setdefault(row.dur_seq, (row.effect_name, set()))
-            codes.add(row.ingr_code)
+            groups.setdefault((row.effect_name, row.sers_name), set()).add(row.ingr_code)
 
         findings: list[QuickCheckFinding] = []
-        for effect_name, group_codes in groups.values():
+        for (effect_name, sers_name), group_codes in groups.items():
             in_group = set().union(*(code_to_drugs.get(c, set()) for c in group_codes))
+            label = f"{effect_name} · {sers_name}" if sers_name else effect_name
             for id1, id2 in itertools.combinations(sorted(in_group, key=str), 2):
                 findings.append(_finding(
                     drugs[id1], drugs[id2], "duplicate_effect_group",
-                    f"효능군 중복: {effect_name}", [],
+                    f"효능군 중복: {label}", [],
                 ))
         return findings
 

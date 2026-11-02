@@ -19,7 +19,6 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    phone_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # 민감 건강정보: AES-256-GCM 암호화 후 저장
     health_conditions_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)

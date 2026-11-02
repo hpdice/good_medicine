@@ -9,9 +9,11 @@ from app.models.drug_ingredient import DrugIngredient
 from app.models.dur_ingredient_rule import (
     DurIngredientAgeCaution,
     DurIngredientContraindication,
+    DurIngredientDoseCaution,
     DurIngredientEffectGroup,
     DurItemPregnancyTaboo,
 )
+from app.models.hira import HiraGenIngredient, HiraItemGenCode
 from app.models.residual_interaction import ResidualInteraction
 
 
@@ -67,9 +69,10 @@ async def make_drug(
     ingr_name: list[dict] | None = None,
     ingredients: list[tuple[str, str]] | None = None,
     etc_otc_name: str | None = None,
+    amounts: dict[str, float] | None = None,
 ) -> Drug:
     """`ingredients`: [(ingr_code, ingr_kor), ...] → drug_ingredients 행도 함께 생성.
-    `etc_otc_name`: "일반의약품" / "전문의약품"."""
+    `etc_otc_name`: "일반의약품" / "전문의약품". `amounts`: {ingr_code: 정·캡슐 1개당 mg}."""
     drug = Drug(
         item_seq=item_seq or f"TEST_{uuid.uuid4().hex[:12]}",
         item_name=item_name,
@@ -86,6 +89,7 @@ async def make_drug(
     for code, kor in ingredients or []:
         session.add(DrugIngredient(
             drug_id=drug.id, ingr_code=code, ingr_kor=kor, source="dur",
+            amount_mg=(amounts or {}).get(code),
         ))
     if ingredients:
         await session.commit()
@@ -143,12 +147,13 @@ async def make_ingr_contraindication(
 
 async def make_ingr_effect_group(
     session: AsyncSession, members: list[tuple[str, str]], dur_seq: str,
-    effect_name: str = "테스트 성분 효능군",
+    effect_name: str = "테스트 성분 효능군", sers_name: str | None = None,
 ) -> None:
-    """members: [(ingr_code, ingr_kor), ...] — 같은 dur_seq 효능군 멤버십 (ingr_kor는 무시)."""
+    """members: [(ingr_code, ingr_kor), ...] — 효능군·계열 멤버십 (ingr_kor는 무시).
+    실제 데이터처럼 성분마다 다른 dur_seq를 주려면 성분별로 따로 부른다."""
     for code, _kor in members:
         session.add(DurIngredientEffectGroup(
-            ingr_code=code, dur_seq=dur_seq, effect_name=effect_name,
+            ingr_code=code, dur_seq=dur_seq, effect_name=effect_name, sers_name=sers_name,
         ))
     await session.commit()
 
@@ -183,3 +188,26 @@ async def make_pregnancy_taboo(
     session.add(row)
     await session.commit()
     return row
+
+
+async def make_ingr_dose_caution(
+    session: AsyncSession, ingr_code: str, limits_mg: dict[str, float] | None,
+    ingr_kor: str = "테스트성분", mix_codes: str = "", form_name: str = "",
+    max_qty: str | None = None, prohibit_content: str | None = None,
+) -> DurIngredientDoseCaution:
+    """용량주의 규칙. `mix_codes`가 비면 단일제(성분 합계) 규칙, 있으면 그 조성의 복합제 규칙."""
+    row = DurIngredientDoseCaution(
+        ingr_code=ingr_code, ingr_kor=ingr_kor, mix_codes=mix_codes, form_name=form_name,
+        max_qty=max_qty or f"{limits_mg}", limits_mg=limits_mg, prohibit_content=prohibit_content,
+    )
+    session.add(row)
+    await session.commit()
+    return row
+
+
+async def make_hira_form(session: AsyncSession, drug: Drug, form_name: str) -> None:
+    """약에 심평원 일반명코드·제형을 붙인다(용량주의 규칙의 제형 맞추기용)."""
+    gen_code = f"T{uuid.uuid4().hex[:5].upper()}ATB"
+    session.add(HiraItemGenCode(item_seq=drug.item_seq, gen_code=gen_code))
+    session.add(HiraGenIngredient(gen_code=gen_code, seq=1, ingr_name="test ingredient", form_name=form_name))
+    await session.commit()

@@ -32,10 +32,32 @@ class DrugSearchResult {
       (simpleName?.isNotEmpty == true) ? simpleName! : itemName;
 }
 
+/// 약봉투·처방전에서 읽은 복용 안내(서버 OCR). 못 읽은 항목은 null.
+class OcrDose {
+  final double? unitsPerIntake;
+  final int? timesPerDay;
+  final int? durationDays;
+
+  OcrDose.fromJson(Map<String, dynamic> j)
+      : unitsPerIntake = (j['units_per_intake'] as num?)?.toDouble(),
+        timesPerDay = j['times_per_day'],
+        durationDays = j['duration_days'];
+
+  /// 복약함에 담을 때 함께 보낼 값 — 읽은 것만.
+  Map<String, dynamic> toBoxFields() => {
+        if (unitsPerIntake != null && timesPerDay != null) ...{
+          'units_per_intake': unitsPerIntake,
+          'times_per_day': timesPerDay,
+        },
+        if (durationDays != null) 'intake_duration_days': durationDays,
+      };
+}
+
 class DrugNameMatchResult {
   final String queriedName;
   final DrugSearchResult? matched;
   final List<DrugSearchResult> alternatives;
+  final OcrDose? dose;
 
   DrugNameMatchResult.fromJson(Map<String, dynamic> j)
       : queriedName = j['queried_name'],
@@ -43,5 +65,6 @@ class DrugNameMatchResult {
             j['matched'] != null ? DrugSearchResult.fromJson(j['matched']) : null,
         alternatives = (j['alternatives'] as List? ?? [])
             .map((e) => DrugSearchResult.fromJson(e))
-            .toList();
+            .toList(),
+        dose = j['dose'] != null ? OcrDose.fromJson(j['dose']) : null;
 }

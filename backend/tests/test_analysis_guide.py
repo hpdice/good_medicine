@@ -392,12 +392,8 @@ def test_guide_text_problem(text, problem):
     assert guide_text_problem(text) == problem
 
 
-async def test_guide_requires_at_least_two_drugs(client, session_factory):
-    async with session_factory() as session:
-        drug = await make_drug(session, "가스활명수정")
+async def test_guide_requires_at_least_one_drug(client, session_factory):
     headers = await _auth_headers(client)
 
-    res = await client.post(
-        "/analysis/guide", json={"drug_ids": [str(drug.id)]}, headers=headers
-    )
+    res = await client.post("/analysis/guide", json={"drug_ids": []}, headers=headers)
     assert res.status_code == 422

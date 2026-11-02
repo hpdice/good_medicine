@@ -1,5 +1,6 @@
 from datetime import date
 
+from app.services.analysis_service import _age_taboo_applies
 from tests.factories import (
     make_drug,
     make_ingr_age_caution,
@@ -207,3 +208,11 @@ async def test_no_age_check_when_birth_year_not_set(client, session_factory):
     )
     assert res.status_code == 200
     assert res.json()["age_cautions"] == []
+
+
+def test_age_taboo_week_unit_is_compared_in_years():
+    """AGE_BASE '4주 미만'(성분정보) — 출생연도만 있어 올해 태어난 사용자(0세)만 해당한다."""
+    assert _age_taboo_applies(0, 4, "주", "미만") is True
+    assert _age_taboo_applies(1, 4, "주", "미만") is False
+    assert _age_taboo_applies(1, 24, "개월", "미만") is True
+    assert _age_taboo_applies(2, 24, "개월", "미만") is False

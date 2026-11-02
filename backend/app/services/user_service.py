@@ -31,8 +31,6 @@ class UserService:
 
         if data.name is not None:
             user.name = data.name
-        if data.phone_number is not None:
-            user.phone_number = data.phone_number
         if data.fcm_token is not None:
             user.fcm_token = data.fcm_token
         if data.health_conditions is not None:
@@ -77,7 +75,6 @@ class UserService:
         user.email = f"deleted-{user.id}@deleted.local"
         user.hashed_password = hash_password(uuid.uuid4().hex)
         user.name = "탈퇴한 사용자"
-        user.phone_number = None
         user.is_active = False
         await self.db.commit()
 

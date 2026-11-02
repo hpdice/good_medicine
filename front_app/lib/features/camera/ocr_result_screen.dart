@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../core/models/drug_models.dart';
+import '../../core/models/medicine_box_models.dart' show formatCount;
 import '../../core/theme/app_theme.dart';
 import 'camera_provider.dart';
 
@@ -14,6 +15,12 @@ class OcrResultScreen extends StatefulWidget {
 
 class _OcrResultScreenState extends State<OcrResultScreen> {
   final _checked = <String>{};
+
+  /// 약 ID → 그 약이 인식된 줄에서 읽은 복용 안내(유사 약품을 고른 경우도 같은 줄의 값).
+  Map<String, OcrDose?> _dosesById(List<DrugNameMatchResult> results) => {
+        for (final r in results)
+          for (final d in [?r.matched, ...r.alternatives]) d.id: r.dose,
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -33,9 +40,10 @@ class _OcrResultScreenState extends State<OcrResultScreen> {
                 if (_checked.isNotEmpty) ...[
                   FilledButton.icon(
                     onPressed: () {
-                      final ids = _checked.toList();
+                      final doses = _dosesById(cam.matchResults);
+                      final picked = {for (final id in _checked) id: doses[id]};
                       context.go('/');
-                      cam.addDrugsToBox(ids);
+                      cam.addDrugsToBox(picked);
                     },
                     icon: const Icon(Icons.add_rounded, size: 20),
                     label: Text('내 약에 추가 (${_checked.length})'),
@@ -125,6 +133,14 @@ class _MatchResultCard extends StatelessWidget {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('인식된 텍스트  “${result.queriedName}”',
               style: TextStyle(fontSize: 12, color: muted)),
+          if (_doseText(result.dose) case final dose?) ...[
+            const SizedBox(height: 2),
+            Text('복용 안내  $dose',
+                style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w600)),
+          ],
           Gap.v8,
           if (result.matched != null)
             _DrugRow(
@@ -163,6 +179,17 @@ class _MatchResultCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// "1회 1개 · 하루 2번 · 7일" — 읽은 항목만.
+String? _doseText(OcrDose? dose) {
+  if (dose == null) return null;
+  final parts = [
+    if (dose.unitsPerIntake != null) '1회 ${formatCount(dose.unitsPerIntake!)}개',
+    if (dose.timesPerDay != null) '하루 ${dose.timesPerDay}번',
+    if (dose.durationDays != null) '${dose.durationDays}일',
+  ];
+  return parts.isEmpty ? null : parts.join(' · ');
 }
 
 class _DrugRow extends StatelessWidget {

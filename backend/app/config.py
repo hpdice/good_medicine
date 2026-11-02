@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     PUBLIC_DATA_API_KEY: str = ""
     DRUG_OVERVIEW_API_URL: str = "http://apis.data.go.kr/1471000/DrbEasyDrugInfoService"
     DUR_PRODUCT_API_URL: str = "http://apis.data.go.kr/1471000/DURPrdlstInfoService03"
+    DUR_INGREDIENT_API_URL: str = "https://apis.data.go.kr/1471000/DURIrdntInfoService03"
     DRUG_APPROVAL_API_URL: str = "https://apis.data.go.kr/1471000/DrugPrdtPrmsnInfoService07"
 
     # JWT

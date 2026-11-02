@@ -55,6 +55,26 @@ class PregnancyCautionItem {
         remark = j['remark'];
 }
 
+/// DUR 용량주의 — 하루에 먹는 성분 양이 하루 최대 투여량을 넘음. scope: total(여러 약 합계) / product(복합제 한 품목).
+class DoseCautionItem {
+  final List<String> drugIds, drugNames, uncountedDrugNames;
+  final String ingredient, scope;
+  final double dailyMg, maxDailyMg;
+  final String? prohibitContent;
+
+  DoseCautionItem.fromJson(Map<String, dynamic> j)
+      : drugIds = (j['drug_ids'] as List? ?? []).map((e) => e.toString()).toList(),
+        drugNames = (j['drug_names'] as List? ?? []).map((e) => e.toString()).toList(),
+        uncountedDrugNames = (j['uncounted_drug_names'] as List? ?? [])
+            .map((e) => e.toString())
+            .toList(),
+        ingredient = j['ingredient'],
+        scope = j['scope'] ?? 'total',
+        dailyMg = (j['daily_mg'] as num).toDouble(),
+        maxDailyMg = (j['max_daily_mg'] as num).toDouble(),
+        prohibitContent = j['prohibit_content'];
+}
+
 class QuickCheckResponse {
   final int totalDrugs;
   final bool hasContraindication;
@@ -65,10 +85,12 @@ class QuickCheckResponse {
   final int ageTabooCount;
   final int elderlyCautionCount;
   final int pregnancyTabooCount;
+  final int doseCautionCount;
   final List<FindingItem> findings;
   final List<AllergyConflictItem> allergyConflicts;
   final List<AgeCautionItem> ageCautions;
   final List<PregnancyCautionItem> pregnancyCautions;
+  final List<DoseCautionItem> doseCautions;
 
   QuickCheckResponse.fromJson(Map<String, dynamic> j)
       : totalDrugs = j['total_drugs'],
@@ -80,6 +102,7 @@ class QuickCheckResponse {
         ageTabooCount = j['age_taboo_count'] ?? 0,
         elderlyCautionCount = j['elderly_caution_count'] ?? 0,
         pregnancyTabooCount = j['pregnancy_taboo_count'] ?? 0,
+        doseCautionCount = j['dose_caution_count'] ?? 0,
         findings = (j['findings'] as List? ?? [])
             .map((e) => FindingItem.fromJson(e))
             .toList(),
@@ -91,6 +114,9 @@ class QuickCheckResponse {
             .toList(),
         pregnancyCautions = (j['pregnancy_cautions'] as List? ?? [])
             .map((e) => PregnancyCautionItem.fromJson(e))
+            .toList(),
+        doseCautions = (j['dose_cautions'] as List? ?? [])
+            .map((e) => DoseCautionItem.fromJson(e))
             .toList();
 }
 
