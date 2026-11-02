@@ -11,7 +11,7 @@
     efcy_dplct              DUR 효능군중복주의 동기화 (성분 테이블만 채움)
     approval                의약품 허가정보 동기화
     build_drug_ingredients  drug_ingredients 로컬 보강 (API 미사용, item_name·ingr_name → 성분코드)
-    build_drug_ingredients_hira  drug_ingredients 심평원 경로 보강 (hira_master 적재 후, 미해소 약만, source='hira_eng')
+    build_drug_ingredients_hira  drug_ingredients 심평원 경로 보강 (hira_master 적재 후, 미해소 약 + 일부만 맺힌 약의 빠진 성분, source='hira_eng')
     build_drug_amounts      drug_ingredients.amount_mg — 정·캡슐 1개당 성분 함량(심평원 주성분, 용량주의 판정용)
     build_residual          residual_interactions 시드 복원 (DB 완전 초기화 후 재구축 시)
     extract_risk_tags       prohibit_content → 로컬 LLM 위험/증상 태그 1회 추출 (GPU 필요)
@@ -104,7 +104,7 @@ LOCAL_JOBS = {
     "build_residual": ("residual_interactions 시드 복원 (seed/residual_interactions.json)", "build_residual_from_seed", "{n:,}건 추가", True),
     "extract_risk_tags": ("risk_tags 추출 (prohibit_content → 로컬 LLM, distinct만)", "extract_risk_tags", "{n:,}개 distinct 문장 태그화", False),
     "fill_simple_names": ("item_name → simple_name 일괄 채우기", "fill_simple_names", "{n:,}건 업데이트", True),
-    "build_drug_ingredients_hira": ("drug_ingredients 심평원 경로 보강 (품목→일반명코드→영문 일반명→성분코드)", "build_drug_ingredients_from_hira", "{n:,}개 약 해소 (source='hira_eng')", True),
+    "build_drug_ingredients_hira": ("drug_ingredients 심평원 경로 보강 (품목→일반명코드→영문 일반명→성분코드)", "build_drug_ingredients_from_hira", "{n:,}개 약 해소·보강 (source='hira_eng')", True),
     "build_drug_amounts": ("drug_ingredients.amount_mg 채우기 (심평원 주성분 함량, 내복 정·캡슐)", "build_drug_amounts", "{n:,}개 약 함량 채움", False),
     "hira_master": ("심평원 약가마스터 CSV 적재 (SYNC_STATE_DIR/hira/)", "load_hira_master", "{n:,}행 추가·갱신·삭제", False),
 }

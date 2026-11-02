@@ -88,6 +88,11 @@ def _dosage_rank(drug: Drug, normalized_key: str, target_digits: str) -> int:
     return 2
 
 
+def _export_last():
+    """수출 전용 품목('판콜에이내복액(Pancold A …)(수출용)')은 국내 품목과 매칭키가 같아 순서가 정해지지 않았다 — 뒤로 보낸다."""
+    return case((Drug.item_name.like("%수출용%"), 1), else_=0)
+
+
 class DrugService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -174,7 +179,7 @@ class DrugService:
         rows = list((await self.db.execute(
             select(Drug)
             .where(Drug.drug_key.startswith(name_prefix))
-            .order_by(case((Drug.drug_key == normalized_key, 0), else_=1), Drug.drug_key)
+            .order_by(case((Drug.drug_key == normalized_key, 0), else_=1), _export_last(), Drug.drug_key)
             .limit(5)
         )).scalars().all())
         # 같은 이름에 용량만 다른 제품(파탁정10mg vs 파탁정20mg)이 여러 개 걸리면 알파벳순이라
@@ -197,7 +202,7 @@ class DrugService:
         return list((await self.db.execute(
             select(Drug)
             .where(or_(Drug.item_name.ilike(f"%{name}%"), Drug.simple_name.ilike(f"%{name}%")))
-            .order_by(order_expr)
+            .order_by(order_expr, _export_last())
             .limit(5)
         )).scalars().all())
 

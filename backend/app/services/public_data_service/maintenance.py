@@ -5,6 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import logger
 from app.models.drug import Drug
@@ -23,6 +24,44 @@ from .helpers import (
     resolve_hira_components,
 )
 
+
+async def dur_ingredient_name_pairs(db: AsyncSession) -> list[tuple[str | None, str | None]]:
+    """이름으로 성분코드를 맺을 때 기준이 되는 `(성분명, 성분코드)` — DUR 성분정보 이름을 먼저, DUR 품목정보가 준 이름을 다음에.
+    이름 매칭으로 맺은 행(jsonb_fallback·permit_detail)은 넣지 않는다(`make_ingredient_resolver` 참고)."""
+    master = (await db.execute(select(DurIngredientMaster.ingr_kor, DurIngredientMaster.ingr_code))).all()
+    dur = (await db.execute(
+        select(DrugIngredient.ingr_kor, DrugIngredient.ingr_code).distinct()
+        .where(DrugIngredient.source == "dur", DrugIngredient.ingr_code.isnot(None), DrugIngredient.ingr_kor.isnot(None))
+    )).all()
+    return [(r[0], r[1]) for r in master] + [(r[0], r[1]) for r in dur]
+
+
+def _unambiguous_codes(names: list[str], by_eng: dict[str, set[str]], mix_type: dict[str, str | None]) -> set[str]:
+    """일반명코드의 성분마다 따로 맞춰, 코드가 정확히 하나로 정해지는 성분의 코드만 모은다."""
+    codes: set[str] = set()
+    for name in names:
+        hit = resolve_hira_components([name], by_eng, mix_type)
+        if hit and len(hit[0]) == 1:
+            codes |= hit[0]
+    return codes
+
+
+
+def _hira_codes_to_add(
+    gen_names: list[list[str]], have: set[str], by_eng: dict[str, set[str]], mix_type: dict[str, str | None],
+) -> set[str]:
+    """약 하나의 일반명코드별 성분 이름들 → 새로 더할 성분코드. 일반명코드끼리 가리키는 성분이 다르거나 하나라도 못 맞추면 없음.
+    이미 맺힌 약은 기존 코드가 심평원 구성에 모두 들어 있을 때만, 영문명 하나가 코드 하나에만 맞는 성분을 보탠다 —
+    같은 이름의 '단일' 코드가 둘인 성분(나프록센·사이클로스포린 등, 제형별 코드)은 다른 제형의 코드가 따라 붙기 때문이다."""
+    results = [resolve_hira_components(n, by_eng, mix_type) for n in gen_names]
+    if any(r is None for r in results) or len({frozenset(r[0]) for r in results if r}) != 1:
+        return set()
+    codes = results[0][0] if results[0] else set()
+    if not have:
+        return codes
+    if not have <= codes:
+        return set()
+    return _unambiguous_codes(gen_names[0], by_eng, mix_type) - have
 
 class MaintenanceMixin(_SyncBase):
     async def fill_simple_names(self) -> int:
@@ -50,7 +89,7 @@ class MaintenanceMixin(_SyncBase):
         return count
 
     async def build_drug_ingredients_from_jsonb(self) -> int:
-        """API 미사용 로컬 폴백 — DUR sweep이 채운 `drug_ingredients`(source='dur')에서
+        """API 미사용 로컬 폴백 — DUR 성분정보 이름과 DUR sweep이 채운 `drug_ingredients`(source='dur')에서
         `{정규화 성분명: ingr_code}` 사전을 만들고, `drug_ingredients` 행이 없는 약품의
         성분명 후보를 이름으로 매칭해 보강한다 (source='jsonb_fallback').
 
@@ -62,11 +101,7 @@ class MaintenanceMixin(_SyncBase):
              '뉴펜겔(케토프로펜)'처럼 괄호에 성분명이 노출된다.
         완전 매칭 → 접두(염 형태) 매칭 순.
         """
-        rows = await self.db.execute(
-            select(DrugIngredient.ingr_kor, DrugIngredient.ingr_code)
-            .where(DrugIngredient.ingr_code.isnot(None), DrugIngredient.ingr_kor.isnot(None))
-        )
-        pairs = rows.all()
+        pairs = await dur_ingredient_name_pairs(self.db)
         if not pairs:
             return 0
         _resolve = make_ingredient_resolver(pairs)
@@ -101,14 +136,16 @@ class MaintenanceMixin(_SyncBase):
         return count
 
     async def build_drug_ingredients_from_hira(self) -> int:
-        """성분코드가 없는 약을 심평원 약가마스터로 해소한다 (source='hira_eng', API 미사용).
+        """심평원 약가마스터로 약의 성분코드를 맺는다 (source='hira_eng', API 미사용).
 
         `drugs.item_seq` → 심평원 품목기준코드 → 일반명코드 → 영문 일반명 → DUR 성분정보의 영문명
         (`dur_ingredient_master.ingr_eng_norm`) 완전 일치 → 성분코드. 일반명코드는 판매 중인 포장의 것을
         먼저 쓰고, 다 취소된 품목이면 취소된 것을 쓴다. 일반명코드가 여럿인데 가리키는 성분이 서로 다르면 맺지 않는다.
         실측(2026-11-02): 기존 해소 약에 같은 규칙을 돌려 1단계 84%·2단계 92%가 기존 성분코드와 같았고(나머지 대부분은
         기존 쪽이 복합제 성분 일부를 빠뜨린 경우), 새로 맺어진 약 무작위 100건에 오매칭 0건.
-        이미 성분코드가 있는 약은 건드리지 않는다. 몇 개 약을 해소했는지 돌려준다."""
+        성분코드가 없는 약은 전부 맺고, 이미 일부만 맺힌 약은 **기존 코드가 심평원 구성에 모두 들어 있을 때만** 빠진 코드를 더한다
+        (감기약에 아세트아미노펜이 빠진 경우). 기존 코드 중 하나라도 심평원 구성에 없으면 두 출처가 어긋난 것이라 건드리지 않는다.
+        새로 맺거나 보탠 약 수를 돌려준다."""
         by_eng, mix_type, kor = await self._dur_master_index()
         if not by_eng:
             return 0
@@ -121,19 +158,18 @@ class MaintenanceMixin(_SyncBase):
             names.setdefault(gen, []).append(name)
         gens_of = await self._hira_gen_codes_by_item()
 
-        covered = set((await self.db.execute(select(DrugIngredient.drug_id).distinct())).scalars().all())
+        existing: dict = {}
+        for drug_id, code in (await self.db.execute(select(DrugIngredient.drug_id, DrugIngredient.ingr_code))).all():
+            existing.setdefault(drug_id, set()).add(code)
         resolved = 0
         for drug_id, item_seq in (await self.db.execute(select(Drug.id, Drug.item_seq))).all():
-            if drug_id in covered:
-                continue
             gens = gens_of(item_seq)
             if not gens or any(g not in names for g in gens):
                 continue
-            results = [resolve_hira_components(names[g], by_eng, mix_type) for g in sorted(gens)]
-            if any(r is None for r in results) or len({frozenset(r[0]) for r in results if r}) != 1:
+            to_add = _hira_codes_to_add([names[g] for g in sorted(gens)], existing.get(drug_id, set()), by_eng, mix_type)
+            if not to_add:
                 continue
-            codes = results[0][0] if results[0] else set()
-            for code in sorted(codes):
+            for code in sorted(to_add):
                 self.db.add(DrugIngredient(drug_id=drug_id, ingr_code=code, ingr_kor=kor.get(code), source="hira_eng"))
             resolved += 1
             if resolved % 2000 == 0:

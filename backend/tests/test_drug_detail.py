@@ -110,6 +110,19 @@ async def test_ensure_detail_resolves_dur_ingredient_by_name(session_factory, mo
         assert [(r.ingr_code, r.source) for r in rows] == [("D009999", "permit_detail")]
 
 
+async def test_ensure_detail_adds_missing_code_to_partly_resolved_drug(session_factory, monkeypatch):
+    """복합 감기약이 일부 성분만 맺혀 있으면(아세트아미노펜 누락) 빠진 성분만 더하고 기존 행은 그대로 둔다."""
+    _fake_fetch(monkeypatch, {"MAIN_ITEM_INGR": "[M000001]아세트아미노펜/[M000002]구아이페네신"})
+    async with session_factory() as session:
+        await make_drug(session, "다른약", ingredients=[("D000147", "아세트아미노펜")])
+        drug = await make_drug(session, "테스트감기내복액", ingredients=[("D000493", "구아이페네신")])
+        await DrugDetailService(session).ensure_detail(drug)
+        rows = (await session.execute(
+            select(DrugIngredient.ingr_code, DrugIngredient.source).where(DrugIngredient.drug_id == drug.id)
+        )).all()
+        assert sorted(rows) == [("D000147", "permit_detail"), ("D000493", "dur")]
+
+
 async def test_ensure_detail_leaves_unknown_ingredient_unresolved(session_factory, monkeypatch):
     """DUR에 없는 성분은 억지로 맺지 않는다 — 규칙이 없는 약일 뿐 오류가 아니다."""
     _fake_fetch(monkeypatch, {"MAIN_ITEM_INGR": "[M254177]당귀·목과엑스"})

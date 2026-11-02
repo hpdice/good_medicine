@@ -12,7 +12,7 @@ e약은요(효능·용법·주의 소비자용 문구)는 전체 약의 13.7%만
   EE → efcy_qesitm, UD → use_method_qesitm, NB → atpn_qesitm(전문 — 화면은 앱의 "더보기"가 접고,
   AI 프롬프트는 `ai_guide_service`가 필드당 상한으로 자른다),
   MAIN_ITEM_INGR → main_item_ingr + ingr_name,
-  그리고 `drug_ingredients` 행이 없으면 성분명으로 DUR 성분코드 해소(source='permit_detail').
+  그리고 `drug_ingredients`에 없는 성분은 성분명으로 DUR 성분코드 해소(source='permit_detail').
 DUR 성분코드(D…)와 허가정보 성분코드(M…)는 체계가 달라 코드로는 못 잇고 이름으로만 맺는다.
 """
 from datetime import datetime, timezone
@@ -31,6 +31,7 @@ from app.services.public_data_service.helpers import (
     make_ingredient_resolver,
     permit_doc_to_text,
 )
+from app.services.public_data_service.maintenance import dur_ingredient_name_pairs
 
 DETAIL_TIMEOUT_SECONDS = 8.0
 
@@ -90,22 +91,16 @@ class DrugDetailService:
         await self._resolve_ingredients(drug)
 
     async def _resolve_ingredients(self, drug: Drug) -> None:
-        """DUR 성분코드가 한 건도 없는 약만, 성분명으로 코드를 맺는다(성분 단위 DUR 판정 대상이 됨)."""
-        has_rows = await self.db.scalar(
-            select(DrugIngredient.id).where(DrugIngredient.drug_id == drug.id).limit(1)
-        )
-        if has_rows is not None:
-            return
+        """성분명으로 DUR 성분코드를 맺는다(성분 단위 DUR 판정 대상이 됨). 이미 맺은 코드는 두고 **없는 코드만** 더한다 —
+        복합제가 일부 성분만 맺혀 있으면(감기약에 아세트아미노펜이 빠진 경우) 그 성분의 판정을 놓치기 때문이다."""
+        existing = {code for code in (await self.db.execute(
+            select(DrugIngredient.ingr_code).where(DrugIngredient.drug_id == drug.id)
+        )).scalars() if code}
         names = [i["kor"] for i in (drug.ingr_name or []) if i.get("kor")]
         if not names:
             return
-        known = await self.db.execute(
-            select(DrugIngredient.ingr_kor, DrugIngredient.ingr_code)
-            .where(DrugIngredient.ingr_code.isnot(None), DrugIngredient.ingr_kor.isnot(None))
-            .distinct()
-        )
-        resolve = make_ingredient_resolver(known.all())
-        seen: set[str] = set()
+        resolve = make_ingredient_resolver(await dur_ingredient_name_pairs(self.db))
+        seen: set[str] = set(existing)
         for name in names:
             code = resolve(name)
             if code and code not in seen:
