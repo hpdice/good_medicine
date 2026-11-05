@@ -62,7 +62,7 @@ async def test_hira_leaves_drug_whose_existing_codes_disagree(session_factory):
 
 
 async def test_hira_fill_skips_component_with_two_same_name_codes(session_factory):
-    """DUR에 같은 이름의 단일 코드가 둘인 성분(제형별 코드)은 보탤 때 쓰지 않는다 — 다른 제형의 코드가 따라 붙는다."""
+    """DUR에 같은 이름의 단일 코드가 둘인 성분은 코드가 하나로 정해지지 않아 보탤 때 쓰지 않는다."""
     async with session_factory() as session:
         await _master(session)
         drug = await make_drug(session, "테스트사이클로주", ingredients=[(CSA, "사이클로스포린")])
