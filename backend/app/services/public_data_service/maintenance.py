@@ -52,7 +52,8 @@ def _hira_codes_to_add(
 ) -> set[str]:
     """약 하나의 일반명코드별 성분 이름들 → 새로 더할 성분코드. 일반명코드끼리 가리키는 성분이 다르거나 하나라도 못 맞추면 없음.
     이미 맺힌 약은 기존 코드가 심평원 구성에 모두 들어 있을 때만, 영문명 하나가 코드 하나에만 맞는 성분을 보탠다 —
-    같은 이름의 '단일' 코드가 둘인 성분(나프록센·사이클로스포린 등, 제형별 코드)은 다른 제형의 코드가 따라 붙기 때문이다."""
+    같은 이름의 '단일' 코드가 둘인 성분(나프록센·사이클로스포린 등)은 어느 코드인지 하나로 정해지지 않아 보태지 않는다
+    (같은 성분의 중복 코드다 — 판정은 `drug_service.ingredient_alias_map`으로 하나로 본다)."""
     results = [resolve_hira_components(n, by_eng, mix_type) for n in gen_names]
     if any(r is None for r in results) or len({frozenset(r[0]) for r in results if r}) != 1:
         return set()

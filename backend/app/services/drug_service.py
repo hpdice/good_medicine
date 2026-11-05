@@ -1,12 +1,16 @@
 import re
 import uuid
+from collections.abc import Iterable
+from typing import Any, TypeVar
 
 from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import class_mapper
 
 from app.core.exceptions import NotFoundError
 from app.models.drug import Drug
 from app.models.drug_ingredient import DrugIngredient
+from app.models.dur_ingredient_master import DurIngredientMaster
 from app.models.dur_ingredient_rule import (
     DurIngredientAgeCaution,
     DurIngredientContraindication,
@@ -71,6 +75,38 @@ def _ingredient_match_clause(stem: str):
     )
 
 
+def ingredient_alias_map(rows: Iterable[tuple[str, str | None, str | None]]) -> dict[str, str]:
+    """DUR 성분 조회표 `(성분코드, 한글명, 단일|복합)` → {코드: 대표 코드}. 같은 성분인데 코드가 둘 이상인 것만 담는다.
+
+    DUR은 한 성분에 코드를 여럿 쓰고 규칙을 코드마다 나눠 붙인다 — 케토롤락은 병용금기 34건이 D000274에,
+    노인주의가 D001289에 있고, 같은 품목이 두 코드에 다 나온다(제형별 코드가 아니다). 약이 한쪽 코드만 받으면
+    다른 쪽 규칙을 놓친다(실측: 펜타미딘 D001456 품목이 D000513의 병용금기 6건을 놓침). 한글명(공백 무시)과
+    단일/복합이 같으면 같은 성분으로 보고, 가장 작은 코드를 대표로 쓴다."""
+    groups: dict[tuple[str, str | None], set[str]] = {}
+    for code, kor, mix_type in rows:
+        key = (kor or "").replace(" ", "")
+        if code and key:
+            groups.setdefault((key, mix_type), set()).add(code)
+    return {code: min(codes) for codes in groups.values() if len(codes) > 1 for code in codes}
+
+
+_Row = TypeVar("_Row")
+
+
+def _recoded(row: _Row, **changes: Any) -> _Row:
+    """규칙 행의 성분코드만 대표 코드로 바꾼 사본. 세션에 붙지 않는 임시 객체라 DB에는 쓰이지 않는다."""
+    if not changes:
+        return row
+    values = {attr.key: getattr(row, attr.key) for attr in class_mapper(type(row)).column_attrs}
+    return type(row)(**{**values, **changes})
+
+
+def _canonical_code(code: str, aliases: dict[str, str]) -> dict[str, str]:
+    """`_recoded`에 넘길 변경분 — 대표 코드가 아니면 {'ingr_code': 대표 코드}, 맞으면 {}."""
+    rep = aliases.get(code, code)
+    return {"ingr_code": rep} if rep != code else {}
+
+
 def _name_prefix(normalized_key: str) -> str:
     """정규화 키에서 첫 숫자(용량) 앞까지 — '가스핀정5mg' → '가스핀정'."""
     return re.split(r'\d', normalized_key)[0]
@@ -96,6 +132,7 @@ def _export_last():
 class DrugService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+        self._aliases: dict[str, str] | None = None
 
     async def search(self, query: str, page: int = 1, limit: int = 20) -> list[Drug]:
         offset = (page - 1) * limit
@@ -246,20 +283,43 @@ class DrugService:
 
     # ------------------------------------------------------------------ #
     # 성분(ingredient) 단위 DUR 조회 — quick_check 정식 경로                 #
+    # 성분코드는 모두 대표 코드로 내준다(`ingredient_alias_map`): 약의 코드도, #
+    # 규칙 행의 코드도. 규칙은 같은 성분의 다른 코드에 붙은 것까지 찾는다.     #
     # ------------------------------------------------------------------ #
+
+    async def _ingredient_aliases(self) -> dict[str, str]:
+        if self._aliases is None:
+            name = func.replace(DurIngredientMaster.ingr_kor, " ", "")
+            shared = (
+                select(name.label("name"), DurIngredientMaster.mix_type)
+                .group_by(name, DurIngredientMaster.mix_type)
+                .having(func.count(DurIngredientMaster.ingr_code.distinct()) > 1)
+                .subquery()
+            )
+            stmt = select(
+                DurIngredientMaster.ingr_code, DurIngredientMaster.ingr_kor, DurIngredientMaster.mix_type
+            ).join(shared, (name == shared.c.name) & DurIngredientMaster.mix_type.is_not_distinct_from(shared.c.mix_type))
+            self._aliases = ingredient_alias_map((await self.db.execute(stmt)).tuples().all())
+        return self._aliases
+
+    async def _with_aliases(self, codes: set[str]) -> tuple[set[str], dict[str, str]]:
+        """대표 코드 집합 → (같은 성분의 다른 코드까지 넣은 조회용 집합, 코드 → 대표 코드)."""
+        aliases = await self._ingredient_aliases()
+        return codes | {c for c, rep in aliases.items() if rep in codes}, aliases
 
     async def get_ingredient_codes_for_drug_list(
         self, drug_ids: list[uuid.UUID]
     ) -> dict[uuid.UUID, set[str]]:
-        """약품 ID → 그 약품에 매핑된 DUR 성분코드(INGR_CODE) 집합."""
+        """약품 ID → 그 약품에 매핑된 DUR 성분코드(INGR_CODE, 대표 코드) 집합."""
         stmt = select(DrugIngredient.drug_id, DrugIngredient.ingr_code).where(
             DrugIngredient.drug_id.in_(drug_ids),
             DrugIngredient.ingr_code.isnot(None),
         )
         result = await self.db.execute(stmt)
+        aliases = await self._ingredient_aliases()
         mapping: dict[uuid.UUID, set[str]] = {}
         for drug_id, ingr_code in result.all():
-            mapping.setdefault(drug_id, set()).add(ingr_code)
+            mapping.setdefault(drug_id, set()).add(aliases.get(ingr_code, ingr_code))
         return mapping
 
     async def get_ingredient_amounts_for_drug_list(
@@ -273,9 +333,10 @@ class DrugService:
             DrugIngredient.ingr_code.isnot(None),
             DrugIngredient.amount_mg.isnot(None),
         )
+        aliases = await self._ingredient_aliases()
         mapping: dict[uuid.UUID, dict[str, float]] = {}
         for drug_id, code, amount in (await self.db.execute(stmt)).all():
-            mapping.setdefault(drug_id, {})[code] = amount
+            mapping.setdefault(drug_id, {}).setdefault(aliases.get(code, code), amount)
         return mapping
 
     async def get_hira_form_names(self, item_seqs: set[str]) -> dict[str, set[str]]:
@@ -297,21 +358,30 @@ class DrugService:
         """주어진 성분코드의 용량주의 규칙 중 하루 최대량을 읽은 것."""
         if not codes:
             return []
+        lookup, aliases = await self._with_aliases(codes)
         stmt = select(DurIngredientDoseCaution).where(
-            DurIngredientDoseCaution.ingr_code.in_(codes),
+            DurIngredientDoseCaution.ingr_code.in_(lookup),
             DurIngredientDoseCaution.limits_mg.isnot(None),
         )
-        return list((await self.db.execute(stmt)).scalars().all())
+        rules = []
+        for rule in (await self.db.execute(stmt)).scalars().all():
+            code = aliases.get(rule.ingr_code, rule.ingr_code)
+            mix = ",".join(aliases.get(c, c) for c in rule.mix_codes.split(",")) if rule.mix_codes else ""
+            limits = {aliases.get(c, c): mg for c, mg in (rule.limits_mg or {}).items()}
+            changed = (code, mix, limits) != (rule.ingr_code, rule.mix_codes, rule.limits_mg)
+            rules.append(_recoded(rule, ingr_code=code, mix_codes=mix, limits_mg=limits) if changed else rule)
+        return rules
 
     async def get_ingredient_kor_for_codes(self, codes: set[str]) -> dict[str, str]:
         """성분코드 → 성분 한글명."""
         if not codes:
             return {}
+        lookup, aliases = await self._with_aliases(codes)
         stmt = select(DrugIngredient.ingr_code, DrugIngredient.ingr_kor).where(
-            DrugIngredient.ingr_code.in_(codes), DrugIngredient.ingr_kor.isnot(None)
+            DrugIngredient.ingr_code.in_(lookup), DrugIngredient.ingr_kor.isnot(None)
         )
         result = await self.db.execute(stmt)
-        return {code: kor for code, kor in result.all()}
+        return {aliases.get(code, code): kor for code, kor in result.all()}
 
     async def get_ingr_contraindications_for_codes(
         self, codes: set[str]
@@ -319,12 +389,23 @@ class DrugService:
         """주어진 성분코드 집합 안에서 양쪽이 모두 매칭되는 병용금기 규칙."""
         if not codes:
             return []
+        lookup, aliases = await self._with_aliases(codes)
         stmt = select(DurIngredientContraindication).where(
-            DurIngredientContraindication.ingr_code_a.in_(codes),
-            DurIngredientContraindication.ingr_code_b.in_(codes),
+            DurIngredientContraindication.ingr_code_a.in_(lookup),
+            DurIngredientContraindication.ingr_code_b.in_(lookup),
         )
-        result = await self.db.execute(stmt)
-        return list(result.scalars().all())
+        rules = []
+        for rule in (await self.db.execute(stmt)).scalars().all():
+            a, b = (aliases.get(c, c) for c in (rule.ingr_code_a, rule.ingr_code_b))
+            if a == b:
+                continue
+            changes = {}
+            if a != rule.ingr_code_a:
+                changes["ingr_code_a"] = a
+            if b != rule.ingr_code_b:
+                changes["ingr_code_b"] = b
+            rules.append(_recoded(rule, **changes))
+        return rules
 
     async def get_ingr_effect_groups_for_codes(
         self, codes: set[str]
@@ -332,11 +413,12 @@ class DrugService:
         """주어진 성분코드가 속한 DUR 효능군·계열 멤버십."""
         if not codes:
             return []
+        lookup, aliases = await self._with_aliases(codes)
         stmt = select(DurIngredientEffectGroup).where(
-            DurIngredientEffectGroup.ingr_code.in_(codes)
+            DurIngredientEffectGroup.ingr_code.in_(lookup)
         )
-        result = await self.db.execute(stmt)
-        return list(result.scalars().all())
+        rows = (await self.db.execute(stmt)).scalars().all()
+        return [_recoded(row, **_canonical_code(row.ingr_code, aliases)) for row in rows]
 
     async def get_pregnancy_taboo_for_item_seqs(
         self, item_seqs: set[str]
@@ -354,11 +436,12 @@ class DrugService:
         """주어진 성분코드에 걸린 특정연령대금기(age_taboo)·노인주의(elderly_caution) 규칙."""
         if not codes:
             return []
+        lookup, aliases = await self._with_aliases(codes)
         stmt = select(DurIngredientAgeCaution).where(
-            DurIngredientAgeCaution.ingr_code.in_(codes)
+            DurIngredientAgeCaution.ingr_code.in_(lookup)
         )
-        result = await self.db.execute(stmt)
-        return list(result.scalars().all())
+        rows = (await self.db.execute(stmt)).scalars().all()
+        return [_recoded(row, **_canonical_code(row.ingr_code, aliases)) for row in rows]
 
     # ------------------------------------------------------------------ #
     # 알레르기 규칙 기반 검사용 — 성분 한글명 조회                            #
