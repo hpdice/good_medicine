@@ -231,7 +231,34 @@ async def test_dur_row_handlers_write_rules_and_ingredient_links(session_factory
         assert (group.ingr_code, group.dur_seq, group.effect_name) == ("D2", "7", "해열")
 
         age = await session.scalar(select(DurIngredientAgeCaution))
-        assert (age.rule_type, age.age_threshold, age.age_unit, age.age_direction) == ("age_taboo", 12, "세", "미만")
+        # 품목정보 문구의 "12세 미만"은 읽지 않는다 — 나이 기준은 성분정보 AGE_BASE만 쓴다
+        assert (age.rule_type, age.age_threshold, age.age_unit, age.age_direction) == ("age_taboo", None, None, None)
 
         pregnancy = await session.scalar(select(DurItemPregnancyTaboo))
         assert (pregnancy.item_seq, pregnancy.prohibit_content, pregnancy.remark) == ("300", "1등급", "경구")
+
+
+async def test_age_threshold_comes_only_from_age_base(session_factory):
+    """나이 기준은 성분정보 AGE_BASE만 쓴다 — 동기화가 기존 값을 비우고 다시 채운다.
+    기준이 제형별로 갈리는 성분(레보세티리진 6세/1세)·성분정보에 없는 성분은 판정에서 빠진다."""
+    from app.models.dur_ingredient_rule import DurIngredientAgeCaution
+    from tests.factories import make_ingr_age_caution
+
+    async with session_factory() as session:
+        for code in ("D1", "D2", "D3"):  # 예전 품목정보 문구에서 뽑아 둔 값
+            await make_ingr_age_caution(session, code, "age_taboo", age_threshold=12, age_unit="세", age_direction="미만")
+        svc = PublicDataService(session)
+        svc._ingr_rows = {label: [] for label in svc.INGR_OPS}
+        row = {"DEL_YN": "정상", "INGR_NAME": "성분"}
+        svc._ingr_rows["특정연령대금기"] = [
+            {**row, "INGR_CODE": "D1", "AGE_BASE": "6세 미만"},
+            {**row, "INGR_CODE": "D2", "AGE_BASE": "6세 미만"},
+            {**row, "INGR_CODE": "D2", "AGE_BASE": "1세 미만"},
+        ]
+        await svc._write_ingredient_rules()
+        await session.commit()
+
+    async with session_factory() as session:
+        got = {r.ingr_code: (r.age_threshold, r.age_unit, r.age_direction)
+               for r in (await session.scalars(select(DurIngredientAgeCaution))).all()}
+    assert got == {"D1": (6, "세", "미만"), "D2": (None, None, None), "D3": (None, None, None)}

@@ -17,7 +17,7 @@ from app.models.dur_ingredient_rule import (
 )
 
 from .base import _SyncBase
-from .helpers import _clean, _clean_text, _parse_age_criteria
+from .helpers import _clean, _clean_text
 
 
 class DurSyncMixin(_SyncBase):
@@ -185,10 +185,10 @@ class DurSyncMixin(_SyncBase):
     async def sync_dur_age_caution(self) -> int:
         """특정연령대금기·노인주의 → `dur_ingredient_age_caution`(판정 규칙 테이블).
 
-        두 엔드포인트 다 나이 기준을 구조화한 필드가 없고
-        유일한 단서인 PROHBT_CONTENT(자유 텍스트)도 "OO세 미만" 패턴은 3.6%뿐이라
-        `_parse_age_criteria`가 실패하면 원문만 저장하고 판정에서 스킵한다(모델
-        docstring 참고). `dur_seq` 같은 그룹핑 필드가 없어 효능군중복과 달리
+        품목정보에는 나이 기준을 구조화한 필드가 없어 규칙(성분·문구)만 넣고 나이 기준은 비워 둔다 —
+        기준은 DUR 성분정보의 `AGE_BASE`만 쓴다(`dur_ingredient`가 채운다). 예전엔 PROHBT_CONTENT에서
+        "OO세 미만"을 정규식으로 뽑았지만, 성분정보로 대체되지 않는 건 1건(레보세티리진, 성분정보는
+        제형별로 6세/1세라 하나로 못 정함)뿐이었다. `dur_seq` 같은 그룹핑 필드가 없어 효능군중복과 달리
         그룹 묶음 없이 성분코드 단위로 바로 upsert한다.
         """
         return await self._run_multi_endpoint_sync(
@@ -205,14 +205,11 @@ class DurSyncMixin(_SyncBase):
         if drug is not None:
             await self._upsert_drug_ingredient(drug.id, ingr_code, ingr_kor)
 
-        prohibit_content = _clean(item.get("PROHBT_CONTENT"))
-        threshold, unit, direction = _parse_age_criteria(prohibit_content)
         await self._insert_once(
             DurIngredientAgeCaution, ("ingr_code", "rule_type"),
             {
                 "ingr_code": ingr_code, "ingr_kor": ingr_kor, "rule_type": rule_type,
-                "prohibit_content": prohibit_content,
-                "age_threshold": threshold, "age_unit": unit, "age_direction": direction,
+                "prohibit_content": _clean(item.get("PROHBT_CONTENT")),
             },
         )
 

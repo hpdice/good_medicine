@@ -69,6 +69,7 @@ docker exec drugtest-backend-1 python validate_db.py          # 품질 검증
 |---|---|
 | 개발 모드 (`docker compose up -d`) | 소스는 바인드마운트돼 있지만 **uvicorn `--reload`가 없다** → `docker compose restart backend` |
 | 배포 모드 (Tailscale 포함) | `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build` (소스가 이미지에 구워짐) |
+| 노트북 (`.env`에 `COMPOSE_FILE` 지정) | `docker compose up -d --build` — `-f`를 붙이면 `COMPOSE_FILE`이 무시돼 laptop 설정이 빠진다(postgres가 named volume 대신 D: 폴더에 붙고, GPU 없는 ollama가 시작 실패) |
 | 마이그레이션이 추가됐을 때 | 반영 직후 `docker exec drugtest-backend-1 alembic upgrade head` — **자동으로 돌지 않는다** |
 | 반영 전 확인 | `docker exec -e PYTHONPATH=/app -w /app drugtest-backend-1 python -m pytest tests/ -q` (push하면 CI에서도 돈다) |
 | Dockerfile·compose 가 바뀌었을 때 | `docker compose build backend` 후 `up -d` (개발) / 배포는 `--build` |
