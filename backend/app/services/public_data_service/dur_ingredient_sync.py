@@ -8,7 +8,7 @@
   기존 품목정보 유래 행('product')은 지우지 않는다.
 - 용량주의(`dur_ingredient_dose_caution`)는 성분정보에만 있어 매번 이 응답으로 다시 만든다.
 임부금기는 제형·적응증 범위 때문에 품목 단위 규칙(`dur_item_pregnancy_taboo`)을 그대로 쓴다."""
-from sqlalchemy import delete, func
+from sqlalchemy import delete, func, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.config import settings
@@ -110,7 +110,13 @@ class DurIngredientSyncMixin(_SyncBase):
             added["효능군중복"] += sum(1 for (src,) in result if src == "ingredient")
 
         for label, rule_type, with_age_base in (("특정연령대금기", "age_taboo", True), ("노인주의", "elderly_caution", False)):
-            for code, rule in age_rules_from_ingredient(self._ingr_rows[label], with_age_base=with_age_base).items():
+            age_rules = age_rules_from_ingredient(self._ingr_rows[label], with_age_base=with_age_base)
+            if with_age_base and age_rules:
+                # 나이 기준은 AGE_BASE만 쓴다 — 비우고 다시 채워, 기준이 하나로 안 정해지거나 삭제된 성분은 판정하지 않는다
+                await self.db.execute(update(DurIngredientAgeCaution).where(
+                    DurIngredientAgeCaution.rule_type == rule_type,
+                ).values(age_threshold=None, age_unit=None, age_direction=None))
+            for code, rule in age_rules.items():
                 stmt = pg_insert(DurIngredientAgeCaution).values(
                     ingr_code=code, rule_type=rule_type, source="ingredient", **rule,
                 )

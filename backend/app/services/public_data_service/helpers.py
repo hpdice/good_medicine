@@ -8,8 +8,6 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import date
 from typing import Any
 
-_AGE_CRITERIA_RE = re.compile(r'(\d+)\s*(세|개월)\s*(미만|이상|이하|초과)')
-
 
 def _clean(value: Any) -> str | None:
     if value is None:
@@ -91,21 +89,6 @@ def _parse_main_ingr(main_ingr: str) -> list[dict]:
     return result
 
 
-def _parse_age_criteria(text: str | None) -> tuple[int | None, str | None, str | None]:
-    """PROHBT_CONTENT 원문에서 "OO세 미만" 같은 숫자 나이 기준을 뽑는다.
-
-    500건 샘플 기준 이 패턴이 있는 행은 3.6%뿐이다 — 나머지는
-    "소아"/"영아" 같은 범주어이거나 나이 언급이 아예 없어서 숫자로 못 뽑는다.
-    실패하면 (None, None, None) — 호출부가 원문은 저장하되 판정에는 안 쓴다.
-    """
-    if not text:
-        return None, None, None
-    m = _AGE_CRITERIA_RE.search(text)
-    if not m:
-        return None, None, None
-    return int(m.group(1)), m.group(2), m.group(3)
-
-
 def norm_ingr_eng(name: str | None) -> str | None:
     """영문 성분명 비교 키 — 유니코드 호환 정규화, 소문자, 공백 하나로. 염·`(as …)`은 그대로 둔다
     (완전 일치가 1차, 염 정리는 매칭 단계에서 2차로만 쓴다)."""
@@ -120,8 +103,7 @@ _AGE_BASE_RE = re.compile(r'^\s*(\d+)\s*(세|개월|주)\s*(미만|이상|이하
 
 def parse_age_base(text: str | None) -> tuple[int | None, str | None, str | None]:
     """DUR 성분정보 `AGE_BASE`("18세 미만", "4주 미만")를 (기준, 단위, 방향)으로. 형식이 다르면 셋 다 None.
-    자유 텍스트용 `_parse_age_criteria`와 달리 값 전체가 이 형식일 때만 읽는다('주'는 '4주 이상 투여' 같은
-    문장과 헷갈리므로 자유 텍스트에서는 읽지 않는다)."""
+    값 전체가 이 형식일 때만 읽는다(문장 속 '4주 이상 투여' 같은 말을 나이로 오인하지 않게)."""
     m = _AGE_BASE_RE.match(text or "")
     if not m:
         return None, None, None
