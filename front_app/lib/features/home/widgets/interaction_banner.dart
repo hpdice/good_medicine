@@ -161,6 +161,7 @@ class InteractionBanner extends StatelessWidget {
                 child: SingleDrugRiskCard(
                   drugName: a.drugName,
                   tone: RiskTone.critical,
+                  badgeLabel: '알레르기',
                   reasonLabel: '알레르기 성분',
                   reasonText: '등록한 알레르기 "${a.matchedAllergyTerm}"와(과) '
                       '겹치는 성분(${a.matchedIngredient})이 있습니다.',
@@ -174,6 +175,7 @@ class InteractionBanner extends StatelessWidget {
                   tone: a.ruleType == 'age_taboo'
                       ? RiskTone.critical
                       : RiskTone.caution,
+                  badgeLabel: a.ruleType == 'age_taboo' ? '연령금기' : '노인 주의',
                   reasonLabel: a.ruleType == 'age_taboo' ? '특정연령대금기' : '노인 주의',
                   reasonText: a.prohibitContent ?? '등록한 나이 기준에 해당하는 DUR 규칙입니다.',
                 ),
@@ -184,6 +186,7 @@ class InteractionBanner extends StatelessWidget {
                 child: SingleDrugRiskCard(
                   drugName: a.drugName,
                   tone: RiskTone.critical,
+                  badgeLabel: '임부금기',
                   reasonLabel: '임부금기',
                   reasonText: [
                     if (a.remark != null) '적용 범위: ${a.remark}',
@@ -197,6 +200,7 @@ class InteractionBanner extends StatelessWidget {
                 child: SingleDrugRiskCard(
                   drugName: d.drugNames.join(' + '),
                   tone: RiskTone.caution,
+                  badgeLabel: '용량 주의',
                   reasonLabel: '하루 용량 초과',
                   reasonText: _doseReason(d),
                 ),
