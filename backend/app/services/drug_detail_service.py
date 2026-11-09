@@ -34,11 +34,16 @@ from app.services.public_data_service.helpers import (
     make_ingredient_resolver,
     permit_doc_to_text,
 )
-from app.services.public_data_service.maintenance import dur_ingredient_name_pairs
+from app.services.public_data_service.maintenance import (
+    dur_ingredient_name_pairs,
+    refresh_drugs_master_row,
+)
 
 DETAIL_TIMEOUT_SECONDS = 8.0
 REALTIME_TIMEOUT_SECONDS = 4.0  # 요청 중 보충용 — 늦으면 기다리지 않고 DB 값만으로 진행한다
 BATCH_RESERVE_DEFAULT = 1500    # 일일 한도(약 10,000건) 중 실시간 보충용으로 남겨 두는 호출 수
+
+BACKGROUND_TIMEOUT_SECONDS = 40.0  # 요청 중 4초에 못 받은 약을 뒤에서 마저 받을 때의 대기
 
 # 가장 최근 응답의 남은 호출 수(`x-ratelimit-remaining`) — 배치가 한도를 다 쓰지 않게 보는 용도
 _quota: dict[str, int | None] = {"remaining": None}
@@ -65,6 +70,12 @@ class DrugDetailService:
         await self._apply(drug, item)
         drug.detail_fetched_at = datetime.now(timezone.utc)
         await self.db.commit()
+        # 통합 데이터셋도 바로 맞춘다. 실패해도 약 정보 적재는 이미 끝났으니 막지 않는다(다음 전체 구축 때 맞춰진다).
+        try:
+            await refresh_drugs_master_row(self.db, drug.id)
+        except Exception:  # noqa: BLE001
+            await self.db.rollback()
+            logger.exception("drugs_master 행 갱신 실패 drug_id=%s", drug.id)
         return True
 
     async def _fetch(self, item_seq: str) -> dict | None:
@@ -198,3 +209,29 @@ async def backfill_details(
             await asyncio.gather(*(work(i) for i in ids[1:]))
     return {"candidates": total, "done": state["done"], "failed": state["failed"], "stopped": stop.is_set(),
             "quota_low": state["quota_low"]}
+
+
+# 백그라운드로 도는 작업을 붙잡아 둔다(참조가 없으면 끝나기 전에 수거될 수 있다).
+_background: set[asyncio.Task] = set()
+
+
+def schedule_detail_completion(drug_id, bind) -> None:
+    """요청 중 짧은 제한(4초) 안에 못 받은 약을 응답 뒤에 마저 받아 DB에 저장한다.
+
+    응답은 기다리지 않는다 — 앱은 DB 값을 읽으니, 받아 오는 대로 다음 조회부터 보인다(성분 연결도 같이)."""
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    factory = async_sessionmaker(bind, class_=AsyncSession, expire_on_commit=False)
+
+    async def run() -> None:
+        try:
+            async with factory() as s:
+                drug = await s.get(Drug, drug_id)
+                if drug is not None:
+                    await DrugDetailService(s, timeout=BACKGROUND_TIMEOUT_SECONDS).ensure_detail(drug)
+        except Exception:  # noqa: BLE001 — 부가 작업, 실패해도 다음 배치가 받는다
+            logger.exception("허가정보 상세 백그라운드 적재 실패 drug_id=%s", drug_id)
+
+    task = asyncio.create_task(run())
+    _background.add(task)
+    task.add_done_callback(_background.discard)

@@ -37,8 +37,10 @@ class UserService:
             user.health_conditions_encrypted = self._enc.encrypt(data.health_conditions)
         if data.allergy_info is not None:
             user.allergy_info_encrypted = self._enc.encrypt(data.allergy_info)
-        if data.birth_year is not None:
-            user.birth_year_encrypted = self._enc.encrypt(data.birth_year)
+        if "birth_year" in data.model_fields_set:  # 명시적 null이면 지운다(키를 안 보내면 그대로)
+            user.birth_year_encrypted = (
+                None if data.birth_year is None else self._enc.encrypt(data.birth_year)
+            )
         if data.is_pregnant is not None:
             user.pregnancy_encrypted = self._enc.encrypt(data.is_pregnant)
 

@@ -82,6 +82,18 @@ def _no_permit_detail_network(monkeypatch):
     monkeypatch.setattr(DrugDetailService, "_fetch", _offline)
 
 
+@pytest_asyncio.fixture(autouse=True)
+async def _drain_detail_background_tasks():
+    """약을 담을 때 못 받은 상세를 뒤에서 마저 받는 작업(`schedule_detail_completion`)이 테스트가 끝난 뒤까지
+    남지 않게, 매 테스트가 끝나면 기다렸다가 정리한다."""
+    yield
+    from app.services import drug_detail_service
+
+    pending = list(drug_detail_service._background)
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
+
+
 @pytest.fixture(autouse=True)
 def _reset_login_guard():
     """계정별 로그인 실패 카운터는 프로세스 메모리에 있어 테스트 사이에 새어 나간다 — 매번 비운다."""

@@ -12,6 +12,7 @@
     approval                의약품 허가정보 동기화
     build_drug_ingredients  drug_ingredients 로컬 보강 (API 미사용, item_name·ingr_name → 성분코드)
     build_drug_ingredients_hira  drug_ingredients 심평원 경로 보강 (hira_master 적재 후, 미해소 약 + 일부만 맺힌 약의 빠진 성분, source='hira_eng')
+    repair_pipe_ingr        허가정보 상세의 `|` 구분 복합제 성분이 한 이름으로 묶인 약을 바로잡는다(API 미사용, 끝난 뒤 build_drugs_master 불필요)
     build_drugs_master      drugs_master — 약 1행으로 모은 통합 데이터셋(이름·업체·분류·성분·함량·제형·정보 유무·판정 가능 여부)
     build_drug_amounts      drug_ingredients.amount_mg — 정·캡슐 1개당 성분 함량(심평원 주성분, 용량주의 판정용)
     build_residual          residual_interactions 시드 복원 (DB 완전 초기화 후 재구축 시)
@@ -114,6 +115,7 @@ LOCAL_JOBS = {
     "build_drug_ingredients_hira": ("drug_ingredients 심평원 경로 보강 (품목→일반명코드→영문 일반명→성분코드)", "build_drug_ingredients_from_hira", "{n:,}개 약 해소·보강 (source='hira_eng')", True),
     "build_drug_amounts": ("drug_ingredients.amount_mg 채우기 (심평원 주성분 함량, 내복 정·캡슐)", "build_drug_amounts", "{n:,}개 약 함량 채움", False),
     "build_drugs_master": ("drugs_master 통합 데이터셋 구축 (drugs + 심평원 + DUR 성분 연결, 매번 전부 다시)", "build_drugs_master", "{n:,}개 약 통합", False),
+    "repair_pipe_ingr": ("복합제 성분 원문(`|` 구분) 바로잡기 — 한 이름으로 묶인 성분을 쪼개 성분코드 다시 맺기", "repair_pipe_main_ingr", "{n:,}개 약 바로잡음", False),
     "hira_master": ("심평원 약가마스터 CSV 적재 (SYNC_STATE_DIR/hira/)", "load_hira_master", "{n:,}행 추가·갱신·삭제", False),
 }
 

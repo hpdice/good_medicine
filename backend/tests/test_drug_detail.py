@@ -1,4 +1,5 @@
 """허가정보 상세 API 온디맨드 보강 — 실제 API는 부르지 않고 `_fetch`를 가짜로 바꿔 검증한다."""
+import asyncio
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -219,3 +220,50 @@ async def test_drug_detail_endpoint_fills_missing_detail(client, session_factory
     token = await register_and_login(client)
     res = await client.get(f"/drugs/{drug.id}", headers={"Authorization": f"Bearer {token}"})
     assert res.status_code == 200 and res.json()["efcy_qesitm"] == "골관절증의 증상 완화"
+
+
+async def test_fetched_detail_is_reflected_in_drugs_master_immediately(client, session_factory, monkeypatch):
+    """받은 상세가 전체 재구축을 기다리지 않고 통합 데이터셋에 바로 들어간다."""
+    from app.models.drug_master import DrugMaster
+    from app.services.public_data_service import PublicDataService
+
+    _fake_fetch(monkeypatch, {"EE_DOC_DATA": _EE})
+    async with session_factory() as session:
+        drug = await make_drug(session, "레이본정")
+        await PublicDataService(session).build_drugs_master()
+        assert (await session.get(DrugMaster, drug.id)).has_efficacy is False
+    token = await register_and_login(client)
+    res = await client.post(
+        "/medicine-box", json={"drug_id": str(drug.id)}, headers={"Authorization": f"Bearer {token}"}
+    )
+    assert res.status_code == 201, res.text
+    async with session_factory() as session:
+        assert (await session.get(DrugMaster, drug.id)).has_efficacy is True
+
+
+async def test_detail_not_received_in_time_is_completed_in_background(client, session_factory, monkeypatch):
+    """요청 중 못 받은 약은 응답 뒤에 마저 받아 DB에 저장한다 — 다음 조회부터 앱에 보인다."""
+    from app.services import drug_detail_service
+
+    state = {"calls": 0}
+
+    async def fetch(self, item_seq):
+        state["calls"] += 1
+        # 요청 중(짧은 제한)에는 못 받고, 백그라운드(긴 제한)에서는 받는다
+        return {"EE_DOC_DATA": _EE} if self._timeout == drug_detail_service.BACKGROUND_TIMEOUT_SECONDS else None
+
+    monkeypatch.setattr(DrugDetailService, "_fetch", fetch)
+    monkeypatch.setattr(settings, "PUBLIC_DATA_API_KEY", "test-key")
+    async with session_factory() as session:
+        drug = await make_drug(session, "레이본정")
+    token = await register_and_login(client)
+    res = await client.post(
+        "/medicine-box", json={"drug_id": str(drug.id)}, headers={"Authorization": f"Bearer {token}"}
+    )
+    assert res.status_code == 201 and res.json()["drug"]["efcy_qesitm"] is None  # 응답은 기다리지 않는다
+
+    await asyncio.gather(*list(drug_detail_service._background))
+    async with session_factory() as session:
+        saved = await session.get(Drug, drug.id)
+        assert saved.efcy_qesitm == "골관절증의 증상 완화" and saved.detail_fetched_at is not None
+    assert state["calls"] == 2
