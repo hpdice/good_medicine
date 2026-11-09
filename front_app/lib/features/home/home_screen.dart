@@ -11,6 +11,7 @@ import 'widgets/floating_error.dart';
 import 'widgets/interaction_banner.dart';
 import 'widgets/medicine_card.dart';
 import 'widgets/reminder_edit_sheet.dart';
+import 'widgets/source_notes.dart';
 import 'widgets/strip_banner.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -151,50 +152,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showAbout(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final headStyle = TextStyle(
-        fontWeight: FontWeight.w700, fontSize: 13, color: scheme.primary);
-    final bodyStyle = TextStyle(
-        fontSize: 12.5, height: 1.55, color: scheme.onSurfaceVariant);
-
-    Widget bullet(String text) => Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('·  ', style: bodyStyle),
-              Expanded(child: Text(text, style: bodyStyle)),
-            ],
-          ),
-        );
-
     showDialog<void>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
         title: const Text('굿메디슨'),
-        content: SizedBox(
+        content: const SizedBox(
           width: 320,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('버전 0.1.0', style: bodyStyle),
-              const SizedBox(height: 18),
-              Text('데이터 출처', style: headStyle),
-              const SizedBox(height: 6),
-              Text('식품의약품안전처 · 공공데이터포털', style: bodyStyle),
-              bullet('의약품개요정보 (e약은요)'),
-              bullet('의약품 제품 허가정보'),
-              bullet('의약품 낱알식별 정보'),
-              bullet('DUR 병용금기 · 효능군중복주의'),
-              const SizedBox(height: 18),
-              Text('안내', style: headStyle),
-              const SizedBox(height: 6),
-              bullet('병용 위험 정보는 참고용이며 의학적 진단·처방이 아닙니다.'),
-              bullet('DUR에 등록되지 않은 상호작용은 표시되지 않을 수 있습니다.'),
-              bullet('복약 전 반드시 의사·약사와 상담하세요.'),
-            ],
-          ),
+          child: SingleChildScrollView(child: SourceNotes()),
         ),
         actions: [
           TextButton(

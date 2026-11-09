@@ -21,6 +21,7 @@ from app.schemas.analysis import (
     PregnancyCaution,
     QuickCheckFinding,
     QuickCheckResponse,
+    UnresolvedDrug,
 )
 from app.services.condition_taboo import find_condition_taboo
 from app.services.drug_service import DrugService
@@ -237,6 +238,11 @@ class AnalysisService:
             age_cautions=age_cautions,
             pregnancy_cautions=pregnancy_cautions,
             dose_cautions=dose_cautions,
+            unresolved_drugs=[
+                UnresolvedDrug(drug_id=drug_id, drug_name=_display_name(drugs[drug_id]))
+                for drug_id in dict.fromkeys(drug_ids)  # 요청 순서, 중복 제거
+                if drug_id in drugs and drug_id not in codes_by_drug
+            ],
         )
 
     async def _user_findings(

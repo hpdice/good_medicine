@@ -83,6 +83,16 @@ class DoseCaution(BaseModel):
     uncounted_drug_names: list[str] = []
 
 
+class UnresolvedDrug(BaseModel):
+    """DUR 성분코드가 없어 성분 규칙(병용금기·동일 성분·효능군·연령·하루 용량)을 적용하지 못한 약.
+
+    `risk_level`이 safe여도 이 약은 "확인된 위험이 없다"가 아니라 "확인하지 못했다"이므로 화면이 구분해 보여 준다.
+    임부금기(품목 단위)·건강 상태 금기(허가사항 본문)와 잔여 폴백은 성분코드 없이도 적용되므로 이 약에도 걸릴 수 있다."""
+
+    drug_id: uuid.UUID
+    drug_name: str
+
+
 class QuickCheckResponse(BaseModel):
     total_drugs: int
     has_contraindication: bool
@@ -100,16 +110,27 @@ class QuickCheckResponse(BaseModel):
     age_cautions: list[AgeCaution] = []
     pregnancy_cautions: list[PregnancyCaution] = []
     dose_cautions: list[DoseCaution] = []
+    unresolved_drugs: list[UnresolvedDrug] = []  # 요청한 약 중 성분코드가 없는 약(요청 순서)
 
 
 class AnalysisGuideRequest(QuickCheckRequest):
     """quick_check와 동일한 drug_ids 검증(최소 1개, 최대 50개)을 그대로 재사용."""
 
 
+class GuideSource(BaseModel):
+    """AI 설명의 용어 풀이 근거 — 이 설명의 프롬프트에 실제로 들어간 풀이의 출처."""
+
+    name: str
+    url: str
+
+
 class AnalysisGuideResponse(BaseModel):
     risk_level: str  # safe / caution / critical — quick_check가 확정한 값 그대로, AI가 바꾸지 않음
     guide_text: str
     is_ai_generated: bool = True
+    # AI가 만든 설명일 때만 채워진다(정해진 문장·폴백 문구는 AI가 쓴 게 아니므로 비운다).
+    model_name: str | None = None  # 설명을 만든 로컬 모델
+    glossary_sources: list[GuideSource] = []  # 설명에 쓴 용어 풀이의 출처(없으면 빈 목록)
     disclaimer: str = (
         "이 설명은 AI가 생성한 참고용 안내이며 의학적 진단이 아닙니다. "
         "위급하거나 확신이 서지 않으면 반드시 의사·약사와 상담하세요."

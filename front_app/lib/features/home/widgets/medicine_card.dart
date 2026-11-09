@@ -253,6 +253,7 @@ class RiskDot extends StatelessWidget {
       DrugRisk.contraindicated => RiskStyle.of(RiskTone.critical, b),
       DrugRisk.caution => RiskStyle.of(RiskTone.caution, b),
       DrugRisk.safe => RiskStyle.of(RiskTone.safe, b),
+      DrugRisk.unjudged => RiskStyle.of(RiskTone.unjudged, b),
       DrugRisk.none => null,
     };
     if (style == null) {

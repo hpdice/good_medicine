@@ -178,7 +178,8 @@ class AppTheme {
 }
 
 /// 위험도 등급별 표시 스타일 — home_screen·ocr_result_screen이 하드코딩하던 색/라벨/아이콘을 한곳에.
-enum RiskTone { critical, caution, safe }
+/// `unjudged`는 등급이 아니라 "확인하지 못함" — 성분 정보가 없어 규칙을 적용하지 못한 약을 "안전"과 구분한다.
+enum RiskTone { critical, caution, safe, unjudged }
 
 class RiskStyle {
   final Color color;
@@ -216,6 +217,14 @@ class RiskStyle {
           const Color(0xFF0B8A66),
           Icons.check_circle_outline_rounded,
           '안전',
+        );
+      case RiskTone.unjudged:
+        return RiskStyle._(
+          const Color(0xFF6B7684),
+          dark ? const Color(0xFF2A2F36) : const Color(0xFFEEF1F4),
+          const Color(0xFF4B5563),
+          Icons.help_outline_rounded,
+          '판정 불가',
         );
     }
   }

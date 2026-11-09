@@ -76,6 +76,15 @@ class DoseCautionItem {
         prohibitContent = j['prohibit_content'];
 }
 
+/// 성분코드가 없어 성분 규칙(병용금기·중복·연령·하루 용량)을 적용하지 못한 약 — "위험 없음"이 아니라 "확인하지 못함".
+class UnresolvedDrugItem {
+  final String drugId, drugName;
+
+  UnresolvedDrugItem.fromJson(Map<String, dynamic> j)
+      : drugId = j['drug_id'],
+        drugName = j['drug_name'];
+}
+
 class QuickCheckResponse {
   final int totalDrugs;
   final bool hasContraindication;
@@ -93,6 +102,7 @@ class QuickCheckResponse {
   final List<AgeCautionItem> ageCautions;
   final List<PregnancyCautionItem> pregnancyCautions;
   final List<DoseCautionItem> doseCautions;
+  final List<UnresolvedDrugItem> unresolvedDrugs;
 
   QuickCheckResponse.fromJson(Map<String, dynamic> j)
       : totalDrugs = j['total_drugs'],
@@ -120,7 +130,19 @@ class QuickCheckResponse {
             .toList(),
         doseCautions = (j['dose_cautions'] as List? ?? [])
             .map((e) => DoseCautionItem.fromJson(e))
+            .toList(),
+        unresolvedDrugs = (j['unresolved_drugs'] as List? ?? [])
+            .map((e) => UnresolvedDrugItem.fromJson(e))
             .toList();
+}
+
+/// AI 설명이 근거로 쓴 용어 풀이의 출처(기관 문서 이름).
+class GuideSourceItem {
+  final String name, url;
+
+  GuideSourceItem.fromJson(Map<String, dynamic> j)
+      : name = j['name'],
+        url = j['url'] ?? '';
 }
 
 class AnalysisGuideResponse {
@@ -128,10 +150,16 @@ class AnalysisGuideResponse {
   final String guideText;
   final bool isAiGenerated;
   final String disclaimer;
+  final String? modelName; // AI가 쓴 설명일 때만 값이 있다
+  final List<GuideSourceItem> glossarySources;
 
   AnalysisGuideResponse.fromJson(Map<String, dynamic> j)
       : riskLevel = j['risk_level'],
         guideText = j['guide_text'],
         isAiGenerated = j['is_ai_generated'] ?? true,
-        disclaimer = j['disclaimer'] ?? '';
+        disclaimer = j['disclaimer'] ?? '',
+        modelName = j['model_name'],
+        glossarySources = (j['glossary_sources'] as List? ?? [])
+            .map((e) => GuideSourceItem.fromJson(e))
+            .toList();
 }

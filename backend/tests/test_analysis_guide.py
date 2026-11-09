@@ -92,6 +92,62 @@ async def test_guide_for_no_findings_skips_model_and_states_dur_limit(client, se
     assert "안전하다" not in body["guide_text"]
 
 
+async def test_guide_response_names_model_and_glossary_sources_it_used(client, session_factory, monkeypatch):
+    """AI가 만든 설명은 어떤 모델이 썼는지와, 프롬프트에 실제로 넣은 용어 풀이의 출처(같은 출처는 한 번)를 밝힌다."""
+
+    async def fake_generate(self, prompt: str, system: str | None = None) -> str:
+        return "두 약을 함께 먹으면 근육이 손상될 수 있어요."
+
+    monkeypatch.setattr(ollama_client.OllamaClient, "generate", fake_generate)
+
+    async with session_factory() as session:
+        drug_a = await make_drug(session, "출처표기가정")
+        drug_b = await make_drug(session, "출처표기나정")
+        await make_contraindication(
+            session, drug_a, drug_b, mechanism="횡문근융해증 및 QT 연장, 토르사드 드 푸앵트 위험"
+        )
+
+    headers = await _auth_headers(client)
+    res = await client.post(
+        "/analysis/guide", json={"drug_ids": [str(drug_a.id), str(drug_b.id)]}, headers=headers
+    )
+    body = res.json()
+    assert body["is_ai_generated"] is True
+    assert body["model_name"] == "qwen2.5:14b-instruct"
+    names = [s["name"] for s in body["glossary_sources"]]
+    # 횡문근융해증(서울아산병원) + QT 연장·토르사드(같은 MSD 문서라 한 번만)
+    assert names == ["서울아산병원 질환백과", "MSD 매뉴얼 일반인용 - 긴 QT 간격 증후군"]
+    assert all(s["url"].startswith("https://") for s in body["glossary_sources"])
+
+
+async def test_guide_response_has_no_sources_when_text_is_not_ai_written(client, session_factory, monkeypatch):
+    """정해진 문장·폴백 문구는 AI가 쓴 게 아니므로 모델 이름도, 용어 풀이 출처도 붙이지 않는다."""
+
+    async def fake_generate_fail(self, prompt: str, system: str | None = None) -> str:
+        raise ollama_client.OllamaUnavailableError("테스트: Ollama 다운")
+
+    monkeypatch.setattr(ollama_client.OllamaClient, "generate", fake_generate_fail)
+
+    async with session_factory() as session:
+        drug_a = await make_drug(session, "출처없음가정")
+        drug_b = await make_drug(session, "출처없음나정")
+        await make_contraindication(session, drug_a, drug_b, mechanism="횡문근융해증 위험")
+        quiet = await make_drug(session, "출처없음다정")
+
+    headers = await _auth_headers(client)
+    fallback = (await client.post(
+        "/analysis/guide", json={"drug_ids": [str(drug_a.id), str(drug_b.id)]}, headers=headers
+    )).json()
+    assert fallback["is_ai_generated"] is False
+    assert fallback["model_name"] is None and fallback["glossary_sources"] == []
+
+    fixed = (await client.post(
+        "/analysis/guide", json={"drug_ids": [str(quiet.id)]}, headers=headers
+    )).json()
+    assert fixed["is_ai_generated"] is False
+    assert fixed["model_name"] is None and fixed["glossary_sources"] == []
+
+
 def test_clip_field_cuts_at_line_boundary_not_mid_sentence():
     line = "가" * 100
     text = "\n".join(f"{i}) {line}" for i in range(20))  # 한 줄 ~103자, 총 2000자 이상

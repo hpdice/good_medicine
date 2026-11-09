@@ -52,23 +52,36 @@ class InteractionBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tone = RiskStyle.toneFromLevel(result.riskLevel) ?? RiskTone.safe;
+    final level = RiskStyle.toneFromLevel(result.riskLevel) ?? RiskTone.safe;
+    final isSafe = level == RiskTone.safe;
+    final unresolved = result.unresolvedDrugs.length;
+    // 성분 정보가 없어 규칙을 하나도 적용하지 못한 약뿐이면 "위험 없음"이 아니라 "판정 불가"다.
+    final allUnjudged = isSafe && unresolved > 0 && unresolved >= result.totalDrugs;
+    final tone = allUnjudged ? RiskTone.unjudged : level;
     final style = RiskStyle.of(tone, Theme.of(context).brightness);
-    final isSafe = tone == RiskTone.safe;
+    // 위험이 없어도 판정하지 못한 약이 있으면 상세(그 약 목록)를 볼 수 있어야 한다.
+    final tappable = !isSafe || unresolved > 0;
 
     // 걸린 규칙이 없다는 건 "DUR에 등록된 위험이 없다"는 뜻이지 안전 보증이 아니다
     // (예: 타이레놀 × 와파린은 DUR 병용금기에 없다). 그래서 "괜찮아요"로 단정하지 않는다.
-    final label = isSafe ? '확인된 위험이 없어요' : _summaryLabel(result);
+    final label = allUnjudged
+        ? '판정할 수 없는 약이에요'
+        : isSafe
+            ? '확인된 위험이 없어요'
+            : _summaryLabel(result);
     final onlyDuplicateIngredient = result.duplicateIngredientCount > 0 &&
         result.riskLevel == 'caution' &&
         result.duplicateEffectGroupCount == 0 &&
         result.elderlyCautionCount == 0 &&
         result.doseCautionCount == 0;
-    final subLabel = isSafe
-        ? '식약처 DUR에 등록된 조합만 확인한 결과예요'
-        : onlyDuplicateIngredient
-            ? '같은 성분의 약이 함께 등록돼 있어요 · 탭하여 상세 보기'
-            : '탭하여 상세 보기';
+    final unresolvedNote = unresolved > 0 && !allUnjudged ? ' · 판정하지 못한 약 $unresolved개' : '';
+    final subLabel = allUnjudged
+        ? '성분 정보가 없어 식약처 DUR 규칙을 확인하지 못했어요 · 탭하여 보기'
+        : isSafe
+            ? '식약처 DUR에 등록된 조합만 확인한 결과예요$unresolvedNote'
+            : onlyDuplicateIngredient
+                ? '같은 성분의 약이 함께 등록돼 있어요 · 탭하여 상세 보기$unresolvedNote'
+                : '탭하여 상세 보기$unresolvedNote';
 
     return Container(
       decoration: BoxDecoration(
@@ -93,7 +106,7 @@ class InteractionBanner extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: isSafe ? null : () => _showFindings(context, result, entries),
+          onTap: tappable ? () => _showFindings(context, result, entries) : null,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
             child: Row(children: [
@@ -123,7 +136,7 @@ class InteractionBanner extends StatelessWidget {
                   ],
                 ),
               ),
-              if (!isSafe)
+              if (tappable)
                 const Icon(Icons.chevron_right_rounded, color: Colors.white),
             ]),
           ),
@@ -204,10 +217,24 @@ class InteractionBanner extends StatelessWidget {
                   reasonText: _doseReason(d),
                 ),
               ),
+            if (result.unresolvedDrugs.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: SingleDrugRiskCard(
+                  drugName: '판정하지 못한 약 ${result.unresolvedDrugs.length}개',
+                  tone: RiskTone.unjudged,
+                  badgeLabel: '판정 불가',
+                  reasonLabel: result.unresolvedDrugs.map((u) => u.drugName).join(', '),
+                  reasonText: '이 약은 성분 정보가 없어 병용금기·중복·연령·하루 용량 규칙을 제대로 확인하지 못했어요. '
+                      '"위험이 없다"는 뜻이 아니니 함께 먹는 약이 있다면 의사·약사에게 확인하세요.',
+                ),
+              ),
             Gap.v8,
-            AiGuideSection(
-              drugIds: {for (final e in entries) e.drug.id}.toList(),
-            ),
+            // 설명할 위험이 없으면(위험 없음 + 판정 불가 약만 있는 경우) AI 설명은 보여 주지 않는다.
+            if (result.riskLevel != 'safe')
+              AiGuideSection(
+                drugIds: {for (final e in entries) e.drug.id}.toList(),
+              ),
           ],
         ),
       ),

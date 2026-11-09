@@ -5,7 +5,9 @@ import '../../core/models/analysis_models.dart';
 import '../../core/models/medicine_box_models.dart';
 import '../../core/notifications/medication_reminder_service.dart';
 
-enum DrugRisk { none, safe, caution, contraindicated }
+/// `unjudged`: 성분 정보가 없어 성분 규칙을 적용하지 못한 약("위험 없음"이 아니라 "확인하지 못함").
+/// 다른 판정(임부금기 등)이 걸리면 더 높은 등급으로 올라간다.
+enum DrugRisk { none, unjudged, safe, caution, contraindicated }
 
 int _riskSeverity(DrugRisk r) => switch (r) {
   DrugRisk.contraindicated => 2,
@@ -125,7 +127,11 @@ class HomeProvider extends ChangeNotifier {
   void _buildRiskMap() {
     final result = _checkResult;
     if (result == null) return;
-    _riskMap = {for (final e in _entries) e.drug.id: DrugRisk.safe};
+    final unresolved = {for (final u in result.unresolvedDrugs) u.drugId};
+    _riskMap = {
+      for (final e in _entries)
+        e.drug.id: unresolved.contains(e.drug.id) ? DrugRisk.unjudged : DrugRisk.safe,
+    };
 
     void bump(String id, DrugRisk risk) {
       final current = _riskMap[id] ?? DrugRisk.safe;

@@ -7,9 +7,9 @@ from app.config import settings
 from app.core.encryption import get_encryptor
 from app.core.logging import logger
 from app.models.analysis_result import AnalysisResult
-from app.schemas.analysis import AnalysisGuideResponse, QuickCheckResponse
+from app.schemas.analysis import AnalysisGuideResponse, GuideSource, QuickCheckResponse
 from app.services.drug_service import DrugService
-from app.services.glossary import find_entries
+from app.services.glossary import GlossaryEntry, find_entries
 from app.services.ollama_client import OllamaClient, OllamaUnavailableError
 from app.services.user_service import UserService
 
@@ -305,6 +305,19 @@ def _drug_line(drug) -> str:
     return " / ".join(parts)
 
 
+def _glossary_entries(check: QuickCheckResponse) -> list[GlossaryEntry]:
+    """판정 문장에 나온 용어 중 출처 있는 풀이가 있는 것 — 프롬프트의 [용어 풀이]와 응답의 출처 표기가 같은 목록을 쓴다."""
+    return find_entries("\n".join(_finding_lines(check) + _age_lines(check) + _pregnancy_lines(check)))
+
+
+def _glossary_sources(check: QuickCheckResponse) -> list[GuideSource]:
+    """위 풀이의 출처(같은 출처는 한 번만)."""
+    seen: dict[str, GuideSource] = {}
+    for entry in _glossary_entries(check):
+        seen.setdefault(entry.source, GuideSource(name=entry.source, url=entry.url))
+    return list(seen.values())
+
+
 class AiGuideService:
     """규칙 기반 판정(AnalysisService.quick_check)이 이미 확정한 결과를 사람이
     읽을 설명으로 풀어쓰는 보조 역할만 한다 — 위험도 판정 자체에는 관여하지 않는다.
@@ -355,7 +368,9 @@ class AiGuideService:
         await self._persist(user_id, drug_ids, check, guide_text)
 
         return AnalysisGuideResponse(
-            risk_level=check.risk_level, guide_text=guide_text, is_ai_generated=is_ai_generated
+            risk_level=check.risk_level, guide_text=guide_text, is_ai_generated=is_ai_generated,
+            model_name=settings.OLLAMA_MODEL if is_ai_generated else None,
+            glossary_sources=_glossary_sources(check) if is_ai_generated else [],
         )
 
     async def _otc_involved(self, check: QuickCheckResponse) -> bool:
@@ -401,7 +416,7 @@ class AiGuideService:
             sections.append("(확인된 문제 없음)")
         sections.append("[약품 정보]\n" + ("\n".join(drug_lines) or "(약품 상세 정보 없음)"))
         # 판정 문장에 나온 용어 중 출처 있는 풀이가 있는 것만 근거로 넘긴다(없는 용어는 풀이하지 않는다)
-        glossary = find_entries("\n".join(finding_lines + age_lines + pregnancy_lines))
+        glossary = _glossary_entries(check)
         if glossary:
             sections.append("[용어 풀이]\n" + "\n".join(f"- {e.term}: {e.definition}" for e in glossary))
         if health_lines:

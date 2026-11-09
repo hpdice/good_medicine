@@ -317,6 +317,57 @@ async def test_quick_check_residual_finding_when_drug_unresolved(client, session
     assert body["findings"][0]["mechanism"] == "잔여 전용 기전"
 
 
+async def test_quick_check_lists_drugs_without_ingredient_code_as_unresolved(client, session_factory):
+    """성분코드가 없는 약은 safe여도 "확인하지 못한 약"으로 따로 내려가 화면이 "위험 없음"과 구분한다.
+    성분코드가 있는 약은 목록에 없고, 등급(risk_level)은 이 목록과 무관하게 그대로다."""
+    async with session_factory() as session:
+        resolved = await make_drug(session, "성분있는정", ingredients=[("D810001", "성분하나")])
+        unresolved = await make_drug(session, "성분없는정")
+
+    headers = await _auth_headers(client)
+    res = await client.post(
+        "/analysis/quick-check",
+        json={"drug_ids": [str(resolved.id), str(unresolved.id)]},
+        headers=headers,
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["risk_level"] == "safe"  # 등급은 바뀌지 않는다
+    assert body["unresolved_drugs"] == [{"drug_id": str(unresolved.id), "drug_name": "성분없는정"}]
+
+
+async def test_quick_check_all_resolved_has_no_unresolved_drugs(client, session_factory):
+    async with session_factory() as session:
+        drug_a = await make_drug(session, "해소가정", ingredients=[("D810011", "성분가")])
+        drug_b = await make_drug(session, "해소나정", ingredients=[("D810012", "성분나")])
+
+    headers = await _auth_headers(client)
+    res = await client.post(
+        "/analysis/quick-check",
+        json={"drug_ids": [str(drug_a.id), str(drug_b.id)]},
+        headers=headers,
+    )
+    assert res.json()["unresolved_drugs"] == []
+
+
+async def test_quick_check_unresolved_drug_still_gets_residual_and_keeps_request_order(client, session_factory):
+    """성분코드가 없는 약도 잔여 폴백 경고는 받고, 미해소 목록은 요청한 순서를 따른다(중복 요청은 한 번만)."""
+    async with session_factory() as session:
+        drug_a = await make_drug(session, "미해소가정")
+        drug_b = await make_drug(session, "미해소나정")
+        await make_contraindication(session, drug_a, drug_b, mechanism="잔여 기전")
+
+    headers = await _auth_headers(client)
+    res = await client.post(
+        "/analysis/quick-check",
+        json={"drug_ids": [str(drug_b.id), str(drug_a.id), str(drug_b.id)]},
+        headers=headers,
+    )
+    body = res.json()
+    assert body["risk_level"] == "critical"
+    assert [d["drug_name"] for d in body["unresolved_drugs"]] == ["미해소나정", "미해소가정"]
+
+
 async def test_quick_check_residual_still_checked_when_all_resolved(client, session_factory):
     """회귀: residual 쌍의 약이 나중에 성분코드를 얻어도(성분 규칙은 여전히 없음)
     residual 폴백을 계속 조회해야 한다 — 조건부 스킵 시 safe로 오판했던 버그."""

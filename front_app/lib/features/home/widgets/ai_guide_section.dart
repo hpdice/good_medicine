@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/models/analysis_models.dart';
 import '../../../core/theme/app_theme.dart';
+import 'source_notes.dart';
 
 enum _GuideState { idle, loading, loaded, error }
 
@@ -118,6 +119,7 @@ class _AiGuideSectionState extends State<AiGuideSection> {
                           fontStyle: FontStyle.italic,
                           height: 1.4)),
                 ],
+                GuideSourceFooter(guide: guide),
               ]),
         );
     }
