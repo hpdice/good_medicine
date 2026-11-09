@@ -2,6 +2,7 @@ import 'dart:async' show unawaited;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 import '../models/medicine_box_models.dart';
@@ -43,28 +44,26 @@ class MedicationReminderService {
   static bool _askedThisRun = false;
   static final _plugin = FlutterLocalNotificationsPlugin();
 
-  static AndroidFlutterLocalNotificationsPlugin? _android() => _plugin
-      .resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin
-      >();
-
-  /// 이 앱의 알림이 지금 허용돼 있는지. 웹·안드로이드가 아닌 곳은 null.
+  /// 이 앱의 알림이 지금 허용돼 있는지. 웹은 null(해당 없음).
   static Future<bool?> notificationsEnabled() async {
     if (kIsWeb) return null;
-    await init();
-    return _android()?.areNotificationsEnabled();
+    return Permission.notification.isGranted;
   }
 
-  /// Android 13+는 알림 권한(POST_NOTIFICATIONS)을 사용자가 허용해야 알림이 뜬다. 설치 직후는 꺼져 있고,
-  /// 앱이 요청하지 않으면 허용 창이 한 번도 안 떠서 상단 표시줄에도 알림이 안 온다. 이미 허용돼 있으면 창을 띄우지
-  /// 않고 true를 돌려준다. 파이어베이스(FCM) 초기화와 무관하게 로컬 알림 쪽에서 직접 요청한다.
+  /// Android 13+는 알림 권한(POST_NOTIFICATIONS)을 사용자가 허용해야 알림이 뜬다. 허용 안 된 상태면 시스템 허용 창을
+  /// 띄운다. 이미 허용돼 있으면 창 없이 true. 두 번 거부했거나 "다시 묻지 않음"이면 시스템이 창을 더는 띄우지 않으므로
+  /// false를 돌려주고, 호출한 쪽이 [openNotificationSettings]로 설정 화면을 열어야 한다.
   static Future<bool> requestNotificationPermission() async {
     if (kIsWeb) return false;
     await init();
-    final android = _android();
-    if (android == null) return false;
-    if (await android.areNotificationsEnabled() ?? false) return true;
-    return await android.requestNotificationsPermission() ?? false;
+    final status = await Permission.notification.request();
+    return status.isGranted;
+  }
+
+  /// 이 앱의 휴대폰 설정 화면(알림 켜기)을 연다.
+  static Future<bool> openNotificationSettings() async {
+    if (kIsWeb) return false;
+    return openAppSettings();
   }
 
   /// 로그인해 홈에 들어오면 앱 실행당 한 번 알림 허용 창을 띄운다. 복약 알림을 아직 하나도 안 켠 새 사용자도 대상이다

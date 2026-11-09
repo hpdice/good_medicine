@@ -24,7 +24,8 @@ class _ReminderEditSheet extends StatefulWidget {
   State<_ReminderEditSheet> createState() => _ReminderEditSheetState();
 }
 
-class _ReminderEditSheetState extends State<_ReminderEditSheet> {
+class _ReminderEditSheetState extends State<_ReminderEditSheet>
+    with WidgetsBindingObserver {
   late List<String> _times;
   late bool _enabled;
   // 복용량 — 둘 다 있어야 하루 용량 확인에 쓰인다. null = 모름(입력 안 함)
@@ -37,6 +38,7 @@ class _ReminderEditSheetState extends State<_ReminderEditSheet> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _refreshPermission();
     _times = [...widget.entry.intakeTimes]..sort();
     _enabled = widget.entry.reminderEnabled;
@@ -49,12 +51,31 @@ class _ReminderEditSheetState extends State<_ReminderEditSheet> {
     if (mounted) setState(() => _notificationsAllowed = allowed);
   }
 
-  /// 알림을 켜거나 [허용하기]를 누르면 안드로이드 알림 허용 창을 띄운다. 이미 막혀 있으면 창이 안 뜰 수 있어 설정 안내를 남긴다.
+  /// 시스템 알림 허용 창을 띄운다. 창이 안 뜨는 상태(이미 거부해서 시스템이 막음)면 이 앱의 휴대폰 알림 설정 화면을 연다.
   Future<void> _askPermission() async {
+    final messenger = ScaffoldMessenger.of(context);
     final allowed =
         await MedicationReminderService.requestNotificationPermission();
     if (!mounted) return;
     setState(() => _notificationsAllowed = allowed);
+    if (!allowed) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('휴대폰 설정에서 이 앱의 알림을 켜 주세요.')),
+      );
+      await MedicationReminderService.openNotificationSettings();
+    }
+  }
+
+  /// 설정 화면에서 앱으로 돌아오면 허용 여부를 다시 확인한다.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refreshPermission();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   Future<void> _pickTime() async {
