@@ -70,8 +70,9 @@ docker exec drugtest-backend-1 python validate_db.py          # 품질 검증
 | 개발 모드 (`docker compose up -d`) | 소스는 바인드마운트돼 있지만 **uvicorn `--reload`가 없다** → `docker compose restart backend` |
 | 배포 모드 (Tailscale 포함) | `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build` (소스가 이미지에 구워짐) |
 | 노트북 (`.env`에 `COMPOSE_FILE` 지정) | `docker compose up -d --build` — `-f`를 붙이면 `COMPOSE_FILE`이 무시돼 laptop 설정이 빠진다(postgres가 named volume 대신 D: 폴더에 붙고, GPU 없는 ollama가 시작 실패) |
-| 마이그레이션이 추가됐을 때 | 반영 직후 `docker exec drugtest-backend-1 alembic upgrade head` — **자동으로 돌지 않는다** |
-| 반영 전 확인 | `docker exec -e PYTHONPATH=/app -w /app drugtest-backend-1 python -m pytest tests/ -q` (push하면 CI에서도 돈다) |
+| 마이그레이션이 추가됐을 때 | **자동으로 돌지 않는다.** 배포 모드(소스가 이미지에 구워짐)는 실행 중인 컨테이너에 새 마이그레이션 파일이 없으므로 `docker compose -f docker-compose.yml -f docker-compose.prod.yml build backend` → `… run --rm --no-deps backend alembic upgrade head` → `… up -d --no-deps backend` 순서로 한다(옛 코드가 새 스키마를 읽는 구간을 줄이려고 마이그레이션 직후 바로 재생성). 적용 전에 `scripts/backup-db.ps1 -Verify`로 백업한다. 개발 모드는 `docker exec drugtest-backend-1 alembic upgrade head` |
+| 반영 전 확인 | `docker compose run --rm --no-deps -e PYTHONPATH=/app -w /app backend python -m pytest tests/ -q`(개발 override가 소스를 마운트). 배포 모드 컨테이너에 `docker exec … pytest`를 하면 **이미지에 구워진 옛 코드로** 돈다. push하면 CI에서도 돈다 |
+| 허가정보 적재 반복 | 컨테이너를 다시 만들면 `scripts/permit-detail-loop.sh`가 끊긴다 — 파일 머리의 명령으로 다시 시작(이어 받는다) |
 | Dockerfile·compose 가 바뀌었을 때 | `docker compose build backend` 후 `up -d` (개발) / 배포는 `--build` |
 
 ## 5. 운영 정책
@@ -171,4 +172,5 @@ https://goodmedicine.tail9f1768.ts.net/health      → 200 {"status":"ok","db":"
 | 백업 외부 사본(국내 매체) | 1절 |
 | 외부 감시 등록 | 7절 |
 | 운영 DB 복원 연습 | 2절 |
-| 계정 복구(비밀번호 재설정), 개인정보 처리방침, APK 정식 서명 | 출시 전 — [project-status.md](./project-status.md) "남은 작업" |
+| APK 릴리스 서명 키(`goodmedicine-signingelease.jks`·`key.properties`) 별도 백업 확인 | 저장소 밖에 있다. 잃으면 같은 앱으로 업데이트할 수 없고 사용자가 지우고 다시 설치해야 한다. CI Secrets(`ANDROID_KEYSTORE_*`)는 빌드용이라 백업을 대신하지 못한다 |
+| 계정 복구(비밀번호 재설정), 개인정보 처리방침, 스토어 등록 | 출시 전 — [project-status.md](./project-status.md) "남은 작업" |

@@ -12,13 +12,13 @@
 |---|---|
 | 백엔드 | FastAPI 17개 엔드포인트 + 헬스체크. 공공데이터 동기화(`public_data_service/`)는 책임별 파일로 분할 |
 | 인프라 | Docker Compose: postgres · backend · ollama (배포 overlay는 tailscale 컨테이너 추가). backend 호스트 포트 8001 |
-| DB | Alembic 마이그레이션 — 성분 단위 판정 테이블, 복약정보 필드 암호화, 출생연도·연령대 규칙, 임부금기, 약 상세 보강 시각 |
+| DB | Alembic 마이그레이션 — 성분 단위 판정 테이블, 복약정보 필드 암호화, 출생연도·연령대 규칙, 임부금기, 약 상세 보강 시각, 심평원 일반명코드 속성 분리(2NF) |
 | 데이터 | 공공데이터 적재 + 품질 검증(`validate_db.py`) 통과 |
 | Flutter 앱 | 웹·Android. 로그인·복약함·약 검색·사진 OCR·위험도 배너·AI 설명·복약 시간 알림·내 정보(건강 상태·출생연도·임신 여부) |
 | 테스트 | pytest + httpx, 운영 DB와 분리된 테스트 DB, Ollama mock. push·PR 시 GitHub Actions에서 린트·타입 검사·pytest 실행 |
 | AI 설명 | Ollama + Qwen2.5 14B (GPU, 외부 API 미사용) |
 | FCM 푸시 | Firebase 연동. 알림에는 약 이름·ID를 싣지 않는다 |
-| APK 배포 | GitHub Releases — `v*` 태그 push 시 CI가 빌드. 최신 v0.4.0(복용량 입력·하루 용량 초과 화면 포함) |
+| APK 배포 | GitHub Releases — `v*` 태그 push 시 CI가 고정 릴리스 키로 서명해 빌드. 최신 v0.5.6(릴리스는 평문 HTTP 불허, 버전 코드는 CI 실행 번호) |
 
 ---
 
@@ -38,7 +38,7 @@ dur_ingredient_dose_caution         :    619건  ← DUR 용량주의 (하루 �
 dur_item_pregnancy_taboo            : 15,683행  ← 임부금기 (품목 단위)
 residual_interactions               :    217건  ← 성분코드 미해소 약이 낀 잔여 폴백 (시드로 고정)
 dur_ingredient_master               :  1,499개  ← DUR 성분코드 ↔ 한글·영문명 (판정 미사용)
-hira_item_gen_codes / hira_gen_ingredients : 52,995 / 59,631행 ← 심평원 약가마스터
+hira_item_gen_codes / hira_gen_codes / hira_gen_ingredients : 52,995 / 20,114 / 59,631행 ← 심평원 약가마스터(제형·투여경로·분류는 일반명코드 1행)
 ```
 
 성분코드는 DUR 품목정보(`DURPrdlstInfoService03`)의 `INGR_CODE`/`MIXTURE_INGR_CODE`에서 가져온다. 해소율 보강은
@@ -227,15 +227,16 @@ front_app/lib/
     프록시) → `https://goodmedicine.tail9f1768.ts.net/api/v1/` (고정 HTTPS).
 - **프론트(웹)**: `front_app/**` push → GitHub Actions(`deploy-web.yml`) → `flutter build web` → `vercel deploy --prebuilt --prod`
   → `https://goodmedicine-hpdice.vercel.app`. 프론트와 API 오리진이 달라 백엔드 `.env`에 `CORS_ORIGINS` + `CORS_ORIGIN_REGEX`가 필요하다.
-- **APK**: `flutter build apk --release --dart-define=BASE_URL=https://goodmedicine.tail9f1768.ts.net/api/v1/`
+- **APK**: `flutter build apk --release --dart-define=BASE_URL=https://goodmedicine.tail9f1768.ts.net/api/v1/` — 로컬에서 서명하려면 `android/key.properties`(저장소 밖 키 파일을 가리킴)가 있어야 하고, CI는 Secrets에서 키를 복원한다.
+- **웹 설치 안내**: 안드로이드 크롬으로 열면 앱(APK) 설치 배너를 보여 주고, 웹앱(PWA) 설치는 끈다(`--pwa-strategy=none`).
 
 ## 남은 작업
 
 | 작업 | 비고 |
 |---|---|
-| 계정 복구(비밀번호 재설정)·개인정보 처리방침·APK 정식 서명 | 출시 전. 현재 CI APK는 디버그 키 서명 |
+| 계정 복구(비밀번호 재설정)·개인정보 처리방침·스토어 등록(Play·갤럭시 스토어) | 출시 전. APK는 고정 릴리스 키로 서명(키는 저장소 밖 보관, 별도 백업 필요). 스토어 밖 설치라 삼성 폰에서 "잠재적으로 유해한 앱" 안내가 뜬다 |
 | 외부 감시 등록 (`/health`) | operations.md 참고 |
-| 복약 알림 실기기 검증 | 단위 테스트·빌드는 통과, 실기기에서 알림 표시와 재부팅 후 유지 여부는 확인 필요 |
+| 복약 알림 실기기 검증 | 에뮬레이터(Android 15)에서 로그인 후 권한 창과 알림 예약은 확인. 실기기에서 알림 표시와 재부팅 후 유지 여부는 미확인 |
 | 로그인 실패 카운터 영속화 | `login_guard`는 프로세스 메모리 — 재시작 시 초기화, 워커를 늘리면 워커별로 센다 |
 | 폐기된 Refresh Token 재사용 로그 | 만료·위조·재사용이 같은 401이라 탈취 신호를 구분하지 못한다 |
 | DUR 투여기간주의 판정 | 원본에 기간 기준이 없다 |
