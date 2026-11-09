@@ -34,5 +34,80 @@
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>
+
+  <!-- 모바일 브라우저에서 접속하면 "앱으로 설치" 안내를 항상 보여 준다. 크롬이 자동 안내를 띄울지는 크롬이 정하고(한 번 닫으면 한동안
+       숨김 등) 앱 쪽에서 강제할 수 없어서, 크롬이 주는 설치 신호(beforeinstallprompt)를 받아 직접 띄운다.
+       이미 설치돼 열린 앱(standalone)·데스크톱에서는 안 뜬다. -->
+  <style>
+    #install-banner{position:fixed;left:12px;right:12px;bottom:12px;z-index:2147483000;display:none;
+      background:#0f766e;color:#fff;border-radius:14px;padding:12px 14px;box-shadow:0 8px 24px rgba(0,0,0,.28);
+      font:14px/1.45 -apple-system,"Noto Sans KR","Malgun Gothic",sans-serif}
+    #install-banner b{font-weight:800}
+    #install-banner .sub{opacity:.92;font-size:12.5px;margin-top:2px}
+    #install-banner .row{display:flex;gap:8px;margin-top:10px;justify-content:flex-end}
+    #install-banner button{border:0;border-radius:10px;padding:8px 14px;font:inherit;font-weight:700;cursor:pointer}
+    #install-banner .go{background:#fff;color:#0f766e}
+    #install-banner .no{background:rgba(255,255,255,.18);color:#fff}
+  </style>
+  <div id="install-banner" role="dialog" aria-label="앱 설치 안내">
+    <div><b>굿메디슨을 앱으로 설치하세요</b></div>
+    <div class="sub" id="install-sub">홈 화면에서 바로 열 수 있어요.</div>
+    <div class="row">
+      <button class="no" id="install-close" type="button">나중에</button>
+      <button class="go" id="install-go" type="button">설치</button>
+    </div>
+  </div>
+  <script>
+  (function () {
+    var ua = navigator.userAgent || '';
+    var isIOS = /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    var isAndroid = /Android/i.test(ua);
+    var standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+    if (standalone || !(isIOS || isAndroid)) return;
+    // "나중에"는 이번 탭에서만 기억한다 — 다음에 열면 다시 보여 준다.
+    var KEY = 'installBannerDismissed';
+    try { if (sessionStorage.getItem(KEY)) return; } catch (e) {}
+
+    var banner = document.getElementById('install-banner');
+    var sub = document.getElementById('install-sub');
+    var go = document.getElementById('install-go');
+    var deferred = null;
+    function show() { banner.style.display = 'block'; }
+    function hide(remember) {
+      banner.style.display = 'none';
+      if (remember) { try { sessionStorage.setItem(KEY, '1'); } catch (e) {} }
+    }
+    document.getElementById('install-close').addEventListener('click', function () { hide(true); });
+
+    if (isIOS) {
+      // iOS 사파리는 설치 창을 코드로 띄울 수 없어 방법만 안내한다.
+      sub.textContent = '사파리 아래 공유 버튼(□↑) → "홈 화면에 추가"를 누르면 앱 아이콘이 생겨요.';
+      go.textContent = '확인';
+      go.addEventListener('click', function () { hide(true); });
+      setTimeout(show, 1500);
+      return;
+    }
+
+    // Android 크롬: 설치 신호를 받으면 "설치" 버튼이 시스템 설치 창을 띄운다.
+    window.addEventListener('beforeinstallprompt', function (e) {
+      e.preventDefault();
+      deferred = e;
+      show();
+    });
+    go.addEventListener('click', function () {
+      if (deferred) {
+        deferred.prompt();
+        deferred.userChoice.then(function () { deferred = null; hide(true); });
+      } else {
+        // 신호가 없는 브라우저(삼성 인터넷 등): 메뉴로 설치하는 방법을 안내한다.
+        sub.textContent = '브라우저 메뉴(⋮ 또는 ≡) → "홈 화면에 추가"를 누르세요.';
+        go.style.display = 'none';
+      }
+    });
+    window.addEventListener('appinstalled', function () { hide(false); });
+    // 설치 신호가 오지 않아도(이미 한 번 닫았거나 브라우저가 안 주는 경우) 안내는 보여 준다.
+    setTimeout(function () { if (!deferred) show(); }, 2500);
+  })();
+  </script>
 </body>
 </html>
