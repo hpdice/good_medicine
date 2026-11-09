@@ -81,3 +81,19 @@ async def test_master_is_rebuilt_from_scratch_each_time(session_factory):
 
     row = (await _rows(session_factory))["다시만들기"]
     assert row.ingredient_status == "hira_only"
+
+
+async def test_refresh_single_row_matches_full_build_and_creates_missing_row(session_factory):
+    """한 약의 행만 다시 만들어도 전체 구축과 같은 값이고, 행이 없으면 만든다."""
+    from app.services.public_data_service.maintenance import refresh_drugs_master_row
+
+    async with session_factory() as session:
+        drug = await make_drug(session, "한행갱신", ingredients=[("D000147", "아세트아미노펜")])
+        await _hira(session, drug, "T00005ATB", [("acetaminophen", "500", "mg")], atc="N02BE01")
+        await refresh_drugs_master_row(session, drug.id)  # 아직 구축 전 — 행이 없으면 만든다
+        one = (await session.execute(select(DrugMaster).where(DrugMaster.drug_id == drug.id))).scalar_one()
+        one_values = (one.ingredient_status, one.dur_ingr_codes, one.atc_code, one.hira_components)
+        await PublicDataService(session).build_drugs_master()
+
+    row = (await _rows(session_factory))["한행갱신"]
+    assert (row.ingredient_status, row.dur_ingr_codes, row.atc_code, row.hira_components) == one_values

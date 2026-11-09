@@ -4,7 +4,7 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
-from sqlalchemy import select, text, update
+from sqlalchemy import String, cast, delete, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import logger
@@ -22,6 +22,7 @@ from .helpers import (
     hira_amount_mg,
     make_ingredient_resolver,
     resolve_hira_components,
+    split_joined_ingr_names,
 )
 
 _BUILD_DRUGS_MASTER_SQL = """
@@ -70,9 +71,29 @@ FROM (
         COALESCE(d.use_method_qesitm, '') <> '' AS has_use_method,
         COALESCE(d.atpn_qesitm, '') <> '' AS has_precautions,
         COALESCE(d.intrc_qesitm, '') <> '' AS has_interaction_text
-    FROM drugs d
+    FROM drugs d /*WHERE*/
 ) b
 """
+
+
+_MASTER_UPDATE_COLS = (
+    "item_seq", "item_name", "simple_name", "entp_name", "etc_otc_name", "class_name", "atc_code",
+    "hira_components", "dur_ingredients", "dur_ingr_codes", "dosage_form", "route",
+    "ingredient_status", "judgeable", "has_efficacy", "has_use_method", "has_precautions", "has_interaction_text",
+)
+
+
+async def refresh_drugs_master_row(db: AsyncSession, drug_id) -> None:
+    """한 약의 `drugs_master` 행만 다시 만든다(없으면 만든다).
+
+    허가정보 상세를 받아 `drugs`·`drug_ingredients`가 바뀐 직후 부른다 — 통합 데이터셋이 전체 재구축을 기다리지 않고
+    DB와 같은 상태를 유지한다. 전체 구축과 같은 SQL을 `WHERE d.id = :drug_id`로 좁혀 쓴다."""
+    update = ", ".join(f"{c} = EXCLUDED.{c}" for c in _MASTER_UPDATE_COLS)
+    sql = _BUILD_DRUGS_MASTER_SQL.replace("/*WHERE*/", "WHERE d.id = :drug_id") + (
+        f"ON CONFLICT (drug_id) DO UPDATE SET {update}, built_at = now()"
+    )
+    await db.execute(text(sql), {"drug_id": drug_id})
+    await db.commit()
 
 
 async def dur_ingredient_name_pairs(db: AsyncSession) -> list[tuple[str | None, str | None]]:
@@ -317,7 +338,7 @@ class MaintenanceMixin(_SyncBase):
         `drug_ingredients`(DUR 성분코드 연결)를 조인한다. 판정 규칙은 건드리지 않는다. 심평원은 취소되지 않은
         (`cancelled_on` NULL) 품목만 쓴다. 만든 행 수(= 약 수)를 돌려준다."""
         await self.db.execute(text("DELETE FROM drugs_master"))
-        await self.db.execute(text(_BUILD_DRUGS_MASTER_SQL))
+        await self.db.execute(text(_BUILD_DRUGS_MASTER_SQL.replace("/*WHERE*/", "")))
         await self.db.commit()
         n = (await self.db.execute(text("SELECT count(*) FROM drugs_master"))).scalar_one()
         stats = (await self.db.execute(text(
@@ -325,6 +346,36 @@ class MaintenanceMixin(_SyncBase):
         ))).all()
         logger.info("drugs_master 구축: %d행 (%s)", n, ", ".join(f"{k}={v}" for k, v in stats))
         return n
+
+    async def repair_pipe_main_ingr(self) -> int:
+        """허가정보 상세의 `|` 구분 성분 원문이 한 이름으로 묶여 저장된 약을 바로잡는다(API 미사용).
+
+        `ingr_name`에 `|`가 든 이름이 있는 약만 원문(`main_item_ingr`, 없으면 저장된 이름)을 다시 쪼개고, 그 약의 잘못된 이름으로 맺힌
+        `permit_detail` 성분 행을 지운 뒤 성분코드를 다시 맺는다(없는 코드만 더하므로 다른 경로의 연결은 그대로).
+        바로잡은 약은 `drugs_master` 행도 다시 만든다. 바로잡은 약 수를 돌려준다."""
+        from app.services.drug_detail_service import DrugDetailService  # 순환 import 방지
+
+        drugs = (await self.db.execute(
+            select(Drug).where(or_(Drug.main_item_ingr.like("%|%"), cast(Drug.ingr_name, String).like("%|%")))
+        )).scalars().all()
+        broken = [d for d in drugs if any("|" in (i.get("kor") or "") for i in (d.ingr_name or []))]
+        service = DrugDetailService(self.db)
+        for drug in broken:
+            # 원문이 있으면 원문을 다시 쪼개고, 없으면(이름만 묶여 저장된 약) 저장된 이름을 쪼갠다
+            raw = drug.main_item_ingr or ""
+            parsed = _parse_main_ingr(raw) if "|" in raw else split_joined_ingr_names(drug.ingr_name)
+            drug.ingr_name = parsed or None
+            await self.db.execute(delete(DrugIngredient).where(
+                DrugIngredient.drug_id == drug.id,
+                DrugIngredient.source == "permit_detail",
+                DrugIngredient.ingr_kor.like("%|%"),
+            ))
+            await service._resolve_ingredients(drug)
+        await self.db.commit()
+        for drug in broken:
+            await refresh_drugs_master_row(self.db, drug.id)
+        logger.info("복합제 성분 원문(`|` 구분) 바로잡음: %d개 약", len(broken))
+        return len(broken)
 
     async def build_residual_from_seed(self) -> int:
         """`seed/residual_interactions.json`(item_seq 쌍 기준)에서 `residual_interactions`를

@@ -17,7 +17,11 @@ from app.schemas.medicine_box import (
 )
 from app.services import fcm_service
 from app.services.analysis_service import AnalysisService
-from app.services.drug_detail_service import REALTIME_TIMEOUT_SECONDS, DrugDetailService
+from app.services.drug_detail_service import (
+    REALTIME_TIMEOUT_SECONDS,
+    DrugDetailService,
+    schedule_detail_completion,
+)
 from app.services.drug_service import DrugService
 
 # payload_encrypted 안에 들어가는(=암호화되는) 필드. 나머지(user_id/is_current/
@@ -121,6 +125,9 @@ class MedicineBoxService:
             drug = await self.db.get(Drug, data.drug_id)
             if drug is None:
                 raise NotFoundError("약품을 찾을 수 없습니다.")
+        if drug.detail_fetched_at is None:
+            # 4초 안에 못 받았다 — 응답은 기다리지 않고, 뒤에서 마저 받아 DB에 저장한다(다음 조회부터 앱에 보인다).
+            schedule_detail_completion(drug.id, self.db.bind)
 
         payload = data.model_dump(mode="json")  # date/UUID → 문자열
         entry = MedicineBoxEntry(

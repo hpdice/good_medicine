@@ -80,13 +80,32 @@ def _parse_ingredients(ingr_str: str) -> list[dict]:
 
 
 def _parse_main_ingr(main_ingr: str) -> list[dict]:
+    """`[Mxxxx]성분명` 목록 → [{kor, eng, amount, dur_code}]. 구분자는 `/`(허가 목록)와 `|`(허가정보 상세)다 —
+    `|`를 못 쪼개면 복합제의 성분 전부가 첫 성분 이름 하나로 묶여 나머지 성분의 판정을 놓친다."""
     result = []
-    for part in main_ingr.split('/'):
+    for part in re.split(r'[/|]', main_ingr):
         part = part.strip()
         m = re.match(r'\[([^\]]+)\](.+)', part)
         if m:
             result.append({"kor": m.group(2).strip(), "eng": "", "amount": "", "dur_code": m.group(1)})
     return result
+
+
+def split_joined_ingr_names(ingr_name: list[dict] | None) -> list[dict]:
+    """`ingr_name`에 `이름|[M…]이름`으로 한 항목에 묶여 저장된 이름을 항목 하나씩으로 쪼갠다(같은 이름은 하나만).
+    원문(`main_item_ingr`)이 없는 약을 바로잡을 때 쓴다."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for item in ingr_name or []:
+        parts = (item.get("kor") or "").split("|")
+        for i, part in enumerate(parts):
+            m = re.match(r'\[([^\]]+)\](.+)', part.strip())
+            kor = (m.group(2) if m else part).strip()
+            if not kor or kor in seen:
+                continue
+            seen.add(kor)
+            out.append({**item, "kor": kor, "dur_code": m.group(1) if m else (item.get("dur_code") if i == 0 else "")})
+    return out
 
 
 def norm_ingr_eng(name: str | None) -> str | None:
