@@ -51,17 +51,36 @@ class _ReminderEditSheetState extends State<_ReminderEditSheet>
     if (mounted) setState(() => _notificationsAllowed = allowed);
   }
 
-  /// 시스템 알림 허용 창을 띄운다. 창이 안 뜨는 상태(이미 거부해서 시스템이 막음)면 이 앱의 휴대폰 알림 설정 화면을 연다.
+  /// 시스템 알림 허용 창을 띄운다. 이미 거부해서 시스템이 창을 더는 안 띄우는 상태면, 앱 안에서 이유를 설명하고 허락을 받은 뒤
+  /// 이 앱의 휴대폰 알림 설정 화면을 연다(말없이 설정 화면으로 보내지 않는다).
   Future<void> _askPermission() async {
-    final messenger = ScaffoldMessenger.of(context);
     final allowed =
         await MedicationReminderService.requestNotificationPermission();
     if (!mounted) return;
     setState(() => _notificationsAllowed = allowed);
-    if (!allowed) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('휴대폰 설정에서 이 앱의 알림을 켜 주세요.')),
-      );
+    if (allowed) return;
+    final goSettings = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('알림 권한이 필요해요'),
+        content: const Text(
+          '복용 시간에 알려 드리려면 이 앱의 알림을 허용해야 해요. '
+          '이전에 허용하지 않아 휴대폰이 허용 창을 다시 띄울 수 없는 상태예요.\n\n'
+          '설정 화면에서 "알림"을 켜 주세요.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('나중에'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('설정으로 이동'),
+          ),
+        ],
+      ),
+    );
+    if (goSettings == true) {
       await MedicationReminderService.openNotificationSettings();
     }
   }

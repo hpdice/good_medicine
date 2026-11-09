@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show SystemNavigator;
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'core/theme/app_theme.dart';
@@ -74,6 +76,9 @@ class App extends StatelessWidget {
   }
 }
 
+/// 홈에서 뒤로가기를 마지막으로 누른 시각 — 2초 안에 한 번 더 누르면 앱을 종료한다.
+DateTime? _lastBackPress;
+
 class _MainShell extends StatelessWidget {
   final Widget child;
   const _MainShell({required this.child});
@@ -85,9 +90,29 @@ class _MainShell extends StatelessWidget {
 
     // 안드로이드 뒤로가기: 검색 탭에서는 앱이 종료되지 않고 내 약 탭으로 돌아간다(탭 이동은 `go`라 되돌아갈 기록이 없다).
     return PopScope(
-      canPop: selectedIndex == 0,
+      // 웹에서는 브라우저 뒤로가기를 막지 않는다. 안드로이드에서는 홈에서도 바로 종료하지 않고 한 번 더 눌러야 종료한다.
+      canPop: kIsWeb && selectedIndex == 0,
       onPopInvokedWithResult: (didPop, result) {
-        if (!didPop) context.go('/');
+        if (didPop) return;
+        if (selectedIndex != 0) {
+          context.go('/');
+          return;
+        }
+        final now = DateTime.now();
+        final last = _lastBackPress;
+        if (last != null && now.difference(last) < const Duration(seconds: 2)) {
+          SystemNavigator.pop();
+          return;
+        }
+        _lastBackPress = now;
+        final messenger = ScaffoldMessenger.of(context);
+        messenger.hideCurrentSnackBar();
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('한 번 더 누르면 종료됩니다.'),
+            duration: Duration(seconds: 2),
+          ),
+        );
       },
       child: Scaffold(
         body: child,
