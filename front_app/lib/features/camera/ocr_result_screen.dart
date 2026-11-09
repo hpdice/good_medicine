@@ -14,14 +14,6 @@ class OcrResultScreen extends StatefulWidget {
 }
 
 class _OcrResultScreenState extends State<OcrResultScreen> {
-  final _checked = <String>{};
-
-  /// 약 ID → 그 약이 인식된 줄에서 읽은 복용 안내(유사 약품을 고른 경우도 같은 줄의 값).
-  Map<String, OcrDose?> _dosesById(List<DrugNameMatchResult> results) => {
-        for (final r in results)
-          for (final d in [?r.matched, ...r.alternatives]) d.id: r.dose,
-      };
-
   @override
   Widget build(BuildContext context) {
     return Consumer<CameraProvider>(builder: (context, cam, _) {
@@ -37,16 +29,14 @@ class _OcrResultScreenState extends State<OcrResultScreen> {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                if (_checked.isNotEmpty) ...[
+                if (cam.picked.isNotEmpty) ...[
                   FilledButton.icon(
                     onPressed: () {
-                      final doses = _dosesById(cam.matchResults);
-                      final picked = {for (final id in _checked) id: doses[id]};
                       context.go('/');
-                      cam.addDrugsToBox(picked);
+                      cam.savePicked();
                     },
                     icon: const Icon(Icons.add_rounded, size: 20),
-                    label: Text('내 약에 추가 (${_checked.length})'),
+                    label: Text('내 약에 추가 (${cam.picked.length})'),
                   ),
                   Gap.v8,
                 ],
@@ -101,10 +91,9 @@ class _OcrResultScreenState extends State<OcrResultScreen> {
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, i) => _MatchResultCard(
         result: cam.matchResults[i],
-        checked: _checked,
-        onToggle: (id) => setState(() {
-          _checked.contains(id) ? _checked.remove(id) : _checked.add(id);
-        }),
+        isChecked: cam.isPicked,
+        onToggle: (drug) =>
+            cam.togglePick(drug, dose: cam.matchResults[i].dose),
         onGoSearch: () => context.go('/search'),
       ),
     );
@@ -113,13 +102,13 @@ class _OcrResultScreenState extends State<OcrResultScreen> {
 
 class _MatchResultCard extends StatelessWidget {
   final DrugNameMatchResult result;
-  final Set<String> checked;
-  final void Function(String) onToggle;
+  final bool Function(String drugId) isChecked;
+  final void Function(DrugSearchResult drug) onToggle;
   final VoidCallback onGoSearch;
 
   const _MatchResultCard({
     required this.result,
-    required this.checked,
+    required this.isChecked,
     required this.onToggle,
     required this.onGoSearch,
   });
@@ -145,8 +134,8 @@ class _MatchResultCard extends StatelessWidget {
           if (result.matched != null)
             _DrugRow(
               drug: result.matched!,
-              isChecked: checked.contains(result.matched!.id),
-              onToggle: () => onToggle(result.matched!.id),
+              isChecked: isChecked(result.matched!.id),
+              onToggle: () => onToggle(result.matched!),
             )
           else ...[
             Row(children: [
@@ -170,8 +159,8 @@ class _MatchResultCard extends StatelessWidget {
               for (final alt in result.alternatives.take(3))
                 _DrugRow(
                   drug: alt,
-                  isChecked: checked.contains(alt.id),
-                  onToggle: () => onToggle(alt.id),
+                  isChecked: isChecked(alt.id),
+                  onToggle: () => onToggle(alt),
                 ),
             ],
           ],

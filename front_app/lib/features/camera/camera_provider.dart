@@ -21,7 +21,15 @@ class SubmittedPhoto {
   });
 }
 
+/// 복약함에 저장하려고 담아 둔 약 하나와, 그 약이 인식된 줄에서 읽은 복용 안내.
+class PickedDrug {
+  final DrugSearchResult drug;
+  final OcrDose? dose;
+  const PickedDrug(this.drug, this.dose);
+}
+
 class CameraProvider extends ChangeNotifier {
+  final Map<String, PickedDrug> _picked = {};
   List<DrugNameMatchResult> _matchResults = [];
   bool _isProcessing = false;
   bool _isAdding = false;
@@ -106,20 +114,41 @@ class CameraProvider extends ChangeNotifier {
     }
   }
 
-  /// [doses]: 약 ID → 약봉투에서 읽은 복용 안내(없으면 null). 읽은 값은 복약함에 함께 저장해
-  /// 하루 용량 확인에 쓴다 — 사용자가 복약함에서 고칠 수 있다.
-  Future<void> addDrugsToBox(Map<String, OcrDose?> doses) async {
+  /// 담아 둔 약(인식 결과에서 체크한 약 + 검색으로 고른 약). 화면을 오가도 유지되고, 저장에 성공하면 비워진다.
+  List<PickedDrug> get picked => List.unmodifiable(_picked.values);
+  bool isPicked(String drugId) => _picked.containsKey(drugId);
+
+  /// [dose]: 약봉투에서 읽은 복용 안내(검색으로 고른 약은 null).
+  void togglePick(DrugSearchResult drug, {OcrDose? dose}) {
+    if (_picked.remove(drug.id) == null) {
+      _picked[drug.id] = PickedDrug(drug, dose);
+    }
+    notifyListeners();
+  }
+
+  void removePick(String drugId) {
+    if (_picked.remove(drugId) != null) notifyListeners();
+  }
+
+  /// 담아 둔 약을 한꺼번에 복약함에 저장한다. 읽은 복용 안내는 함께 저장해 하루 용량 확인에 쓴다 —
+  /// 사용자가 복약함에서 고칠 수 있다. 저장에 실패한 약은 담아 둔 채로 남는다.
+  Future<void> savePicked() async {
+    final items = _picked.values.toList();
+    if (items.isEmpty) return;
     _isAdding = true;
     _error = null;
     notifyListeners();
     final results = await Future.wait(
-      doses.entries.map((e) => ApiClient.dio
+      items.map((p) => ApiClient.dio
           .post('medicine-box',
-              data: {'drug_id': e.key, ...?e.value?.toBoxFields()})
+              data: {'drug_id': p.drug.id, ...?p.dose?.toBoxFields()})
           .then((_) => true)
           .catchError((_) => false)),
     );
     _isAdding = false;
+    for (var i = 0; i < items.length; i++) {
+      if (results[i]) _picked.remove(items[i].drug.id);
+    }
     _addDoneCount = results.where((ok) => ok).length;
     if (_addDoneCount == 0) {
       _error = '약 추가에 실패했습니다. 다시 시도해 주세요.';
