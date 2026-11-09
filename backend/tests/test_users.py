@@ -54,3 +54,18 @@ async def test_corrupted_encrypted_field_does_not_500(client, session_factory):
     get_res = await client.get("/users/me", headers=headers)
     assert get_res.status_code == 200
     assert get_res.json()["health_conditions"] is None
+
+
+async def test_birth_year_can_be_cleared_with_explicit_null_but_not_by_omitting_it(client):
+    payload = _register_payload()
+    await client.post("/auth/register", json=payload)
+    token = await _login(client, payload)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    res = await client.patch("/users/me", headers=headers, json={"birth_year": 1950})
+    assert res.json()["birth_year"] == 1950
+    res = await client.patch("/users/me", headers=headers, json={"allergy_info": ["페니실린"]})  # 키 없음 — 그대로
+    assert res.json()["birth_year"] == 1950
+    res = await client.patch("/users/me", headers=headers, json={"birth_year": None})  # 명시적 null — 지운다
+    assert res.status_code == 200 and res.json()["birth_year"] is None
+    assert (await client.get("/users/me", headers=headers)).json()["birth_year"] is None

@@ -65,6 +65,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       healthConditions: _healthConditions,
       allergyInfo: _allergyInfo,
       birthYear: birthYear,
+      clearBirthYear: text.isEmpty,
       isPregnant: _isPregnant,
     );
     if (!mounted) return;

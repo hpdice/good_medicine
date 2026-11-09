@@ -38,11 +38,13 @@ class ProfileProvider extends ChangeNotifier {
   }
 
   /// 전부 선택 입력 — null이면 그 필드는 보내지 않는다(값 없음 유지),
-  /// 빈 리스트를 보내면 서버에 저장된 값을 비운다.
+  /// 빈 리스트를 보내면 서버에 저장된 값을 비운다. 출생연도는 [clearBirthYear]가 true이고 값이 없을 때
+  /// 명시적 null을 보내 서버에 저장된 값을 지운다.
   Future<bool> save({
     List<String>? healthConditions,
     List<String>? allergyInfo,
     int? birthYear,
+    bool clearBirthYear = false,
     bool? isPregnant,
   }) async {
     _status = ProfileStatus.saving;
@@ -52,7 +54,7 @@ class ProfileProvider extends ChangeNotifier {
       final res = await ApiClient.dio.patch('users/me', data: {
         if (healthConditions != null) 'health_conditions': healthConditions,
         if (allergyInfo != null) 'allergy_info': allergyInfo,
-        if (birthYear != null) 'birth_year': birthYear,
+        if (birthYear != null || clearBirthYear) 'birth_year': birthYear,
         if (isPregnant != null) 'is_pregnant': isPregnant,
       });
       _profile = UserProfile.fromJson(res.data);
