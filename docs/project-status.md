@@ -13,7 +13,7 @@
 | 백엔드 | FastAPI 17개 엔드포인트 + 헬스체크. 공공데이터 동기화(`public_data_service/`)는 책임별 파일로 분할 |
 | 인프라 | Docker Compose: postgres · backend · ollama (배포 overlay는 tailscale 컨테이너 추가). backend 호스트 포트 8001 |
 | DB | Alembic 마이그레이션 — 성분 단위 판정 테이블, 복약정보 필드 암호화, 출생연도·연령대 규칙, 임부금기, 약 상세 보강 시각, 심평원 일반명코드 속성 분리(2NF) |
-| 데이터 | 공공데이터 적재 + 품질 검증(`validate_db.py`) 통과 |
+| 데이터 | 공공데이터 적재 + 품질 검증(`validate_db.py`) 통과. 테이블 19개의 컬럼·채우는 곳·읽는 곳은 [data-model.md](./data-model.md) |
 | Flutter 앱 | 웹·Android. 로그인·복약함·약 검색·사진 OCR·위험도 배너·AI 설명·복약 시간 알림·내 정보(건강 상태·출생연도·임신 여부) |
 | 테스트 | pytest + httpx, 운영 DB와 분리된 테스트 DB, Ollama mock. push·PR 시 GitHub Actions에서 린트·타입 검사·pytest 실행 |
 | AI 설명 | Ollama + Qwen2.5 14B (GPU, 외부 API 미사용) |
