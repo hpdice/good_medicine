@@ -57,8 +57,9 @@ class FcmService {
       debugPrint('FCM 토큰 조회 실패: $e');
     }
 
-    _refreshSub ??=
-        FirebaseMessaging.instance.onTokenRefresh.listen(_sendTokenToBackend);
+    _refreshSub ??= FirebaseMessaging.instance.onTokenRefresh.listen(
+      _sendTokenToBackend,
+    );
   }
 
   static Future<void> _initLocalNotifications() async {
@@ -68,7 +69,8 @@ class FcmService {
     );
     await _localNotifications
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.createNotificationChannel(_channel);
   }
 

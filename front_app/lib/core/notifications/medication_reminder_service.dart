@@ -67,6 +67,14 @@ class MedicationReminderService {
     return await android.requestNotificationsPermission() ?? false;
   }
 
+  /// 로그인해 홈에 들어오면 앱 실행당 한 번 알림 허용 창을 띄운다. 복약 알림을 아직 하나도 안 켠 새 사용자도 대상이다
+  /// (예약된 알림이 있을 때만 물으면 설치 직후엔 영영 안 묻는다). 목록 불러오기를 막지 않게 기다리지 않는다.
+  static void askPermissionOncePerRun() {
+    if (kIsWeb || _askedThisRun) return;
+    _askedThisRun = true;
+    unawaited(requestNotificationPermission());
+  }
+
   static Future<void> init() async {
     if (_initialized) return;
     tzdata.initializeTimeZones();
@@ -141,11 +149,6 @@ class MedicationReminderService {
     if (!_initialized) await init();
 
     final reminders = computeSchedule(entries);
-    // 예약할 알림이 있는데 권한을 한 번도 안 물었다면 이 실행에서 한 번만 묻는다(목록 불러오기를 막지 않게 기다리지 않는다).
-    if (reminders.isNotEmpty && !_askedThisRun) {
-      _askedThisRun = true;
-      unawaited(requestNotificationPermission());
-    }
 
     final pending = await _plugin.pendingNotificationRequests();
     for (final p in pending) {

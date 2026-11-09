@@ -8,10 +8,10 @@ import '../../core/notifications/medication_reminder_service.dart';
 enum DrugRisk { none, safe, caution, contraindicated }
 
 int _riskSeverity(DrugRisk r) => switch (r) {
-      DrugRisk.contraindicated => 2,
-      DrugRisk.caution => 1,
-      _ => 0,
-    };
+  DrugRisk.contraindicated => 2,
+  DrugRisk.caution => 1,
+  _ => 0,
+};
 
 class HomeProvider extends ChangeNotifier {
   List<MedicineBoxEntry> _entries = [];
@@ -38,13 +38,15 @@ class HomeProvider extends ChangeNotifier {
   }
 
   Future<void> loadEntries() async {
+    MedicationReminderService.askPermissionOncePerRun();
     _isLoading = true;
     _error = null;
     notifyListeners();
     try {
       final res = await ApiClient.dio.get('medicine-box');
-      _entries =
-          (res.data as List).map((e) => MedicineBoxEntry.fromJson(e)).toList();
+      _entries = (res.data as List)
+          .map((e) => MedicineBoxEntry.fromJson(e))
+          .toList();
       await _autoCheck();
       await MedicationReminderService.reschedule(_entries);
     } on DioException catch (e) {
@@ -73,12 +75,12 @@ class HomeProvider extends ChangeNotifier {
   /// 복용량이 바뀌면 용량 판정이 달라지므로 위험도도 다시 확인한다.
   Future<bool> updateEntry(String entryId, Map<String, dynamic> changes) async {
     try {
-      final res =
-          await ApiClient.dio.patch('medicine-box/$entryId', data: changes);
+      final res = await ApiClient.dio.patch(
+        'medicine-box/$entryId',
+        data: changes,
+      );
       final updated = MedicineBoxEntry.fromJson(res.data);
-      _entries = [
-        for (final e in _entries) e.id == entryId ? updated : e,
-      ];
+      _entries = [for (final e in _entries) e.id == entryId ? updated : e];
       if (changes.containsKey('units_per_intake') ||
           changes.containsKey('times_per_day')) {
         await _autoCheck();
@@ -149,8 +151,10 @@ class HomeProvider extends ChangeNotifier {
       bump(a.drugId, DrugRisk.contraindicated);
     }
     for (final a in result.ageCautions) {
-      bump(a.drugId,
-          a.ruleType == 'age_taboo' ? DrugRisk.contraindicated : DrugRisk.caution);
+      bump(
+        a.drugId,
+        a.ruleType == 'age_taboo' ? DrugRisk.contraindicated : DrugRisk.caution,
+      );
     }
     // 임부금기도 병용금기와 같은 급(critical) — 임신 중으로 등록한 사용자의 약 1개 단위.
     for (final a in result.pregnancyCautions) {
