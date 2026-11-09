@@ -37,7 +37,7 @@ $container = "drugtest-backend-1"
 $checkpoint = "/var/lib/goodmedicine/dur_contraindications_checkpoint.txt"
 $steps = @("overview", "approval", "dur_contraindications", "efcy_dplct",
            "dur_age_caution", "dur_pregnancy", "dur_ingredient", "build_drug_ingredients",
-           "hira_master", "build_drug_ingredients_hira", "build_drug_amounts")
+           "hira_master", "build_drug_ingredients_hira", "build_drug_amounts", "build_drugs_master")
 # -File 로 실행하면 "-Only a,b" 가 배열이 아니라 문자열 하나로 넘어오므로 쉼표로 직접 나눈다.
 if ($Only) { $steps = @($Only | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
 

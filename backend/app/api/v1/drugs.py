@@ -24,7 +24,7 @@ from app.schemas.drug import (
     DrugSearchResult,
     OcrMatchResponse,
 )
-from app.services.drug_detail_service import DrugDetailService
+from app.services.drug_detail_service import REALTIME_TIMEOUT_SECONDS, DrugDetailService
 from app.services.drug_service import DrugService
 from app.services.ocr_service import (
     OcrError,
@@ -115,10 +115,11 @@ async def get_drug(
     db: AsyncSession = Depends(get_db),
     _: uuid.UUID = Depends(get_current_user_id),
 ):
+    # DB 값이 먼저 — 허가정보 상세는 배치로 미리 채우고, 아직 없는 약만 짧은 제한 안에서 실시간 보충한다.
     drug = await DrugService(db).get_by_id(drug_id)
     try:
-        await DrugDetailService(db).ensure_detail(drug)
-    except Exception:  # 부가 보강 — 실패해도 기존 정보로 응답
+        await DrugDetailService(db, timeout=REALTIME_TIMEOUT_SECONDS).ensure_detail(drug)
+    except Exception:  # 부가 보강 — 실패해도 DB 값으로 응답
         await db.rollback()
         logger.exception("허가정보 상세 보강 중 오류 drug_id=%s", drug_id)
         drug = await DrugService(db).get_by_id(drug_id)

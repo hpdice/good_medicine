@@ -17,7 +17,7 @@ from app.schemas.medicine_box import (
 )
 from app.services import fcm_service
 from app.services.analysis_service import AnalysisService
-from app.services.drug_detail_service import DrugDetailService
+from app.services.drug_detail_service import REALTIME_TIMEOUT_SECONDS, DrugDetailService
 from app.services.drug_service import DrugService
 
 # payload_encrypted 안에 들어가는(=암호화되는) 필드. 나머지(user_id/is_current/
@@ -110,11 +110,11 @@ class MedicineBoxService:
         if any(p["drug_id"] == str(data.drug_id) for _, p in rows):
             raise ConflictError("이미 복약 중인 약품입니다.")
 
-        # e약은요에 없는 약(대부분의 전문의약품)은 허가정보 상세로 효능·용법·주의·성분을 채운다.
-        # 성분이 채워지면 아래 병용금기 푸시·이후 quick_check가 이 약을 성분 단위로 볼 수 있다.
-        # 부가 기능이라 실패해도 약 추가는 계속한다.
+        # 약 정보는 우리 DB 값이 먼저다 — 허가정보 상세는 배치(`sync.py permit_detail`)가 미리 채운다.
+        # DB에 아직 없는 약만 실시간 API로 보충하고(받은 값은 DB에 저장), 짧은 제한(REALTIME_TIMEOUT_SECONDS)을 넘기면
+        # 기다리지 않고 DB 값만으로 진행한다. 성분이 채워지면 아래 병용금기 푸시·이후 quick_check가 이 약을 성분 단위로 본다.
         try:
-            await DrugDetailService(self.db).ensure_detail(drug)
+            await DrugDetailService(self.db, timeout=REALTIME_TIMEOUT_SECONDS).ensure_detail(drug)
         except Exception:
             await self.db.rollback()
             logger.exception("허가정보 상세 보강 중 오류 (약품 추가는 계속 진행) drug_id=%s", data.drug_id)

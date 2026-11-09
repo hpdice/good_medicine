@@ -12,6 +12,7 @@
     approval                의약품 허가정보 동기화
     build_drug_ingredients  drug_ingredients 로컬 보강 (API 미사용, item_name·ingr_name → 성분코드)
     build_drug_ingredients_hira  drug_ingredients 심평원 경로 보강 (hira_master 적재 후, 미해소 약 + 일부만 맺힌 약의 빠진 성분, source='hira_eng')
+    build_drugs_master      drugs_master — 약 1행으로 모은 통합 데이터셋(이름·업체·분류·성분·함량·제형·정보 유무·판정 가능 여부)
     build_drug_amounts      drug_ingredients.amount_mg — 정·캡슐 1개당 성분 함량(심평원 주성분, 용량주의 판정용)
     build_residual          residual_interactions 시드 복원 (DB 완전 초기화 후 재구축 시)
     extract_risk_tags       prohibit_content → 로컬 LLM 위험/증상 태그 1회 추출 (GPU 필요)
@@ -20,8 +21,11 @@
     dur_ingredient          DUR 성분정보 7종 → 성분코드 조회표 + 판정 규칙 보강(품목정보에 없는 규칙을 source=ingredient로 추가)
     hira_master             심평원 약가마스터 CSV 2종(SYNC_STATE_DIR/hira/) → 품목↔일반명코드, 일반명코드 성분 구성.
                             같은 파일이면 건너뛰고, 새 파일이면 바뀐 행만 쓴다 (API 미사용)
-    box_detail              복약함에 이미 담긴 약을 허가정보 상세 API로 보강 (효능·용법·주의·성분).
-                            새로 담는 약은 담는 순간 자동 보강되므로, 이 기능 도입 전 항목용 1회성
+    permit_detail           허가정보 상세 API로 효능·용법·주의사항·성분을 우리 DB에 적재(배치). 아직 안 받은 약만, 우선순위
+                            (텍스트 없는 약 → 판정 가능 약 → 일반의약품)대로 --limit(기본 9000, 일일 한도 추정 10,000 아래)건,
+                            --concurrency(기본 8)개씩. 실패한 약은 다음 실행이 이어 받는다. 끝나면 drugs_master를 다시 만든다.
+                            앱 요청 경로는 이 API를 부르지 않는다.
+    box_detail              복약함에 이미 담긴 약을 허가정보 상세 API로 보강 (효능·용법·주의·성분, 1회성)
     all                     overview·dur_contraindications·efcy_dplct·approval 순 (기본값)
 
 옵션:
@@ -32,6 +36,9 @@
     --since=YYYYMMDD        DUR 품목정보 4종(병용금기·효능군중복·연령·임부)을 이 날짜 이후 바뀐 행만 받는다.
                             생략하면 마지막 성공 동기화 3일 전부터(기록이 없으면 전체). 이미 적재한 행은 다시 받지 않는다.
     --full                  DUR 품목정보도 전체를 받는다(병용금기는 약 7시간).
+    --limit=N               permit_detail이 이번 실행에서 받을 최대 건수(기본 9000).
+    --concurrency=N         permit_detail 동시 요청 수(기본 8).
+    --reserve=N             permit_detail이 일일 한도 중 남겨 둘 호출 수(기본 1500) — 앱의 실시간 보충용.
 
 판정은 성분 단위(drug_ingredients + dur_ingredient_*)만 쓴다. dur_contraindications·
 efcy_dplct 동기화가 이 테이블들을 채운다. 구 품목 테이블(drug_interactions/
@@ -106,6 +113,7 @@ LOCAL_JOBS = {
     "fill_simple_names": ("item_name → simple_name 일괄 채우기", "fill_simple_names", "{n:,}건 업데이트", True),
     "build_drug_ingredients_hira": ("drug_ingredients 심평원 경로 보강 (품목→일반명코드→영문 일반명→성분코드)", "build_drug_ingredients_from_hira", "{n:,}개 약 해소·보강 (source='hira_eng')", True),
     "build_drug_amounts": ("drug_ingredients.amount_mg 채우기 (심평원 주성분 함량, 내복 정·캡슐)", "build_drug_amounts", "{n:,}개 약 함량 채움", False),
+    "build_drugs_master": ("drugs_master 통합 데이터셋 구축 (drugs + 심평원 + DUR 성분 연결, 매번 전부 다시)", "build_drugs_master", "{n:,}개 약 통합", False),
     "hira_master": ("심평원 약가마스터 CSV 적재 (SYNC_STATE_DIR/hira/)", "load_hira_master", "{n:,}행 추가·갱신·삭제", False),
 }
 
@@ -289,6 +297,34 @@ async def run_sync(
     return failed
 
 
+def _int_flag(name: str, default: int) -> int:
+    for a in sys.argv[1:]:
+        if a.startswith(name + "="):
+            try:
+                return int(a.partition("=")[2])
+            except ValueError:
+                raise SystemExit(f"{name} 형식은 정수: {a}") from None
+    return default
+
+
+async def cmd_permit_detail(limit: int, concurrency: int, reserve: int) -> bool:
+    """허가정보 상세를 DB에 적재하고(이어 받기), 끝나면 drugs_master를 다시 만든다."""
+    from app.db.session import AsyncSessionLocal
+    from app.services.drug_detail_service import backfill_details
+    from app.services.public_data_service import PublicDataService
+
+    print(f"[시작] 허가정보 상세 적재 (최대 {limit:,}건, 동시 {concurrency}개)")
+    res = await backfill_details(AsyncSessionLocal, limit, concurrency, reserve=reserve)
+    print(f"[결과] 대상 {res['candidates']:,} / 성공 {res['done']:,} / 실패 {res['failed']:,}"
+          + (" — 남은 일일 호출이 예약분 아래라 중단(앱 실시간 보충용으로 남김, 한도가 풀리면 이어 받음)" if res["quota_low"]
+             else " — 연속 실패로 중단(한도 초과·장애 추정, 다음 실행이 이어 받음)" if res["stopped"] else ""))
+    async with AsyncSessionLocal() as db:
+        n = await PublicDataService(db).build_drugs_master()
+    print(f"[완료] drugs_master {n:,}행 갱신")
+    # 받을 게 없거나 하나라도 성공했으면 정상. 아무것도 못 받고 멈췄을 때만 실패로 본다.
+    return res["candidates"] == 0 or res["done"] > 0 or res["quota_low"]
+
+
 def parse_args(argv: list[str]) -> tuple[str, str | None, str | None, bool]:
     """(명령, replay 스냅샷, 변경분 기준일, 전체 여부).
     `--replay[=YYYYMMDD]`가 없으면 replay 는 None, 날짜가 없으면 "latest"."""
@@ -315,6 +351,9 @@ async def main_async():
         await run_local_job(start, method, done)
         if show_status:
             await cmd_status()
+    elif cmd == "permit_detail":
+        if not await cmd_permit_detail(_int_flag("--limit", 9000), _int_flag("--concurrency", 8), _int_flag("--reserve", 1500)):
+            failed = ["permit_detail"]
     elif cmd == "box_detail":
         if not await cmd_box_detail():
             failed = ["box_detail"]
