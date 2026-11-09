@@ -4,4 +4,6 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 로컬 개발 서버(http://10.0.2.2 등) 접속용 — 릴리스 APK에는 평문 통신을 허용하지 않는다. -->
+    <application android:usesCleartextTraffic="true"/>
 </manifest>
