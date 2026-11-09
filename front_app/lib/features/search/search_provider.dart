@@ -8,14 +8,12 @@ class SearchProvider extends ChangeNotifier {
   List<DrugSearchResult> _results = [];
   bool _isLoading = false;
   String? _error;
-  bool _addSuccess = false;
   CancelToken? _cancelToken;
 
   String get query => _query;
   List<DrugSearchResult> get results => _results;
   bool get isLoading => _isLoading;
   String? get error => _error;
-  bool get addSuccess => _addSuccess;
 
   void updateQuery(String q) {
     _query = q;
@@ -46,22 +44,6 @@ class SearchProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
-  }
-
-  Future<void> addToBox(String drugId) async {
-    try {
-      await ApiClient.dio.post('medicine-box', data: {'drug_id': drugId});
-      _addSuccess = true;
-      notifyListeners();
-    } on DioException catch (e) {
-      _error = describeDioError(e, '추가 실패');
-      notifyListeners();
-    }
-  }
-
-  void resetAddSuccess() {
-    _addSuccess = false;
-    notifyListeners();
   }
 
   void clearError() {

@@ -35,12 +35,6 @@ class _SearchScreenState extends State<SearchScreen> {
   Widget build(BuildContext context) {
     return Consumer2<SearchProvider, CameraProvider>(
         builder: (context, search, cam, _) {
-      if (search.addSuccess) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          search.resetAddSuccess();
-          context.go('/');
-        });
-      }
       return Scaffold(
         appBar: AppBar(title: const Text('약품 검색')),
         body: Column(children: [
@@ -113,17 +107,16 @@ class _SearchScreenState extends State<SearchScreen> {
         return _DrugCard(
           drug: drug,
           picked: cam.isPicked(drug.id),
-          onTap: () => _showDetail(context, drug, search, cam),
+          onTap: () => _showDetail(context, drug, cam),
+          onTogglePick: () => cam.togglePick(drug),
         );
       },
     );
   }
 
-  void _showDetail(BuildContext context, DrugSearchResult drug,
-      SearchProvider search, CameraProvider cam) {
-    // 사진에서 체크한 약이 담겨 있으면 검색한 약도 같은 목록에 담아 한꺼번에 저장한다.
-    // 담긴 약이 없으면 예전처럼 바로 추가한다.
-    final basketMode = cam.picked.isNotEmpty;
+  void _showDetail(
+      BuildContext context, DrugSearchResult drug, CameraProvider cam) {
+    // 검색한 약은 바로 저장하지 않고 사진에서 체크한 약과 같은 목록(장바구니)에 담아 한꺼번에 저장한다.
     final alreadyPicked = cam.isPicked(drug.id);
     showModalBottomSheet(
       context: context,
@@ -150,32 +143,23 @@ class _SearchScreenState extends State<SearchScreen> {
             ],
             _InfoSection(label: '효능', text: drug.efcyQesitm),
             Gap.v24,
-            if (basketMode && alreadyPicked)
+            if (alreadyPicked)
               OutlinedButton.icon(
                 onPressed: () {
                   context.pop();
                   cam.removePick(drug.id);
                 },
                 icon: const Icon(Icons.remove_circle_outline_rounded, size: 20),
-                label: const Text('선택 해제'),
-              )
-            else if (basketMode)
-              FilledButton.icon(
-                onPressed: () {
-                  context.pop();
-                  cam.togglePick(drug);
-                },
-                icon: const Icon(Icons.add_rounded, size: 20),
-                label: const Text('선택 목록에 담기'),
+                label: const Text('담기 취소'),
               )
             else
               FilledButton.icon(
                 onPressed: () {
                   context.pop();
-                  search.addToBox(drug.id);
+                  cam.togglePick(drug);
                 },
-                icon: const Icon(Icons.add_rounded, size: 20),
-                label: const Text('내 약에 추가'),
+                icon: const Icon(Icons.add_shopping_cart_rounded, size: 20),
+                label: const Text('담기'),
               ),
           ],
         ),
@@ -300,8 +284,13 @@ class _DrugCard extends StatelessWidget {
   final DrugSearchResult drug;
   final bool picked;
   final VoidCallback onTap;
-  const _DrugCard(
-      {required this.drug, required this.onTap, this.picked = false});
+  final VoidCallback onTogglePick;
+  const _DrugCard({
+    required this.drug,
+    required this.onTap,
+    required this.onTogglePick,
+    this.picked = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -339,10 +328,15 @@ class _DrugCard extends StatelessWidget {
                     ],
                   ]),
             ),
-            picked
-                ? Icon(Icons.check_circle_rounded, color: scheme.primary)
-                : Icon(Icons.chevron_right_rounded,
-                    color: scheme.onSurfaceVariant),
+            // 상세를 열지 않고 바로 담고 뺀다 — 여러 약을 연달아 담은 뒤 한 번에 저장한다.
+            IconButton(
+              tooltip: picked ? '담기 취소' : '담기',
+              onPressed: onTogglePick,
+              icon: picked
+                  ? Icon(Icons.check_circle_rounded, color: scheme.primary)
+                  : Icon(Icons.add_circle_outline_rounded,
+                      color: scheme.onSurfaceVariant),
+            ),
           ]),
         ),
       ),
