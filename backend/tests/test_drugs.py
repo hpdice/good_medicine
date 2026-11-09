@@ -140,6 +140,39 @@ async def test_match_names_suggests_similar_drug_for_ocr_typo(client, session_fa
     assert garbage["matched"] is None and garbage["alternatives"] == []  # 닮은 게 없으면 억지로 안 낸다
 
 
+def test_ocr_slip_distance_counts_jamo_not_syllables():
+    """실제 약봉투 사진의 오인식: 'ㅖ↔ㅔ'·'ㅋ↔ㅍ'은 자모 하나, '빼↔베'(ㅃㅐ↔ㅂㅔ)는 둘 차이라 닮은 이름으로 본다."""
+    from app.services.drug_service import _ocr_slip_distance
+
+    assert _ocr_slip_distance("액티폐린정", "액티페린정") == 1
+    assert _ocr_slip_distance("빼타디온정", "베타디온정") == 2
+    assert _ocr_slip_distance("테라켄정", "테라펜정") == 1
+    assert _ocr_slip_distance("테라켄정", "테라빅정") is None  # 음절 하나지만 자모가 셋 다르다
+    assert _ocr_slip_distance("가나다라마정", "타이레놀정") is None
+    assert _ocr_slip_distance("가스핀정", "가스핀정") is None  # 같은 이름은 정확 일치 단계의 몫
+    assert _ocr_slip_distance("아정", "어정") is None  # 너무 짧은 이름은 억지로 닮았다고 하지 않는다
+
+
+async def test_match_names_suggests_drug_for_one_jamo_ocr_slip(client, session_factory):
+    """트라이그램으로는 공통 묶음이 거의 없는 짧은 이름('액티폐린정'↔'액티페린정')도 유사 약품으로 내려준다."""
+    async with session_factory() as session:
+        target = await make_drug(session, "액티페린정")
+        await make_drug(session, "테라빅정")
+        pen = await make_drug(session, "테라펜정")
+    token = await register_and_login(client)
+    res = await client.post(
+        "/drugs/match-names",
+        json={"names": ["액티폐린정", "테라켄정"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 200
+    slip, ten = res.json()
+    assert slip["matched"] is None
+    assert [a["id"] for a in slip["alternatives"]] == [str(target.id)]
+    assert ten["matched"] is None
+    assert ten["alternatives"][0]["id"] == str(pen.id)  # 자모 거리가 가장 가까운 약이 맨 앞
+
+
 def test_extract_candidates_keeps_digits_inside_name():
     """이름 가운데 숫자('8시간')에서 끊겨 '시간이알서방정' 조각만 남던 버그."""
     got = extract_candidates("아니스펜8시간이알서방정(아..  1회투약량 1\n1회투약량1 1일투여횟수2\n")

@@ -112,6 +112,50 @@ def _name_prefix(normalized_key: str) -> str:
     return re.split(r'\d', normalized_key)[0]
 
 
+def _jamo_seq(text_: str) -> list[int]:
+    """한글 음절을 초성·중성·종성 자모로 푼다. 한글이 아닌 글자는 코드 그대로(겹치지 않게 큰 수로)."""
+    out: list[int] = []
+    for ch in text_:
+        offset = ord(ch) - 0xAC00
+        if 0 <= offset < 11172:
+            out.append(offset // 588)
+            out.append(100 + offset % 588 // 28)
+            if offset % 28:
+                out.append(200 + offset % 28)
+        else:
+            out.append(1000 + ord(ch))
+    return out
+
+
+def _jamo_distance(a: str, b: str) -> int:
+    """두 이름의 자모 단위 편집 거리. '페'↔'폐'(ㅔ↔ㅖ)·'베'↔'빼'(ㅂ↔ㅃ)는 1이다."""
+    x, y = _jamo_seq(a), _jamo_seq(b)
+    prev = list(range(len(y) + 1))
+    for i, cx in enumerate(x, 1):
+        cur = [i]
+        for j, cy in enumerate(y, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (cx != cy)))
+        prev = cur
+    return prev[-1]
+
+
+# OCR이 글자를 한두 자모만 틀리게 읽은 경우만 닮은 이름으로 본다 — 음절 수가 같고(삽입·누락은 안 봄),
+# 다른 음절이 둘 이하이며 자모 거리가 이 값 이하. 트라이그램은 짧은 한글 이름('액티폐린정'↔'액티페린정')에서
+# 공통 3글자 묶음이 거의 없어 못 잡는다.
+_SLIP_MAX_JAMO = 2
+_SLIP_MIN_LEN = 4
+
+
+def _ocr_slip_distance(query: str, name: str) -> int | None:
+    """`query`가 `name`을 OCR이 한두 자모만 틀리게 읽은 것이면 자모 거리, 아니면 None."""
+    if len(query) != len(name) or len(query) < _SLIP_MIN_LEN or query == name:
+        return None
+    if sum(p != q for p, q in zip(query, name)) > 2:
+        return None
+    dist = _jamo_distance(query, name)
+    return dist if dist <= _SLIP_MAX_JAMO else None
+
+
 def _dosage_rank(drug: Drug, normalized_key: str, target_digits: str) -> int:
     """같은 이름·다른 용량 후보의 우선순위: 완전 일치 0, 용량 숫자가 서로 시작/포함 1, 그 외 2."""
     if drug.drug_key == normalized_key:
@@ -188,6 +232,32 @@ class DrugService:
     # 한 글자 오인식은 0.40~0.42('뉴부턴'→뉴부틴 0.40, '신플렉스'→신플랙스 0.42),
     # 의미 없는 입력('가나다라마정')은 0.2~0.3 — 0.38이 둘을 가른다.
     FUZZY_MIN_SIMILARITY = 0.38
+
+    async def _slip_candidates(self, key: str) -> list[Drug]:
+        """OCR이 자모 한두 개만 틀리게 읽은 이름과 같은 약 최대 3개(자모 거리 순) — `_ocr_slip_distance` 참고.
+        용량 앞까지의 이름만 비교하고, 앞 단계가 빈손일 때만 타는 경로라 `drug_key` 전체(3.5만 건)를 읽어도 무시할 만하다."""
+        name = _name_prefix(key)
+        if len(name) < _SLIP_MIN_LEN:
+            return []
+        scored: list[tuple[int, bool, int, str, uuid.UUID]] = []
+        for drug_id, drug_key, item_name in (await self.db.execute(
+            select(Drug.id, Drug.drug_key, Drug.item_name)
+        )).all():
+            candidate = _name_prefix(drug_key or "")
+            dist = _ocr_slip_distance(name, candidate)
+            if dist is not None:
+                scored.append((dist, "수출용" in (item_name or ""), len(drug_key or ""), candidate, drug_id))
+        scored.sort(key=lambda s: s[:3])
+        ids: list[uuid.UUID] = []
+        seen: set[str] = set()
+        for _, _, _, candidate, drug_id in scored:
+            if candidate not in seen:  # 같은 이름에 용량만 다른 품목은 하나만
+                seen.add(candidate)
+                ids.append(drug_id)
+        if not ids:
+            return []
+        by_id = await self.get_drugs_by_ids(ids[:3])
+        return [by_id[i] for i in ids[:3] if i in by_id]
 
     async def _fuzzy_candidates(self, key: str) -> list[Drug]:
         """`drug_key`와 트라이그램 유사도가 높은 약 최대 3개(유사도 순).
@@ -273,7 +343,15 @@ class DrugService:
                 or await self._match_by_ingredient(name)
             )
             prefix = _name_prefix(key)
-            fuzzy = [] if rows else await self._fuzzy_candidates(prefix if len(prefix) >= 3 else key)
+            fuzzy: list[Drug] = []
+            if not rows:
+                # 자모 한두 개 오인식('액티폐린정'→액티페린정)을 먼저, 모자라면 트라이그램 유사도로 채운다.
+                fuzzy = await self._slip_candidates(key)
+                if len(fuzzy) < 3:
+                    seen_ids = {d.id for d in fuzzy}
+                    fuzzy += [d for d in await self._fuzzy_candidates(prefix if len(prefix) >= 3 else key)
+                              if d.id not in seen_ids]
+                fuzzy = fuzzy[:3]
             results.append({
                 "queried_name": name,
                 "matched": rows[0] if rows else None,
