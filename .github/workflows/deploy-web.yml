@@ -36,7 +36,7 @@ jobs:
         working-directory: front_app
         run: |
           flutter pub get
-          flutter build web --release --pwa-strategy=none \
+          flutter build web --release \
             --dart-define=BASE_URL="${{ secrets.WEB_API_BASE_URL }}"
 
       - name: assemble Vercel prebuilt output
