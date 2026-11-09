@@ -1,6 +1,7 @@
 from app.models.analysis_result import AnalysisResult
 from app.models.drug import Drug
 from app.models.drug_ingredient import DrugIngredient
+from app.models.drug_master import DrugMaster
 from app.models.dur_ingredient_master import DurIngredientMaster
 from app.models.dur_ingredient_rule import (
     DurIngredientAgeCaution,
@@ -20,6 +21,7 @@ __all__ = [
     "AuditLog",
     "Drug",
     "DrugIngredient",
+    "DrugMaster",
     "DurIngredientContraindication",
     "DurIngredientEffectGroup",
     "DurIngredientAgeCaution",

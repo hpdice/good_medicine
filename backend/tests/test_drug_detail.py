@@ -1,10 +1,12 @@
 """허가정보 상세 API 온디맨드 보강 — 실제 API는 부르지 않고 `_fetch`를 가짜로 바꿔 검증한다."""
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 
 from app.config import settings
 from app.models.drug import Drug
 from app.models.drug_ingredient import DrugIngredient
-from app.services.drug_detail_service import DrugDetailService
+from app.services.drug_detail_service import REALTIME_TIMEOUT_SECONDS, DrugDetailService
 from app.services.public_data_service.helpers import permit_doc_to_text
 from tests.factories import make_drug, register_and_login
 
@@ -154,8 +156,16 @@ async def test_ensure_detail_skips_without_api_key(session_factory, monkeypatch)
         assert calls == []
 
 
-async def test_adding_to_medicine_box_fills_detail_in_response(client, session_factory, monkeypatch):
-    _fake_fetch(monkeypatch, {"EE_DOC_DATA": _EE})
+async def test_adding_fills_missing_detail_with_short_realtime_timeout(client, session_factory, monkeypatch):
+    """DB에 상세가 없는 약만 실시간으로 보충하고(짧은 제한), 받은 값은 DB에 저장한다."""
+    timeouts: list[float] = []
+
+    async def fetch(self, item_seq):
+        timeouts.append(self._timeout)
+        return {"EE_DOC_DATA": _EE}
+
+    monkeypatch.setattr(DrugDetailService, "_fetch", fetch)
+    monkeypatch.setattr(settings, "PUBLIC_DATA_API_KEY", "test-key")
     async with session_factory() as session:
         drug = await make_drug(session, "레이본정")
     token = await register_and_login(client)
@@ -164,6 +174,25 @@ async def test_adding_to_medicine_box_fills_detail_in_response(client, session_f
     )
     assert res.status_code == 201, res.text
     assert res.json()["drug"]["efcy_qesitm"] == "골관절증의 증상 완화"
+    assert timeouts == [REALTIME_TIMEOUT_SECONDS]
+    async with session_factory() as session:
+        assert (await session.get(Drug, drug.id)).detail_fetched_at is not None
+
+
+async def test_adding_skips_api_when_db_already_has_detail(client, session_factory, monkeypatch):
+    """배치로 이미 채워 둔 약은 API를 부르지 않는다 — 앱은 DB가 먼저다."""
+    calls = _fake_fetch(monkeypatch, {"EE_DOC_DATA": _EE})
+    async with session_factory() as session:
+        drug = await make_drug(session, "레이본정")
+        drug.efcy_qesitm = "배치로 받아 둔 효능"
+        drug.detail_fetched_at = datetime.now(timezone.utc)
+        await session.commit()
+    token = await register_and_login(client)
+    headers = {"Authorization": f"Bearer {token}"}
+    assert (await client.post("/medicine-box", json={"drug_id": str(drug.id)}, headers=headers)).status_code == 201
+    res = await client.get(f"/drugs/{drug.id}", headers=headers)
+    assert res.status_code == 200 and res.json()["efcy_qesitm"] == "배치로 받아 둔 효능"
+    assert calls == []
 
 
 async def test_adding_to_medicine_box_survives_detail_failure(client, session_factory, monkeypatch):
@@ -181,3 +210,12 @@ async def test_adding_to_medicine_box_survives_detail_failure(client, session_fa
     assert res.status_code == 201, res.text
     async with session_factory() as session:
         assert (await session.get(Drug, drug.id)).detail_fetched_at is None
+
+
+async def test_drug_detail_endpoint_fills_missing_detail(client, session_factory, monkeypatch):
+    _fake_fetch(monkeypatch, {"EE_DOC_DATA": _EE})
+    async with session_factory() as session:
+        drug = await make_drug(session, "레이본정")
+    token = await register_and_login(client)
+    res = await client.get(f"/drugs/{drug.id}", headers={"Authorization": f"Bearer {token}"})
+    assert res.status_code == 200 and res.json()["efcy_qesitm"] == "골관절증의 증상 완화"

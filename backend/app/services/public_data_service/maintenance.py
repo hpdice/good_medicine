@@ -4,7 +4,7 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import logger
@@ -23,6 +23,56 @@ from .helpers import (
     make_ingredient_resolver,
     resolve_hira_components,
 )
+
+_BUILD_DRUGS_MASTER_SQL = """
+INSERT INTO drugs_master (
+    drug_id, item_seq, item_name, simple_name, entp_name, etc_otc_name, class_name, atc_code,
+    hira_components, dur_ingredients, dur_ingr_codes, dosage_form, route,
+    ingredient_status, judgeable, has_efficacy, has_use_method, has_precautions, has_interaction_text
+)
+SELECT
+    b.id, b.item_seq, b.item_name, b.simple_name, b.entp_name, b.etc_otc_name, b.class_name, b.atc_code,
+    b.hira_components, b.dur_ingredients, b.dur_ingr_codes, b.dosage_form, b.route,
+    CASE WHEN cardinality(b.dur_ingr_codes) > 0 THEN 'dur_resolved'
+         WHEN jsonb_array_length(b.hira_components) > 0 THEN 'hira_only'
+         ELSE 'none' END,
+    cardinality(b.dur_ingr_codes) > 0,
+    b.has_efficacy, b.has_use_method, b.has_precautions, b.has_interaction_text
+FROM (
+    SELECT
+        d.id, d.item_seq, d.item_name, d.simple_name, d.entp_name, d.etc_otc_name, d.class_name,
+        (SELECT min(h.atc_code) FROM hira_item_gen_codes h
+          WHERE h.item_seq = d.item_seq AND h.cancelled_on IS NULL) AS atc_code,
+        COALESCE((
+            SELECT jsonb_agg(jsonb_build_object(
+                       'gen_code', g.gen_code, 'eng', g.ingr_name, 'strength', g.strength, 'unit', g.unit,
+                       'form', g.form_name, 'route', g.route) ORDER BY g.gen_code, g.seq)
+              FROM hira_item_gen_codes h JOIN hira_gen_ingredients g ON g.gen_code = h.gen_code
+             WHERE h.item_seq = d.item_seq AND h.cancelled_on IS NULL
+        ), '[]'::jsonb) AS hira_components,
+        COALESCE((
+            SELECT jsonb_agg(jsonb_build_object(
+                       'code', di.ingr_code, 'kor', di.ingr_kor, 'source', di.source, 'amount_mg', di.amount_mg)
+                       ORDER BY di.ingr_code)
+              FROM drug_ingredients di WHERE di.drug_id = d.id AND di.ingr_code IS NOT NULL
+        ), '[]'::jsonb) AS dur_ingredients,
+        COALESCE(ARRAY(
+            SELECT DISTINCT di.ingr_code FROM drug_ingredients di
+             WHERE di.drug_id = d.id AND di.ingr_code IS NOT NULL ORDER BY 1
+        ), '{}'::varchar[]) AS dur_ingr_codes,
+        (SELECT string_agg(DISTINCT g.form_name, ', ') FROM hira_item_gen_codes h
+           JOIN hira_gen_ingredients g ON g.gen_code = h.gen_code
+          WHERE h.item_seq = d.item_seq AND h.cancelled_on IS NULL AND g.form_name IS NOT NULL) AS dosage_form,
+        (SELECT string_agg(DISTINCT g.route, ', ') FROM hira_item_gen_codes h
+           JOIN hira_gen_ingredients g ON g.gen_code = h.gen_code
+          WHERE h.item_seq = d.item_seq AND h.cancelled_on IS NULL AND g.route IS NOT NULL) AS route,
+        COALESCE(d.efcy_qesitm, '') <> '' AS has_efficacy,
+        COALESCE(d.use_method_qesitm, '') <> '' AS has_use_method,
+        COALESCE(d.atpn_qesitm, '') <> '' AS has_precautions,
+        COALESCE(d.intrc_qesitm, '') <> '' AS has_interaction_text
+    FROM drugs d
+) b
+"""
 
 
 async def dur_ingredient_name_pairs(db: AsyncSession) -> list[tuple[str | None, str | None]]:
@@ -259,6 +309,22 @@ class MaintenanceMixin(_SyncBase):
         return len(filled)
 
     SEED_RESIDUAL_PATH = Path(__file__).resolve().parents[3] / "seed" / "residual_interactions.json"
+
+    async def build_drugs_master(self) -> int:
+        """약 1행으로 모은 통합 데이터셋 `drugs_master`를 매번 전부 다시 만든다(API 미사용).
+
+        `drugs`(식약처 허가·e약은요) + 심평원 약가마스터(품목기준코드 → 일반명코드 → 영문 성분·함량·제형·경로·ATC) +
+        `drug_ingredients`(DUR 성분코드 연결)를 조인한다. 판정 규칙은 건드리지 않는다. 심평원은 취소되지 않은
+        (`cancelled_on` NULL) 품목만 쓴다. 만든 행 수(= 약 수)를 돌려준다."""
+        await self.db.execute(text("DELETE FROM drugs_master"))
+        await self.db.execute(text(_BUILD_DRUGS_MASTER_SQL))
+        await self.db.commit()
+        n = (await self.db.execute(text("SELECT count(*) FROM drugs_master"))).scalar_one()
+        stats = (await self.db.execute(text(
+            "SELECT ingredient_status, count(*) FROM drugs_master GROUP BY 1 ORDER BY 1"
+        ))).all()
+        logger.info("drugs_master 구축: %d행 (%s)", n, ", ".join(f"{k}={v}" for k, v in stats))
+        return n
 
     async def build_residual_from_seed(self) -> int:
         """`seed/residual_interactions.json`(item_seq 쌍 기준)에서 `residual_interactions`를

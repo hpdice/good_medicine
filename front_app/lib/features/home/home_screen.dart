@@ -48,7 +48,11 @@ class _HomeScreenState extends State<HomeScreen> {
             IconButton(
               icon: const Icon(Icons.person_outline_rounded),
               tooltip: '내 정보(건강정보·알레르기)',
-              onPressed: () => context.push('/profile'),
+              // 프로필(알레르기·출생연도·임신 여부)이 바뀌면 판정이 달라지므로, 돌아올 때 다시 불러온다.
+              onPressed: () async {
+                await context.push('/profile');
+                if (context.mounted) context.read<HomeProvider>().loadEntries();
+              },
             ),
             IconButton(
               icon: const Icon(Icons.info_outline_rounded),

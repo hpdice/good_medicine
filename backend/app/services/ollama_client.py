@@ -35,6 +35,7 @@ class OllamaClient:
             "options": {
                 "temperature": settings.OLLAMA_TEMPERATURE,
                 "num_predict": settings.OLLAMA_NUM_PREDICT,
+                "num_ctx": settings.OLLAMA_NUM_CTX,
             },
         }
         if system:
@@ -62,7 +63,8 @@ class OllamaClient:
             "prompt": "ping",
             "stream": False,
             "keep_alive": "30m",
-            "options": {"num_predict": 1},
+            # num_ctx는 generate()와 같아야 한다 — 다르면 핑마다 모델이 다른 컨텍스트로 다시 로드된다.
+            "options": {"num_predict": 1, "num_ctx": settings.OLLAMA_NUM_CTX},
         }
         try:
             await self._request(request_body, timeout=settings.OLLAMA_WARMUP_TIMEOUT_SECONDS)

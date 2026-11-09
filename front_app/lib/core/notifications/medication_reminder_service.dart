@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
@@ -104,6 +105,9 @@ class MedicationReminderService {
   /// 현재 목록 기준으로 알림을 전부 재계산해 다시 건다. 우리 id 대역만 취소하고
   /// (cancelAll 아님) 새로 스케줄한다.
   static Future<void> reschedule(List<MedicineBoxEntry> entries) async {
+    // 웹에는 로컬 알림 플러그인이 없어 호출하면 예외가 난다. 이 예외가 삭제·복용량 수정의 화면 갱신
+    // (notifyListeners)을 건너뛰게 만들어 판정 배너가 옛 상태로 남았다.
+    if (kIsWeb) return;
     if (!_initialized) await init();
 
     final pending = await _plugin.pendingNotificationRequests();
