@@ -65,7 +65,7 @@ class InteractionBanner extends StatelessWidget {
         result.elderlyCautionCount == 0 &&
         result.doseCautionCount == 0;
     final subLabel = isSafe
-        ? 'DUR에 등록된 조합만 확인돼요 · 걱정되면 약사와 상담하세요'
+        ? '식약처 DUR에 등록된 조합만 확인한 결과예요'
         : onlyDuplicateIngredient
             ? '같은 성분의 약이 함께 등록돼 있어요 · 탭하여 상세 보기'
             : '탭하여 상세 보기';
