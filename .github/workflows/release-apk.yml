@@ -36,13 +36,6 @@ jobs:
           flutter-version: 3.35.6
           cache: true
 
-      - name: build apk
-        working-directory: front_app
-        run: |
-          flutter pub get
-          flutter build apk --release \
-            --dart-define=BASE_URL="${{ secrets.WEB_API_BASE_URL }}"
-
       - name: resolve tag
         id: tag
         run: |
@@ -51,6 +44,33 @@ jobs:
           else
             echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           fi
+
+      # 고정 릴리스 키로 서명한다 — 서명 키가 없으면 빌드마다 임시 디버그 키로 서명돼 Play 프로텍트가 "확인되지 않은 앱"으로 경고하고,
+      # 이전 설치본 위에 업데이트도 안 된다. 키·비밀번호는 저장소 Secrets에만 있다.
+      - name: prepare release signing key
+        working-directory: front_app/android
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > app/release.jks
+          {
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyPassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "storeFile=release.jks"
+          } > key.properties
+
+      - name: build apk
+        working-directory: front_app
+        run: |
+          flutter pub get
+          TAG="${{ steps.tag.outputs.name }}"
+          flutter build apk --release \
+            --build-name="${TAG#v}" \
+            --build-number="${{ github.run_number }}" \
+            --dart-define=BASE_URL="${{ secrets.WEB_API_BASE_URL }}"
 
       - name: publish release
         uses: softprops/action-gh-release@v2
