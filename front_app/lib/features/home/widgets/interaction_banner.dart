@@ -6,12 +6,12 @@ import 'ai_guide_section.dart';
 import 'finding_card.dart';
 import 'single_drug_risk_card.dart';
 
-/// 배너 라벨을 "병용금기 1건 · 알레르기 1건" 식으로 조립한다. 노인주의는 같은
+/// 배너 라벨을 "병용금기 1건 · 건강 상태 금기 1건" 식으로 조립한다. 노인주의는 같은
 /// caution 등급이라도 효능군중복과 뭉뚱그리면 경고 인플레이션이 생기니 별도 문구로 둔다.
 String _summaryLabel(QuickCheckResponse result) {
   final parts = <String>[
     if (result.contraindicatedCount > 0) '병용금기 ${result.contraindicatedCount}건',
-    if (result.allergyConflicts.isNotEmpty) '알레르기 ${result.allergyConflicts.length}건',
+    if (result.conditionTaboos.isNotEmpty) '건강 상태 금기 ${result.conditionTaboos.length}건',
     if (result.ageTabooCount > 0) '연령금기 ${result.ageTabooCount}건',
     if (result.pregnancyTabooCount > 0) '임부금기 ${result.pregnancyTabooCount}건',
     if (result.duplicateIngredientCount > 0) '중복 복용 ${result.duplicateIngredientCount}건',
@@ -155,16 +155,15 @@ class InteractionBanner extends StatelessWidget {
                 padding: const EdgeInsets.only(bottom: 10),
                 child: FindingCard(finding: f, drugsById: drugsById),
               ),
-            for (final a in result.allergyConflicts)
+            for (final a in result.conditionTaboos)
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: SingleDrugRiskCard(
                   drugName: a.drugName,
                   tone: RiskTone.critical,
-                  badgeLabel: '알레르기',
-                  reasonLabel: '알레르기 성분',
-                  reasonText: '등록한 알레르기 "${a.matchedAllergyTerm}"와(과) '
-                      '겹치는 성분(${a.matchedIngredient})이 있습니다.',
+                  badgeLabel: '건강 상태 금기',
+                  reasonLabel: '내 건강 상태: ${a.condition}',
+                  reasonText: '이 약의 허가사항 "다음 환자에는 투여하지 말 것"에 있어요.\n${a.sentence}',
                 ),
               ),
             for (final a in result.ageCautions)

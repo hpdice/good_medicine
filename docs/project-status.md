@@ -14,7 +14,7 @@
 | 인프라 | Docker Compose: postgres · backend · ollama (배포 overlay는 tailscale 컨테이너 추가). backend 호스트 포트 8001 |
 | DB | Alembic 마이그레이션 — 성분 단위 판정 테이블, 복약정보 필드 암호화, 출생연도·연령대 규칙, 임부금기, 약 상세 보강 시각 |
 | 데이터 | 공공데이터 적재 + 품질 검증(`validate_db.py`) 통과 |
-| Flutter 앱 | 웹·Android. 로그인·복약함·약 검색·사진 OCR·위험도 배너·AI 설명·복약 시간 알림·내 정보(건강정보·알레르기·출생연도·임신 여부) |
+| Flutter 앱 | 웹·Android. 로그인·복약함·약 검색·사진 OCR·위험도 배너·AI 설명·복약 시간 알림·내 정보(건강 상태·출생연도·임신 여부) |
 | 테스트 | pytest + httpx, 운영 DB와 분리된 테스트 DB, Ollama mock. push·PR 시 GitHub Actions에서 린트·타입 검사·pytest 실행 |
 | AI 설명 | Ollama + Qwen2.5 14B (GPU, 외부 API 미사용) |
 | FCM 푸시 | Firebase 연동. 알림에는 약 이름·ID를 싣지 않는다 |
@@ -82,7 +82,7 @@ DUR에 성분 자체가 없는 약(비타민·한약 엑스 등)이다.
 | POST /medicine-box | 복약 약품 추가 (중복 방지, 병용금기 시 FCM 발송) | JWT |
 | PATCH /medicine-box/{id} | 복약 정보 수정 | JWT |
 | DELETE /medicine-box/{id} | 복약 약품 삭제 | JWT |
-| POST /analysis/quick-check | 병용금기·중복·알레르기·연령대·임부금기 즉시 판정 | JWT · Rate Limit 60회/분 |
+| POST /analysis/quick-check | 병용금기·중복·건강 상태 금기·연령대·임부금기 즉시 판정 | JWT · Rate Limit 60회/분 |
 | POST /analysis/guide | 판정 결과에 로컬 LLM 설명 추가 | JWT · Rate Limit 10회/분 |
 
 ### 보안
@@ -101,11 +101,11 @@ DUR에 성분 자체가 없는 약(비타민·한약 엑스 등)이다.
 
 - **모델·인프라**: Ollama + `qwen2.5:14b-instruct`, GPU passthrough. 외부 API를 쓰지 않아 건강정보가 서버 밖으로 나가지 않는다.
 - **근거**: 임베딩 검색이 아니라 구조화 조회 — `quick_check`가 찾은 약의 분류·효능·주의사항, 판정 원문, 복호화된
-  건강정보·알레르기, 출처 있는 용어 풀이(`glossary.py`)를 프롬프트에 넣는다.
+  건강 상태, 출처 있는 용어 풀이(`glossary.py`)를 프롬프트에 넣는다.
 - **구성**: 각 약 소개 → 식약처 기준의 위험 이유 → 대응. 말투는 앱 화면과 같은 해요체.
 - **응답 처리**: 마크다운 제거 후 한자·등급 코드·복용 중단 권유·대체 약/다른 치료법 제안·근거 없는 연구 인용·출처 없는
   용어 풀이 문장을 제거한다. 남길 문장이 없을 때만 1회 재생성하고 그래도 안 되면 안내 문구로 대체한다.
-- **대응 문장은 코드가 판정 종류별로 붙인다**(알레르기·임부·연령·병용). 일반의약품이 낀 병용은 처방 점검에 잡히지 않을 수
+- **대응 문장은 코드가 판정 종류별로 붙인다**(건강 상태·임부·연령·병용). 일반의약품이 낀 병용은 처방 점검에 잡히지 않을 수
   있음을 알리는 별도 문장을 쓴다.
 - **문제가 없는 경우**(`safe`)에는 모델을 부르지 않고, 약 개수와 "DUR 등록 규칙만 대상"임을 밝힌 정해진 문장을 낸다.
 - **폴백**: Ollama가 응답하지 않아도(`OllamaUnavailableError`) 판정은 그대로이고 설명만 안내 문구로 대체된다.
@@ -138,7 +138,7 @@ front_app/lib/
     ├── auth/            로그인·회원가입
     ├── camera/          촬영·OCR 결과 확인
     ├── home/            복약함·위험도 배너·AI 설명 (widgets/ 로 분할)
-    ├── profile/         건강정보·알레르기·출생연도·임신 여부 입력
+    ├── profile/         건강 상태·출생연도·임신 여부 입력
     └── search/          약 검색
 ```
 
@@ -177,15 +177,17 @@ front_app/lib/
   `dur_ingredient_effect_groups`(효능군 + 계열로 묶음)를 조회한다.
 - `residual_interactions`는 성분 규칙으로 재현되지 않는 쌍만 담고 있어 **항상 함께 조회·병합**한다. finding에는
   `source`(`ingredient`|`residual`)가 붙는다.
-- **알레르기 충돌**: `users.allergy_info`를 `drug_ingredients.ingr_kor`(+ 미해소 약은 `drugs.ingr_name`)와 대소문자·공백 무시
-  양방향 부분일치로 대조한다. 사용자 프로필 기반이라 `quick_check`가 `user_id`를 받아야 동작한다.
+- **건강 상태 금기**: 허가사항 본문(`drugs.atpn_qesitm`)에서 "다음 환자에는 투여하지 말 것"(줄 맨 앞 "다음…"인 제목) 아래 항목만 뽑아,
+  사용자가 등록한 건강 상태(`users.health_conditions`)가 **글자 그대로** 들어 있으면 금기(critical)로 보고 그 항목 원문을 보여 준다.
+  띄어쓰기는 무시하고 낱말 중간에 든 것(폐고혈압 ≠ 고혈압)·괄호 안 설명은 뺀다. 동의어는 넓히지 않아 표현이 다르면(위궤양 ↔ 소화성 궤양)
+  못 찾는다. 허가사항 본문이 적재된 약만 대상이다(적재 진행 중). 알레르기 판정은 없다(입력칸도 없음, 저장된 값은 판정에 쓰지 않는다).
 
 | 구분 | 탐지 | 근거 |
 |---|---|---|
 | DUR 병용금기 (→ critical) | 탐지 | 성분쌍 `dur_ingredient_contraindications` (+ 미해소 약 residual 폴백) |
 | 동일 성분 중복 (→ caution) | 탐지 | 서로 다른 약이 같은 성분코드를 가질 때 |
 | DUR 효능군중복주의 (→ caution) | 탐지 | 성분 `dur_ingredient_effect_groups` (+ residual 폴백) |
-| 알레르기 성분 충돌 (→ critical) | 탐지 | 프로필 `allergy_info` 대 성분명. 미등록이면 스킵 |
+| 건강 상태 금기 (→ critical) | 탐지 | 프로필 `health_conditions` 대 허가사항 "다음 환자에는 투여하지 말 것" 항목(글자 그대로). 미등록이면 스킵 |
 | 특정연령대금기 (→ critical) | 부분 탐지 | `dur_ingredient_age_caution`. DUR 성분정보의 나이 기준(`AGE_BASE`)이 하나로 정해진 규칙(185건 중 163건)만 판정에 쓴다. 출생연도 미등록이면 스킵 |
 | 노인주의 (→ caution) | 탐지 | 고정 기준 만 65세 이상. 출생연도 미등록이면 스킵 |
 | 임부금기 (→ critical) | 탐지 | **품목 단위** `dur_item_pregnancy_taboo`(전체 약의 43.4%). 제형·적응증 범위('경구'·'외용' 등) 때문에 성분으로 합치지 않는다. 프로필에서 "임신 중"을 켠 경우에만 판정 |

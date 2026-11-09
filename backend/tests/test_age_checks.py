@@ -12,64 +12,6 @@ def _birth_year_for_age(age: int) -> int:
     return date.today().year - age
 
 
-# ---------- 알레르기 규칙 기반 충돌 검사 ----------
-
-async def test_allergy_conflict_detected_as_critical(client, session_factory):
-    async with session_factory() as session:
-        drug_a = await make_drug(session, "테스트페니실린정", ingredients=[("D500001", "페니실린")])
-        drug_b = await make_drug(session, "테스트비타민정")
-
-    token = await register_and_login_with_profile(client, allergy_info=["페니실린"])
-    headers = {"Authorization": f"Bearer {token}"}
-    res = await client.post(
-        "/analysis/quick-check",
-        json={"drug_ids": [str(drug_a.id), str(drug_b.id)]},
-        headers=headers,
-    )
-    assert res.status_code == 200
-    body = res.json()
-    assert body["risk_level"] == "critical"
-    assert len(body["allergy_conflicts"]) == 1
-    conflict = body["allergy_conflicts"][0]
-    assert conflict["drug_id"] == str(drug_a.id)
-    assert conflict["matched_allergy_term"] == "페니실린"
-
-
-async def test_allergy_no_conflict_when_no_match(client, session_factory):
-    async with session_factory() as session:
-        drug_a = await make_drug(session, "테스트무관정A", ingredients=[("D500002", "무관성분")])
-        drug_b = await make_drug(session, "테스트무관정B")
-
-    token = await register_and_login_with_profile(client, allergy_info=["새우"])
-    headers = {"Authorization": f"Bearer {token}"}
-    res = await client.post(
-        "/analysis/quick-check",
-        json={"drug_ids": [str(drug_a.id), str(drug_b.id)]},
-        headers=headers,
-    )
-    assert res.status_code == 200
-    body = res.json()
-    assert body["allergy_conflicts"] == []
-    assert body["risk_level"] == "safe"
-
-
-async def test_allergy_conflict_partial_match_both_directions(client, session_factory):
-    """사용자가 계열명(더 일반적인 단어)을 입력해도 양방향 부분일치로 잡힌다."""
-    async with session_factory() as session:
-        drug_a = await make_drug(session, "테스트설파정", ingredients=[("D500003", "설파메톡사졸")])
-        drug_b = await make_drug(session, "테스트무관정C")
-
-    token = await register_and_login_with_profile(client, allergy_info=["설파"])
-    headers = {"Authorization": f"Bearer {token}"}
-    res = await client.post(
-        "/analysis/quick-check",
-        json={"drug_ids": [str(drug_a.id), str(drug_b.id)]},
-        headers=headers,
-    )
-    assert res.status_code == 200
-    assert len(res.json()["allergy_conflicts"]) == 1
-
-
 # ---------- 특정연령대금기·노인주의 ----------
 
 async def test_age_taboo_detected_for_young_user(client, session_factory):

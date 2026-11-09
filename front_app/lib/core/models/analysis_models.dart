@@ -22,14 +22,15 @@ class FindingItem {
         ingrB = j['ingr_b'];
 }
 
-class AllergyConflictItem {
-  final String drugId, drugName, matchedIngredient, matchedAllergyTerm;
+/// 사용자의 건강 상태가 약 허가사항 "다음 환자에는 투여하지 말 것" 항목에 있는 경우 — `sentence`는 그 항목 원문.
+class ConditionTabooItem {
+  final String drugId, drugName, condition, sentence;
 
-  AllergyConflictItem.fromJson(Map<String, dynamic> j)
+  ConditionTabooItem.fromJson(Map<String, dynamic> j)
       : drugId = j['drug_id'],
         drugName = j['drug_name'],
-        matchedIngredient = j['matched_ingredient'],
-        matchedAllergyTerm = j['matched_allergy_term'];
+        condition = j['condition'],
+        sentence = j['sentence'];
 }
 
 class AgeCautionItem {
@@ -86,8 +87,9 @@ class QuickCheckResponse {
   final int elderlyCautionCount;
   final int pregnancyTabooCount;
   final int doseCautionCount;
+  final int conditionTabooCount;
   final List<FindingItem> findings;
-  final List<AllergyConflictItem> allergyConflicts;
+  final List<ConditionTabooItem> conditionTaboos;
   final List<AgeCautionItem> ageCautions;
   final List<PregnancyCautionItem> pregnancyCautions;
   final List<DoseCautionItem> doseCautions;
@@ -103,11 +105,12 @@ class QuickCheckResponse {
         elderlyCautionCount = j['elderly_caution_count'] ?? 0,
         pregnancyTabooCount = j['pregnancy_taboo_count'] ?? 0,
         doseCautionCount = j['dose_caution_count'] ?? 0,
+        conditionTabooCount = j['condition_taboo_count'] ?? 0,
         findings = (j['findings'] as List? ?? [])
             .map((e) => FindingItem.fromJson(e))
             .toList(),
-        allergyConflicts = (j['allergy_conflicts'] as List? ?? [])
-            .map((e) => AllergyConflictItem.fromJson(e))
+        conditionTaboos = (j['condition_taboos'] as List? ?? [])
+            .map((e) => ConditionTabooItem.fromJson(e))
             .toList(),
         ageCautions = (j['age_cautions'] as List? ?? [])
             .map((e) => AgeCautionItem.fromJson(e))

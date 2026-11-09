@@ -42,7 +42,6 @@ class ProfileProvider extends ChangeNotifier {
   /// 명시적 null을 보내 서버에 저장된 값을 지운다.
   Future<bool> save({
     List<String>? healthConditions,
-    List<String>? allergyInfo,
     int? birthYear,
     bool clearBirthYear = false,
     bool? isPregnant,
@@ -53,7 +52,6 @@ class ProfileProvider extends ChangeNotifier {
     try {
       final res = await ApiClient.dio.patch('users/me', data: {
         if (healthConditions != null) 'health_conditions': healthConditions,
-        if (allergyInfo != null) 'allergy_info': allergyInfo,
         if (birthYear != null || clearBirthYear) 'birth_year': birthYear,
         if (isPregnant != null) 'is_pregnant': isPregnant,
       });

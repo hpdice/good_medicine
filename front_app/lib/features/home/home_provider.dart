@@ -99,7 +99,7 @@ class HomeProvider extends ChangeNotifier {
   }
 
   Future<void> _autoCheck() async {
-    // 약 하나로도 걸리는 판정(하루 용량 초과·알레르기·나이·임신)이 있어 1개부터 확인한다.
+    // 약 하나로도 걸리는 판정(하루 용량 초과·건강 상태 금기·나이·임신)이 있어 1개부터 확인한다.
     final ids = _entries.map((e) => e.drug.id).toList();
     if (ids.isEmpty) {
       _checkResult = null;
@@ -142,10 +142,10 @@ class HomeProvider extends ChangeNotifier {
       bump(f.drug1Id, risk);
       bump(f.drug2Id, risk);
     }
-    // 알레르기 충돌·특정연령대금기는 병용금기와 같은 급(critical), 노인주의는
-    // 효능군중복과 같은 급(caution) — 사용자 프로필(allergy_info/birth_year) 대
+    // 건강 상태 금기·특정연령대금기는 병용금기와 같은 급(critical), 노인주의는
+    // 효능군중복과 같은 급(caution) — 사용자 프로필(health_conditions/birth_year) 대
     // 약품 1개 단위 대조라 쌍이 아니라 해당 약 하나만 표시한다.
-    for (final a in result.allergyConflicts) {
+    for (final a in result.conditionTaboos) {
       bump(a.drugId, DrugRisk.contraindicated);
     }
     for (final a in result.ageCautions) {

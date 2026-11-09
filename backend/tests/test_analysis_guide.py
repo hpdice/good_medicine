@@ -284,29 +284,31 @@ async def test_combination_guide_with_prescription_drugs_only_keeps_default_clos
     assert "처방 없이 산 약" not in text
 
 
-async def test_allergy_guide_closes_with_allergy_advice_not_keep_taking(client, session_factory, monkeypatch):
-    """알레르기 성분이 든 약에 '임의로 끊지 말라'가 붙으면 안 된다 — 종류별 대응 문장."""
+async def test_condition_guide_closes_with_condition_advice_not_keep_taking(client, session_factory, monkeypatch):
+    """건강 상태 금기 약에 '임의로 끊지 말라'가 붙으면 안 된다 — 종류별 대응 문장."""
     prompts = []
 
     async def fake_generate(self, prompt: str, system: str | None = None) -> str:
         prompts.append(prompt)
-        return "이 약에는 등록하신 알레르기 성분인 페니실린이 들어 있습니다."
+        return "이 약은 지금 건강 상태에서는 먹지 않도록 적혀 있습니다."
 
     monkeypatch.setattr(ollama_client.OllamaClient, "generate", fake_generate)
 
     async with session_factory() as session:
-        drug_a = await make_drug(session, "테스트가이드페니실린정", ingredients=[("D500101", "페니실린")])
+        drug_a = await make_drug(session, "테스트가이드금기정")
+        drug_a.atpn_qesitm = "1. 다음 환자에는 투여하지 말 것.\n1) 중증의 고혈압 환자\n2. 이상반응\n1) 두통"
+        await session.commit()
         drug_b = await make_drug(session, "테스트가이드비타민정")
 
-    token = await register_and_login_with_profile(client, allergy_info=["페니실린"])
+    token = await register_and_login_with_profile(client, health_conditions=["고혈압"])
     res = await client.post(
         "/analysis/guide",
         json={"drug_ids": [str(drug_a.id), str(drug_b.id)]},
         headers={"Authorization": f"Bearer {token}"},
     )
     text = res.json()["guide_text"]
-    assert "알레르기 성분 충돌" in prompts[0] and "페니실린" in prompts[0]
-    assert "알레르기가 있다고 알리고" in text
+    assert "건강 상태 금기" in prompts[0] and "고혈압" in prompts[0] and "중증의 고혈압 환자" in prompts[0]
+    assert "지금 건강 상태를 알리고" in text
     assert "함께 쓰고 있다고" not in text  # 병용 문제가 없으니 병용용 문장은 붙지 않는다
 
 

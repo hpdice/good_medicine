@@ -16,12 +16,13 @@ from app.models.dur_ingredient_rule import DurIngredientAgeCaution, DurIngredien
 from app.models.medicine_box import MedicineBoxEntry
 from app.schemas.analysis import (
     AgeCaution,
-    AllergyConflict,
+    ConditionTaboo,
     DoseCaution,
     PregnancyCaution,
     QuickCheckFinding,
     QuickCheckResponse,
 )
+from app.services.condition_taboo import find_condition_taboo
 from app.services.drug_service import DrugService
 from app.services.user_service import UserService
 
@@ -62,7 +63,7 @@ def _age_rule_applies(rule: DurIngredientAgeCaution, age_years: int) -> bool:
 
 def _risk_level(
     findings: list[QuickCheckFinding],
-    allergy_conflicts: list[AllergyConflict],
+    condition_taboos: list[ConditionTaboo],
     age_cautions: list[AgeCaution],
     pregnancy_cautions: Sequence[PregnancyCaution] = (),
     dose_cautions: Sequence[DoseCaution] = (),
@@ -70,7 +71,7 @@ def _risk_level(
     types = {f.interaction_type for f in findings}
     has_age_taboo = any(a.rule_type == "age_taboo" for a in age_cautions)
     has_elderly_caution = any(a.rule_type == "elderly_caution" for a in age_cautions)
-    if "contraindicated" in types or allergy_conflicts or has_age_taboo or pregnancy_cautions:
+    if "contraindicated" in types or condition_taboos or has_age_taboo or pregnancy_cautions:
         return "critical"
     # 용량주의는 DUR에서 '주의' 등급이다(병용금기처럼 금기가 아님)
     if "duplicate_ingredient" in types or "duplicate_effect_group" in types or has_elderly_caution or dose_cautions:
@@ -201,10 +202,9 @@ class AnalysisService:
     async def quick_check(
         self, drug_ids: list[uuid.UUID], user_id: uuid.UUID | None = None
     ) -> QuickCheckResponse:
-        """병용금기·효능군중복(DUR, 항상)에 더해, `user_id`가 주어지면 그 사용자의
-        복호화된 알레르기·출생연도로 알레르기 충돌·연령대 규칙도 함께 확인한다.
-        둘 다 사용자 프로필의 정적 속성 대 약품 매칭이라 약품 쌍이 아니라 약품
-        1개 단위 finding이라 `findings`(쌍 단위)와 분리된 리스트로 반환한다."""
+        """병용금기·효능군중복(DUR, 항상)에 더해, `user_id`가 주어지면 그 사용자의 복호화된 건강 상태·출생연도·임신 여부로
+        건강 상태 금기·연령대 규칙·임부금기도 함께 확인한다. 사용자 프로필의 정적 속성 대 약품 매칭이라 약품 쌍이 아니라
+        약품 1개 단위 finding이라 `findings`(쌍 단위)와 분리된 리스트로 반환한다."""
         drugs = await self.drugs.get_drugs_by_ids(drug_ids)
         drug_id_list = list(drugs.keys())
         codes_by_drug = await self.drugs.get_ingredient_codes_for_drug_list(drug_id_list)
@@ -213,7 +213,7 @@ class AnalysisService:
         residual_findings = await self._residual_findings(drugs, drug_id_list)
         findings = self._merge(ingredient_findings, residual_findings)
 
-        allergy_conflicts, age_cautions, pregnancy_cautions = await self._user_findings(
+        condition_taboos, age_cautions, pregnancy_cautions = await self._user_findings(
             user_id, drugs, codes_by_drug
         )
         dose_cautions = await self._dose_findings(user_id, drugs, codes_by_drug) if user_id else []
@@ -223,7 +223,7 @@ class AnalysisService:
         return QuickCheckResponse(
             total_drugs=len(drugs),
             has_contraindication=kinds["contraindicated"] > 0,
-            risk_level=_risk_level(findings, allergy_conflicts, age_cautions, pregnancy_cautions, dose_cautions),
+            risk_level=_risk_level(findings, condition_taboos, age_cautions, pregnancy_cautions, dose_cautions),
             contraindicated_count=kinds["contraindicated"],
             duplicate_effect_group_count=kinds["duplicate_effect_group"],
             duplicate_ingredient_count=kinds["duplicate_ingredient"],
@@ -231,8 +231,9 @@ class AnalysisService:
             elderly_caution_count=age_kinds["elderly_caution"],
             pregnancy_taboo_count=len(pregnancy_cautions),
             dose_caution_count=len(dose_cautions),
+            condition_taboo_count=len(condition_taboos),
             findings=findings,
-            allergy_conflicts=allergy_conflicts,
+            condition_taboos=condition_taboos,
             age_cautions=age_cautions,
             pregnancy_cautions=pregnancy_cautions,
             dose_cautions=dose_cautions,
@@ -243,47 +244,33 @@ class AnalysisService:
         user_id: uuid.UUID | None,
         drugs: dict[uuid.UUID, Drug],
         codes_by_drug: dict[uuid.UUID, set[str]],
-    ) -> tuple[list[AllergyConflict], list[AgeCaution], list[PregnancyCaution]]:
-        """로그인 사용자의 알레르기·출생연도·임신 여부로 하는 판정. 정보가 비어 있거나 `user_id`가 없으면
+    ) -> tuple[list[ConditionTaboo], list[AgeCaution], list[PregnancyCaution]]:
+        """로그인 사용자의 건강 상태·출생연도·임신 여부로 하는 판정. 정보가 비어 있거나 `user_id`가 없으면
         해당 판정은 건너뛴다(빈 목록)."""
         if user_id is None:
             return [], [], []
         user = await UserService(self.db).get_user(user_id)
-        allergy_terms = getattr(user, "allergy_info", None) or []
+        conditions = getattr(user, "health_conditions", None) or []
         birth_year = getattr(user, "birth_year", None)
-        allergy = await self._allergy_findings(drugs, allergy_terms) if allergy_terms else []
+        condition = self._condition_findings(drugs, conditions) if conditions else []
         age = (
             await self._age_findings(drugs, codes_by_drug, date.today().year - birth_year)
             if birth_year else []
         )
         pregnancy = await self._pregnancy_findings(drugs) if getattr(user, "is_pregnant", None) is True else []
-        return allergy, age, pregnancy
+        return condition, age, pregnancy
 
     # ------------------------------------------------------------------ #
-    # 알레르기 충돌 — 사용자 프로필(allergy_info) 대 약품 성분명 대조          #
+    # 건강 상태 금기 — 사용자 건강 상태가 허가사항 "투여하지 말 것" 항목에 있을 때   #
     # ------------------------------------------------------------------ #
 
-    async def _allergy_findings(
-        self, drugs: dict[uuid.UUID, Drug], allergy_terms: list[str]
-    ) -> list[AllergyConflict]:
-        term_pairs = [(t, t.strip().lower()) for t in allergy_terms if t and t.strip()]
-        if not term_pairs:
-            return []
-        names_by_drug = await self.drugs.get_ingredient_names_for_drug_list(list(drugs.keys()))
-
-        conflicts: list[AllergyConflict] = []
-        for drug_id, ingr_names in names_by_drug.items():
-            for ingr in ingr_names:
-                ingr_lower = ingr.strip().lower()
-                if not ingr_lower:
-                    continue
-                for original_term, term_lower in term_pairs:
-                    if term_lower in ingr_lower or ingr_lower in term_lower:
-                        conflicts.append(AllergyConflict(
-                            drug_id=drug_id, drug_name=_display_name(drugs[drug_id]),
-                            matched_ingredient=ingr, matched_allergy_term=original_term,
-                        ))
-        return conflicts
+    @staticmethod
+    def _condition_findings(drugs: dict[uuid.UUID, Drug], conditions: list[str]) -> list[ConditionTaboo]:
+        return [
+            ConditionTaboo(drug_id=drug_id, drug_name=_display_name(drug), condition=condition, sentence=sentence)
+            for drug_id, drug in drugs.items()
+            for condition, sentence in find_condition_taboo(drug.atpn_qesitm, conditions)
+        ]
 
     # ------------------------------------------------------------------ #
     # 연령대 규칙 — 특정연령대금기(age_taboo)·노인주의(elderly_caution)       #

@@ -39,16 +39,16 @@ async def register_and_login(client: AsyncClient, email: str | None = None) -> s
 
 async def register_and_login_with_profile(
     client: AsyncClient,
-    allergy_info: list[str] | None = None,
+    health_conditions: list[str] | None = None,
     birth_year: int | None = None,
     email: str | None = None,
     is_pregnant: bool | None = None,
 ) -> str:
-    """register_and_login + PATCH /users/me로 알레르기·출생연도·임신 여부까지 채운 토큰 반환."""
+    """register_and_login + PATCH /users/me로 건강 상태·출생연도·임신 여부까지 채운 토큰 반환."""
     token = await register_and_login(client, email=email)
     body = {}
-    if allergy_info is not None:
-        body["allergy_info"] = allergy_info
+    if health_conditions is not None:
+        body["health_conditions"] = health_conditions
     if birth_year is not None:
         body["birth_year"] = birth_year
     if is_pregnant is not None:

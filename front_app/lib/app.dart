@@ -16,6 +16,12 @@ import 'features/profile/profile_screen.dart';
 import 'features/search/search_provider.dart';
 import 'features/search/search_screen.dart';
 
+/// 웹에서 `push`로 연 화면(프로필·스캔·스캔 결과·회원가입)도 주소·브라우저 기록에 남게 한다. 이 옵션이 꺼져 있으면 폰 브라우저의
+/// 뒤로가기가 그 화면을 닫지 않고 그 전 기록(앱 밖일 수도 있음)으로 가 버린다.
+void configureRouter() {
+  GoRouter.optionURLReflectsImperativeAPIs = true;
+}
+
 final _router = GoRouter(
   refreshListenable: TokenStorage.authNotifier,
   redirect: (context, state) async {
@@ -77,40 +83,50 @@ class _MainShell extends StatelessWidget {
     final loc = GoRouterState.of(context).matchedLocation;
     final selectedIndex = loc == '/search' ? 1 : 0;
 
-    return Scaffold(
-      body: child,
-      bottomNavigationBar: DecoratedBox(
-        decoration: BoxDecoration(
-          border: Border(
-            top: BorderSide(color: Theme.of(context).dividerColor),
+    // 안드로이드 뒤로가기: 검색 탭에서는 앱이 종료되지 않고 내 약 탭으로 돌아간다(탭 이동은 `go`라 되돌아갈 기록이 없다).
+    return PopScope(
+      canPop: selectedIndex == 0,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) context.go('/');
+      },
+      child: Scaffold(
+        body: child,
+        bottomNavigationBar: DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(color: Theme.of(context).dividerColor),
+            ),
           ),
-        ),
-        child: NavigationBar(
-          selectedIndex: selectedIndex,
-          onDestinationSelected: (i) {
-            switch (i) {
-              case 0:
-                context.go('/');
-              case 1:
-                context.go('/search');
-              case 2:
-                context.push('/camera');
-            }
-          },
-          destinations: const [
-            NavigationDestination(
+          child: NavigationBar(
+            selectedIndex: selectedIndex,
+            onDestinationSelected: (i) {
+              switch (i) {
+                case 0:
+                  context.go('/');
+                case 1:
+                  context.go('/search');
+                case 2:
+                  context.push('/camera');
+              }
+            },
+            destinations: const [
+              NavigationDestination(
                 icon: Icon(Icons.medication_outlined),
                 selectedIcon: Icon(Icons.medication_rounded),
-                label: '내 약'),
-            NavigationDestination(
+                label: '내 약',
+              ),
+              NavigationDestination(
                 icon: Icon(Icons.search_rounded),
                 selectedIcon: Icon(Icons.search_rounded),
-                label: '검색'),
-            NavigationDestination(
+                label: '검색',
+              ),
+              NavigationDestination(
                 icon: Icon(Icons.photo_camera_outlined),
                 selectedIcon: Icon(Icons.photo_camera_rounded),
-                label: '스캔'),
-          ],
+                label: '스캔',
+              ),
+            ],
+          ),
         ),
       ),
     );

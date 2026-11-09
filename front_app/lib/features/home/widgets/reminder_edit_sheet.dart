@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/models/medicine_box_models.dart';
+import '../../../core/notifications/medication_reminder_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../home_provider.dart';
 
-Future<void> showReminderEditSheet(BuildContext context, MedicineBoxEntry entry) {
+Future<void> showReminderEditSheet(
+  BuildContext context,
+  MedicineBoxEntry entry,
+) {
   return showModalBottomSheet(
     context: context,
     isScrollControlled: true,
@@ -27,18 +31,37 @@ class _ReminderEditSheetState extends State<_ReminderEditSheet> {
   double? _units;
   int? _perDay;
   bool _saving = false;
+  // 이 앱의 알림 허용 여부. null = 아직 모름·웹처럼 해당 없음
+  bool? _notificationsAllowed;
 
   @override
   void initState() {
     super.initState();
+    _refreshPermission();
     _times = [...widget.entry.intakeTimes]..sort();
     _enabled = widget.entry.reminderEnabled;
     _units = widget.entry.unitsPerIntake;
     _perDay = widget.entry.timesPerDay;
   }
 
+  Future<void> _refreshPermission() async {
+    final allowed = await MedicationReminderService.notificationsEnabled();
+    if (mounted) setState(() => _notificationsAllowed = allowed);
+  }
+
+  /// 알림을 켜거나 [허용하기]를 누르면 안드로이드 알림 허용 창을 띄운다. 이미 막혀 있으면 창이 안 뜰 수 있어 설정 안내를 남긴다.
+  Future<void> _askPermission() async {
+    final allowed =
+        await MedicationReminderService.requestNotificationPermission();
+    if (!mounted) return;
+    setState(() => _notificationsAllowed = allowed);
+  }
+
   Future<void> _pickTime() async {
-    final picked = await showTimePicker(context: context, initialTime: TimeOfDay.now());
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+    );
     if (picked == null) return;
     final formatted =
         '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
@@ -66,8 +89,9 @@ class _ReminderEditSheetState extends State<_ReminderEditSheet> {
       Navigator.of(context).pop();
     } else {
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('저장에 실패했습니다.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('저장에 실패했습니다.')));
     }
   }
 
@@ -85,18 +109,23 @@ class _ReminderEditSheetState extends State<_ReminderEditSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('복용량 · 알림',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleLarge
-                  ?.copyWith(fontWeight: FontWeight.w700)),
+          Text(
+            '복용량 · 알림',
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
           Gap.v4,
-          Text(widget.entry.drug.displayName,
-              style: TextStyle(color: scheme.onSurfaceVariant)),
+          Text(
+            widget.entry.drug.displayName,
+            style: TextStyle(color: scheme.onSurfaceVariant),
+          ),
           Gap.v16,
           Text('복용량', style: Theme.of(context).textTheme.titleSmall),
-          Text('적어 두면 하루에 먹는 양이 식약처 기준을 넘는지 확인해 드려요',
-              style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
+          Text(
+            '적어 두면 하루에 먹는 양이 식약처 기준을 넘는지 확인해 드려요',
+            style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+          ),
           Gap.v8,
           _Stepper(
             label: '1회',
@@ -104,8 +133,11 @@ class _ReminderEditSheetState extends State<_ReminderEditSheet> {
             onMinus: _units == null || _units! <= 0.5
                 ? null
                 : () => setState(() => _units = _units! - 0.5),
-            onPlus: () => setState(() =>
-                _units = _units == null ? 1 : (_units! >= 20 ? 20 : _units! + 0.5)),
+            onPlus: () => setState(
+              () => _units = _units == null
+                  ? 1
+                  : (_units! >= 20 ? 20 : _units! + 0.5),
+            ),
           ),
           _Stepper(
             label: '하루',
@@ -113,8 +145,11 @@ class _ReminderEditSheetState extends State<_ReminderEditSheet> {
             onMinus: _perDay == null || _perDay! <= 1
                 ? null
                 : () => setState(() => _perDay = _perDay! - 1),
-            onPlus: () => setState(() => _perDay =
-                _perDay == null ? 1 : (_perDay! >= 12 ? 12 : _perDay! + 1)),
+            onPlus: () => setState(
+              () => _perDay = _perDay == null
+                  ? 1
+                  : (_perDay! >= 12 ? 12 : _perDay! + 1),
+            ),
           ),
           if (_units != null || _perDay != null)
             Align(
@@ -133,18 +168,59 @@ class _ReminderEditSheetState extends State<_ReminderEditSheet> {
             title: const Text('알림 켜기'),
             subtitle: const Text('매일 아래 시각에 이 약 복용을 알려줍니다'),
             value: _enabled,
-            onChanged: (v) => setState(() => _enabled = v),
+            onChanged: (v) {
+              setState(() => _enabled = v);
+              if (v) _askPermission();
+            },
           ),
-          Gap.v8,
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            for (final t in _times)
-              Chip(label: Text(t), onDeleted: () => _removeTime(t)),
-            ActionChip(
-              avatar: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('시각 추가'),
-              onPressed: _pickTime,
+          if (_enabled && _notificationsAllowed == false)
+            Container(
+              margin: const EdgeInsets.only(top: 4, bottom: 4),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: scheme.errorContainer,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '이 앱의 알림이 꺼져 있어 알림이 오지 않아요.',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: scheme.onErrorContainer,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '아래 버튼으로 허용하거나, 휴대폰 설정 > 앱 > 굿메디슨 > 알림에서 켜 주세요.',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: scheme.onErrorContainer,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  FilledButton.tonal(
+                    onPressed: _askPermission,
+                    child: const Text('알림 허용하기'),
+                  ),
+                ],
+              ),
             ),
-          ]),
+          Gap.v8,
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final t in _times)
+                Chip(label: Text(t), onDeleted: () => _removeTime(t)),
+              ActionChip(
+                avatar: const Icon(Icons.add_rounded, size: 18),
+                label: const Text('시각 추가'),
+                onPressed: _pickTime,
+              ),
+            ],
+          ),
           Gap.v24,
           FilledButton(
             onPressed: _saving ? null : _save,
@@ -153,7 +229,10 @@ class _ReminderEditSheetState extends State<_ReminderEditSheet> {
                     height: 20,
                     width: 20,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white))
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
                 : const Text('저장'),
           ),
         ],
@@ -178,26 +257,31 @@ class _Stepper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final muted = Theme.of(context).colorScheme.onSurfaceVariant;
-    return Row(children: [
-      SizedBox(width: 48, child: Text(label)),
-      IconButton(
-        icon: const Icon(Icons.remove_circle_outline_rounded),
-        onPressed: onMinus,
-        tooltip: '$label 줄이기',
-      ),
-      SizedBox(
-        width: 64,
-        child: Text(value ?? '모름',
+    return Row(
+      children: [
+        SizedBox(width: 48, child: Text(label)),
+        IconButton(
+          icon: const Icon(Icons.remove_circle_outline_rounded),
+          onPressed: onMinus,
+          tooltip: '$label 줄이기',
+        ),
+        SizedBox(
+          width: 64,
+          child: Text(
+            value ?? '모름',
             textAlign: TextAlign.center,
             style: TextStyle(
-                fontWeight: FontWeight.w700,
-                color: value == null ? muted : null)),
-      ),
-      IconButton(
-        icon: const Icon(Icons.add_circle_outline_rounded),
-        onPressed: onPlus,
-        tooltip: '$label 늘리기',
-      ),
-    ]);
+              fontWeight: FontWeight.w700,
+              color: value == null ? muted : null,
+            ),
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.add_circle_outline_rounded),
+          onPressed: onPlus,
+          tooltip: '$label 늘리기',
+        ),
+      ],
+    );
   }
 }

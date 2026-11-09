@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
@@ -38,7 +40,32 @@ class ScheduledReminder {
 /// 불러올 때마다(홈 진입·항목 추가/수정/삭제) 전체 재계산해서 다시 건다.
 class MedicationReminderService {
   static bool _initialized = false;
+  static bool _askedThisRun = false;
   static final _plugin = FlutterLocalNotificationsPlugin();
+
+  static AndroidFlutterLocalNotificationsPlugin? _android() => _plugin
+      .resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin
+      >();
+
+  /// 이 앱의 알림이 지금 허용돼 있는지. 웹·안드로이드가 아닌 곳은 null.
+  static Future<bool?> notificationsEnabled() async {
+    if (kIsWeb) return null;
+    await init();
+    return _android()?.areNotificationsEnabled();
+  }
+
+  /// Android 13+는 알림 권한(POST_NOTIFICATIONS)을 사용자가 허용해야 알림이 뜬다. 설치 직후는 꺼져 있고,
+  /// 앱이 요청하지 않으면 허용 창이 한 번도 안 떠서 상단 표시줄에도 알림이 안 온다. 이미 허용돼 있으면 창을 띄우지
+  /// 않고 true를 돌려준다. 파이어베이스(FCM) 초기화와 무관하게 로컬 알림 쪽에서 직접 요청한다.
+  static Future<bool> requestNotificationPermission() async {
+    if (kIsWeb) return false;
+    await init();
+    final android = _android();
+    if (android == null) return false;
+    if (await android.areNotificationsEnabled() ?? false) return true;
+    return await android.requestNotificationsPermission() ?? false;
+  }
 
   static Future<void> init() async {
     if (_initialized) return;
@@ -54,7 +81,8 @@ class MedicationReminderService {
     );
     await _plugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.createNotificationChannel(_channel);
     _initialized = true;
   }
@@ -77,13 +105,15 @@ class MedicationReminderService {
         final hour = int.tryParse(parts[0]);
         final minute = int.tryParse(parts[1]);
         if (hour == null || minute == null) continue;
-        result.add(ScheduledReminder(
-          id: stableReminderId(entry.id, i),
-          entryId: entry.id,
-          drugName: entry.drug.displayName,
-          hour: hour,
-          minute: minute,
-        ));
+        result.add(
+          ScheduledReminder(
+            id: stableReminderId(entry.id, i),
+            entryId: entry.id,
+            drugName: entry.drug.displayName,
+            hour: hour,
+            minute: minute,
+          ),
+        );
       }
     }
     return result;
@@ -110,6 +140,13 @@ class MedicationReminderService {
     if (kIsWeb) return;
     if (!_initialized) await init();
 
+    final reminders = computeSchedule(entries);
+    // 예약할 알림이 있는데 권한을 한 번도 안 물었다면 이 실행에서 한 번만 묻는다(목록 불러오기를 막지 않게 기다리지 않는다).
+    if (reminders.isNotEmpty && !_askedThisRun) {
+      _askedThisRun = true;
+      unawaited(requestNotificationPermission());
+    }
+
     final pending = await _plugin.pendingNotificationRequests();
     for (final p in pending) {
       if (p.id >= 0 && p.id < _idRangeMax) {
@@ -117,7 +154,7 @@ class MedicationReminderService {
       }
     }
 
-    for (final reminder in computeSchedule(entries)) {
+    for (final reminder in reminders) {
       await _plugin.zonedSchedule(
         reminder.id,
         '복약 알림',
@@ -142,8 +179,14 @@ class MedicationReminderService {
 
   static tz.TZDateTime _nextInstance(int hour, int minute) {
     final now = tz.TZDateTime.now(tz.local);
-    var scheduled =
-        tz.TZDateTime(tz.local, now.year, now.month, now.day, hour, minute);
+    var scheduled = tz.TZDateTime(
+      tz.local,
+      now.year,
+      now.month,
+      now.day,
+      hour,
+      minute,
+    );
     if (scheduled.isBefore(now)) {
       scheduled = scheduled.add(const Duration(days: 1));
     }

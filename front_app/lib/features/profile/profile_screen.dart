@@ -15,7 +15,6 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final _birthYearCtrl = TextEditingController();
   List<String> _healthConditions = [];
-  List<String> _allergyInfo = [];
   bool _isPregnant = false;
   bool _loadedOnce = false;
 
@@ -34,7 +33,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (profile == null || _loadedOnce) return;
     setState(() {
       _healthConditions = [...profile.healthConditions];
-      _allergyInfo = [...profile.allergyInfo];
       _birthYearCtrl.text = profile.birthYear?.toString() ?? '';
       _isPregnant = profile.isPregnant ?? false;
       _loadedOnce = true;
@@ -63,7 +61,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
     final ok = await provider.save(
       healthConditions: _healthConditions,
-      allergyInfo: _allergyInfo,
       birthYear: birthYear,
       clearBirthYear: text.isEmpty,
       isPregnant: _isPregnant,
@@ -106,7 +103,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('회원 탈퇴'),
         content: const Text(
-            '탈퇴하면 건강 정보·알레르기·복약함·분석 기록이 모두 삭제되고 되돌릴 수 없어요. '
+            '탈퇴하면 건강 정보·복약함·분석 기록이 모두 삭제되고 되돌릴 수 없어요. '
             '같은 이메일로는 다시 가입할 수 있어요.\n\n탈퇴할까요?'),
         actions: [
           TextButton(
@@ -199,18 +196,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       Gap.v24,
                       _ChipListEditor(
                         title: '건강 상태',
-                        description: 'AI 대응 가이드 생성 시 참고 정보로 사용됩니다.',
-                        hintText: '예: 고혈압',
+                        description:
+                            '약 허가사항의 "다음 환자에는 투여하지 말 것"에 같은 말이 있으면 경고합니다. '
+                            '병명을 허가사항에 쓰인 그대로 입력하세요.',
+                        hintText: '예: 고혈압, 당뇨병, 천식',
                         items: _healthConditions,
                         onChanged: (v) => setState(() => _healthConditions = v),
-                      ),
-                      Gap.v24,
-                      _ChipListEditor(
-                        title: '알레르기',
-                        description: '등록한 성분과 겹치는 약을 추가하면 즉시 경고합니다.',
-                        hintText: '예: 페니실린',
-                        items: _allergyInfo,
-                        onChanged: (v) => setState(() => _allergyInfo = v),
                       ),
                       if (provider.status == ProfileStatus.error) ...[
                         Gap.v12,
@@ -253,7 +244,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
-/// 자유 텍스트 목록(건강 상태·알레르기)을 칩으로 편집하는 위젯.
+/// 자유 텍스트 목록(건강 상태)을 칩으로 편집하는 위젯.
 class _ChipListEditor extends StatefulWidget {
   final String title;
   final String description;

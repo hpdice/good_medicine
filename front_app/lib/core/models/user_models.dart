@@ -3,7 +3,6 @@ class UserProfile {
   final String email;
   final String name;
   final List<String> healthConditions;
-  final List<String> allergyInfo;
   final int? birthYear;
   final bool? isPregnant; // null = 미입력
 
@@ -12,9 +11,6 @@ class UserProfile {
         email = j['email'],
         name = j['name'],
         healthConditions = (j['health_conditions'] as List? ?? [])
-            .map((e) => e.toString())
-            .toList(),
-        allergyInfo = (j['allergy_info'] as List? ?? [])
             .map((e) => e.toString())
             .toList(),
         birthYear = j['birth_year'],

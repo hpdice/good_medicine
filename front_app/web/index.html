@@ -34,5 +34,85 @@
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>
+
+  <!-- 모바일 브라우저(QR로 들어온 경우 포함)에서 앱처럼 설치하라고 안내하는 배너. 설치된 앱(standalone)·데스크톱에서는 안 뜬다. -->
+  <style>
+    #install-banner{position:fixed;left:12px;right:12px;bottom:12px;z-index:2147483000;display:none;
+      background:#0f766e;color:#fff;border-radius:14px;padding:12px 14px;box-shadow:0 8px 24px rgba(0,0,0,.28);
+      font:14px/1.45 -apple-system,"Noto Sans KR","Malgun Gothic",sans-serif}
+    #install-banner b{font-weight:800}
+    #install-banner .sub{opacity:.92;font-size:12.5px;margin-top:2px}
+    #install-banner .row{display:flex;gap:8px;margin-top:10px;justify-content:flex-end}
+    #install-banner button{border:0;border-radius:10px;padding:8px 14px;font:inherit;font-weight:700;cursor:pointer}
+    #install-banner .go{background:#fff;color:#0f766e}
+    #install-banner .no{background:rgba(255,255,255,.18);color:#fff}
+  </style>
+  <div id="install-banner" role="dialog" aria-label="앱 설치 안내">
+    <div><b>굿메디슨을 앱처럼 설치하세요</b></div>
+    <div class="sub" id="install-sub"></div>
+    <div class="row">
+      <button class="no" id="install-close" type="button">나중에</button>
+      <button class="no" id="install-pwa" type="button" style="display:none">홈 화면에 추가</button>
+      <a class="go" id="install-apk" href="https://github.com/hpdice/good_medicine/releases/latest/download/app-release.apk" style="display:none;text-decoration:none;border-radius:10px;padding:8px 14px;font-weight:700">앱 설치(APK)</a>
+      <button class="go" id="install-go" type="button">설치</button>
+    </div>
+  </div>
+  <script>
+  (function () {
+    var KEY = 'installBannerDismissedAt';
+    var DAY = 24 * 60 * 60 * 1000;
+    var ua = navigator.userAgent || '';
+    var isIOS = /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    var isAndroid = /Android/i.test(ua);
+    var standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+    if (standalone || !(isIOS || isAndroid)) return;
+
+    function dismissedRecently() {
+      try { var t = Number(localStorage.getItem(KEY) || 0); return t && Date.now() - t < DAY; } catch (e) { return false; }
+    }
+    if (dismissedRecently()) return;
+
+    var banner = document.getElementById('install-banner');
+    var sub = document.getElementById('install-sub');
+    var go = document.getElementById('install-go');
+
+    function show() { banner.style.display = 'block'; }
+    function hide(remember) {
+      banner.style.display = 'none';
+      if (remember) { try { localStorage.setItem(KEY, String(Date.now())); } catch (e) {} }
+    }
+    document.getElementById('install-close').addEventListener('click', function () { hide(true); });
+
+    if (isIOS) {
+      // iOS 사파리는 설치 창을 코드로 띄울 수 없어 방법만 안내한다.
+      sub.textContent = '사파리 아래 공유 버튼(□↑) → "홈 화면에 추가"를 누르면 앱 아이콘이 생겨요.';
+      go.textContent = '확인';
+      go.addEventListener('click', function () { hide(true); });
+      setTimeout(show, 1500);
+      return;
+    }
+
+    // Android: APK 앱을 설치하면 복용 알림이 오고, 홈 화면 추가는 웹을 아이콘으로 만드는 것이라 알림이 없다.
+    var apk = document.getElementById('install-apk');
+    var pwa = document.getElementById('install-pwa');
+    go.style.display = 'none';
+    apk.style.display = 'inline-block';
+    sub.textContent = '앱(APK)으로 설치하면 복용 시간 알림을 받을 수 있어요. 설치 때 "출처를 알 수 없는 앱" 허용이 필요할 수 있어요.';
+    apk.addEventListener('click', function () { setTimeout(function () { hide(true); }, 500); });
+    var deferred = null;
+    window.addEventListener('beforeinstallprompt', function (e) {
+      e.preventDefault();
+      deferred = e;
+      pwa.style.display = 'inline-block';
+    });
+    pwa.addEventListener('click', function () {
+      if (!deferred) return;
+      deferred.prompt();
+      deferred.userChoice.then(function () { deferred = null; hide(true); });
+    });
+    window.addEventListener('appinstalled', function () { hide(false); });
+    setTimeout(show, 1000);
+  })();
+  </script>
 </body>
 </html>

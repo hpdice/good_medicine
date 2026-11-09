@@ -11,8 +11,8 @@ Widget _card({String? badgeLabel, RiskTone tone = RiskTone.critical}) => Materia
             drugName: '테스트정',
             tone: tone,
             badgeLabel: badgeLabel,
-            reasonLabel: '알레르기 성분',
-            reasonText: '등록한 알레르기와 겹치는 성분이 있습니다.',
+            reasonLabel: '내 건강 상태: 고혈압',
+            reasonText: '이 약의 허가사항에 있어요.',
           ),
         ),
       ),
@@ -20,8 +20,8 @@ Widget _card({String? badgeLabel, RiskTone tone = RiskTone.critical}) => Materia
 
 void main() {
   testWidgets('배지에 카드 종류가 나오고 등급 라벨("병용금기")이 나오지 않는다', (tester) async {
-    await tester.pumpWidget(_card(badgeLabel: '알레르기'));
-    expect(find.text('알레르기'), findsOneWidget);
+    await tester.pumpWidget(_card(badgeLabel: '건강 상태 금기'));
+    expect(find.text('건강 상태 금기'), findsOneWidget);
     expect(find.text('병용금기'), findsNothing);
   });
 

@@ -9,7 +9,7 @@ class QuickCheckRequest(BaseModel):
     @field_validator("drug_ids")
     @classmethod
     def at_least_one(cls, v: list) -> list:
-        # 약 하나만으로도 걸리는 판정(용량 초과·알레르기·나이·임신)이 있어 1개부터 받는다
+        # 약 하나만으로도 걸리는 판정(용량 초과·건강 상태 금기·나이·임신)이 있어 1개부터 받는다
         if not v:
             raise ValueError("확인할 약품이 없습니다.")
         if len(v) > 50:
@@ -32,16 +32,15 @@ class QuickCheckFinding(BaseModel):
     ingr_b: str | None = None
 
 
-class AllergyConflict(BaseModel):
-    """사용자가 등록한 알레르기 성분과 복약함 약품의 성분이 겹치는 경우.
+class ConditionTaboo(BaseModel):
+    """사용자가 등록한 건강 상태가 약 허가사항의 "다음 환자에는 투여하지 말 것" 항목에 있는 경우 — 약품 1개 단위.
 
-    DUR 데이터가 아니라 사용자 프로필(`users.allergy_info`)과의 대조라서
-    약품 쌍이 아니라 약품 1개 단위다."""
+    `sentence`는 그 항목의 원문이고, 의학적 해석 없이 글자가 들어 있을 때만 만든다(`condition_taboo.py`)."""
 
     drug_id: uuid.UUID
     drug_name: str
-    matched_ingredient: str
-    matched_allergy_term: str
+    condition: str
+    sentence: str
 
 
 class AgeCaution(BaseModel):
@@ -95,8 +94,9 @@ class QuickCheckResponse(BaseModel):
     elderly_caution_count: int = 0
     pregnancy_taboo_count: int = 0
     dose_caution_count: int = 0
+    condition_taboo_count: int = 0
     findings: list[QuickCheckFinding]
-    allergy_conflicts: list[AllergyConflict] = []
+    condition_taboos: list[ConditionTaboo] = []
     age_cautions: list[AgeCaution] = []
     pregnancy_cautions: list[PregnancyCaution] = []
     dose_cautions: list[DoseCaution] = []

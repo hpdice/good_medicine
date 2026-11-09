@@ -1,7 +1,7 @@
 # 굿메디슨 — AI 의약품 상호작용 분석 플랫폼
 
 > 처방전·약봉투를 촬영하면 OCR로 약품명을 추출해 복약함에 등록하고,
-> 식약처 DUR(병용금기·효능군중복·특정연령대금기·노인주의·임부금기) 규칙과 사용자 알레르기로
+> 식약처 DUR(병용금기·효능군중복·특정연령대금기·노인주의·임부금기) 규칙과 사용자 건강 상태로
 > 위험도를 판정한 뒤, 그 결과를 로컬 LLM이 쉬운 말로 풀어 설명하는 헬스케어 앱.
 
 - **프론트**: Flutter (웹·Android) — <https://goodmedicine-hpdice.vercel.app>
@@ -44,7 +44,7 @@ POST /drugs/ocr ─▶ 서버 OCR(Tesseract) ─▶ 후보·복용량 추출 ─
 홈 화면 진입 시 자동으로                └─ 병용금기면 FCM 발송
   │ POST /analysis/quick-check ───▶ AnalysisService.quick_check
   ▼                                    │  (DB 규칙 조회만, AI 없음)
-위험 배너 표시           복약함 약품 ─▶ 성분코드 해소 ─┬─ 병용금기 / 알레르기 / 특정연령대금기 / 임부금기 → critical
+위험 배너 표시           복약함 약품 ─▶ 성분코드 해소 ─┬─ 병용금기 / 건강 상태 금기 / 특정연령대금기 / 임부금기 → critical
 (critical / caution / safe)                          ├─ 동일 성분·효능군 중복 / 노인주의 / 하루 용량 초과 → caution
   │                                                  └─ residual_interactions 폴백 항상 병합
   ▼ (사용자가 "AI 설명 보기" 탭)
@@ -68,7 +68,7 @@ POST /drugs/ocr ─▶ 서버 OCR(Tesseract) ─▶ 후보·복용량 추출 ─
 | 조건 | 등급 |
 |---|---|
 | `dur_ingredient_contraindications`에 성분쌍 존재 | **critical** |
-| 사용자 알레르기 성분과 겹침 (`users.allergy_info`) | **critical** |
+| 사용자의 건강 상태가 약 허가사항 "다음 환자에는 투여하지 말 것" 항목에 있음 (`users.health_conditions`) | **critical** |
 | 특정연령대금기 해당 (`dur_ingredient_age_caution`, 출생연도 등록 시) | **critical** |
 | 임부금기 해당 (`dur_item_pregnancy_taboo`, 프로필에서 "임신 중" 설정 시) | **critical** |
 | 위 해당 없고 같은 성분 중복 또는 `dur_ingredient_effect_groups` 효능군 중복 존재 | **caution** |
@@ -76,7 +76,7 @@ POST /drugs/ocr ─▶ 서버 OCR(Tesseract) ─▶ 후보·복용량 추출 ─
 | 위 없고 하루 용량 초과(`dur_ingredient_dose_caution`, 복약함에 1회 개수·하루 횟수를 적은 정·캡슐) | **caution** |
 | 아무것도 없음 | **safe** |
 
-알레르기·연령대·임부·용량 판정은 `quick_check`가 `user_id`를 받았을 때만 동작하고(비로그인 경로 없음),
+건강 상태·연령대·임부·용량 판정은 `quick_check`가 `user_id`를 받았을 때만 동작하고(비로그인 경로 없음),
 해당 정보를 등록하지 않았으면 그 검사만 건너뛴다. `safe`는 "DUR에 등록된 규칙에 걸리지 않음"이라는 뜻이며
 안전 보증이 아니다.
 
@@ -100,7 +100,7 @@ POST /drugs/ocr ─▶ 서버 OCR(Tesseract) ─▶ 후보·복용량 추출 ─
 - **구성**: 각 약 소개 → 식약처 기준으로 왜 위험한지 → 대응. 말투는 앱 화면과 같은 해요체.
 - **응답 처리**: 마크다운 제거 → 한자·등급 코드·복용 중단 권유·대체 약/다른 치료법 제안·근거 없는 연구 인용·
   출처 없는 용어 풀이 문장 제거 → 남길 문장이 없을 때만 1회 재생성 후 폴백.
-- **대응 문장은 AI가 아니라 코드가 판정 종류별로 붙인다**(알레르기·임부·연령·병용, 일반의약품이 낀 병용은 별도 문장).
+- **대응 문장은 AI가 아니라 코드가 판정 종류별로 붙인다**(건강 상태·임부·연령·병용, 일반의약품이 낀 병용은 별도 문장).
 - 문제가 없으면(`safe`) 모델을 부르지 않고 정해진 문장을 낸다.
 - 생성 결과는 `analysis_results`에 암호화 저장한다.
 
@@ -126,7 +126,7 @@ POST /drugs/ocr ─▶ 서버 OCR(Tesseract) ─▶ 후보·복용량 추출 ─
 
 | 파일 | 역할 |
 |---|---|
-| [`backend/app/services/analysis_service.py`](backend/app/services/analysis_service.py) | `quick_check()` — 규칙 기반 위험도 판정(DUR·알레르기·연령대·임부), AI 미관여 |
+| [`backend/app/services/analysis_service.py`](backend/app/services/analysis_service.py) | `quick_check()` — 규칙 기반 위험도 판정(DUR·건강 상태 금기·연령대·임부), AI 미관여 |
 | [`backend/app/services/drug_service.py`](backend/app/services/drug_service.py) | OCR 텍스트 → DB 약품 단계별 매칭 |
 | [`backend/app/services/ai_guide_service.py`](backend/app/services/ai_guide_service.py) | 판정을 바꾸지 않는 설명 생성 — 프롬프트·응답 처리·폴백 |
 | [`backend/app/services/glossary.py`](backend/app/services/glossary.py) | 출처 있는 의학 용어 풀이 |

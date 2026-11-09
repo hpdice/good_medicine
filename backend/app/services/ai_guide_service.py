@@ -28,7 +28,7 @@ _MAX_ATTEMPTS = 2  # 검사에 걸린 답은 한 번만 다시 생성하고, 그
 
 _FALLBACK_GUIDE_TEXT = (
     "지금 AI 설명을 생성할 수 없습니다. 위 판정 결과는 식약처 DUR 공공데이터와 "
-    "등록하신 건강정보(알레르기·나이·임신 여부)에 근거해 이미 확정된 것이니 그대로 "
+    "등록하신 건강정보(건강 상태·나이·임신 여부)에 근거해 이미 확정된 것이니 그대로 "
     "참고하시고, 자세한 대응은 의사·약사와 상담해 주세요."
 )
 
@@ -43,10 +43,10 @@ _FINDING_LABEL = {
 _AGE_RULE_LABEL = {"age_taboo": "특정 연령대 금기", "elderly_caution": "노인 주의(만 65세 이상)"}
 
 # 대응 문장은 AI에 맡기지 않고 판정 종류별로 코드가 붙인다 — 한 문장을 모든 경우에 쓰면
-# 알레르기 성분이 든 약에도 "끊지 말라"가 붙기 때문이다.
+# 건강 상태 금기 약에도 "끊지 말라"가 붙기 때문이다.
 # 서비스가 직접 하는 말이 되므로 진단·처방이 아니라 "알리고 확인·상담" 수준으로만 쓴다.
 _CLOSING = {
-    "allergy": "이 약을 먹기 전에(이미 먹고 있다면 지금 바로) 의사나 약사에게 알레르기가 있다고 알리고 복용해도 되는지 확인하세요.",
+    "condition": "이 약을 먹기 전에(이미 먹고 있다면 지금 바로) 의사나 약사에게 지금 건강 상태를 알리고 복용해도 되는지 확인하세요.",
     "pregnancy": "임신 중이라는 사실을 의사나 약사에게 알리고 이 약을 계속 써도 되는지 상담하세요.",
     "age": "나이에 맞는 약인지 의사나 약사와 상담하세요.",
     # 복용량은 처방대로일 수도, 사용자가 잘못 적었을 수도 있어 "줄이라"가 아니라 "지금 먹는 양을 알리고 확인"이다
@@ -76,7 +76,7 @@ def closing_for(check: QuickCheckResponse, otc_involved: bool = False) -> str:
 
     otc_involved: 병용·중복 판정에 일반의약품이 낀 경우 — 처방 점검에 안 잡히는 약을 더하는 상황에 맞는 문장을 쓴다."""
     kinds = [
-        ("allergy", check.allergy_conflicts),
+        ("condition", check.condition_taboos),
         ("pregnancy", check.pregnancy_cautions),
         ("age", check.age_cautions),
         ("dose", check.dose_cautions),
@@ -102,7 +102,7 @@ _SYSTEM_PROMPT = """당신은 '굿메디슨' 약 관리 앱의 설명 도우미�
 2. 왜 위험한지는 "식약처가 정한 기준으로는 …"처럼 [판정 결과]의 이유를 쉬운 말로 옮겨 말하세요.
 3. 이 판정은 이미 식약처 공공데이터(DUR)와 사용자 건강정보로 확정된 결과입니다.
    판정을 바꾸거나 재평가하지 말고, 그대로 받아들여 쉽게 풀어 설명만 하세요.
-4. 알레르기·나이·임신 항목은 약 한 가지에 대한 경고입니다. 두 약 사이의 상호작용처럼
+4. 건강 상태·나이·임신 항목은 약 한 가지에 대한 경고입니다. 두 약 사이의 상호작용처럼
    설명하지 마세요. 하루 최대 용량 항목은 먹는 양이 많다는 경고이지 약끼리 작용한다는 뜻이 아닙니다.
 5. 복용을 스스로 끊거나 바꾸라고 권하지 마세요. 대체 약, 다른 치료법, 복용 시간 조절도 제안하지 마세요.
    대응은 "의사나 약사와 상담하세요" 정도로만 쓰세요.
@@ -238,10 +238,10 @@ def _finding_lines(check: QuickCheckResponse) -> list[str]:
     return lines
 
 
-def _allergy_lines(check: QuickCheckResponse) -> list[str]:
+def _condition_lines(check: QuickCheckResponse) -> list[str]:
     return [
-        f"- {c.drug_name}: 등록한 알레르기 '{c.matched_allergy_term}'와 이 약의 성분 '{c.matched_ingredient}'이 겹침"
-        for c in check.allergy_conflicts
+        f"- {c.drug_name}: 등록한 건강 상태 '{c.condition}'가 이 약 허가사항의 '다음 환자에는 투여하지 말 것' 항목에 있음 — {c.sentence}"
+        for c in check.condition_taboos
     ]
 
 
@@ -281,7 +281,7 @@ def _involved_drug_ids(check: QuickCheckResponse) -> list[uuid.UUID]:
     ids: set[uuid.UUID] = set()
     for finding in check.findings:
         ids |= {finding.drug1_id, finding.drug2_id}
-    for group in (check.allergy_conflicts, check.age_cautions, check.pregnancy_cautions):
+    for group in (check.condition_taboos, check.age_cautions, check.pregnancy_cautions):
         ids |= {c.drug_id for c in group}
     for dose in check.dose_cautions:
         ids |= set(dose.drug_ids)
@@ -321,7 +321,7 @@ class AiGuideService:
         drug_ids: list[uuid.UUID],
         check: QuickCheckResponse,
     ) -> AnalysisGuideResponse:
-        if not (check.findings or check.allergy_conflicts or check.age_cautions or check.pregnancy_cautions
+        if not (check.findings or check.condition_taboos or check.age_cautions or check.pregnancy_cautions
                 or check.dose_cautions):
             # 설명할 문제가 없으면 모델을 부르지 않는다. 프롬프트에 약 정보가 없으면 모델이 약 개수를 틀리게
             # 말하고 "안전하다"고까지 단정하는데, DUR에 없는 상호작용은 못 찾으므로 "안전"을 말하면 안 된다.
@@ -367,17 +367,14 @@ class AiGuideService:
         return any((d.etc_otc_name or "").strip() == "일반의약품" for d in drugs.values())
 
     async def _health_lines(self, user_id: uuid.UUID) -> list[str]:
-        """사용자 건강정보/알레르기. 복호화 실패는 UserService가 필드별로 격리 처리하므로 있으면 쓰고
+        """사용자 건강 상태. 복호화 실패는 UserService가 필드별로 격리 처리하므로 있으면 쓰고
         없으면 생략한다 (가이드 생성 전체를 막지 않음)."""
         lines: list[str] = []
         try:
             user = await UserService(self.db).get_user(user_id)
             conditions = getattr(user, "health_conditions", None)
-            allergies = getattr(user, "allergy_info", None)
             if conditions:
                 lines.append(f"건강 상태: {', '.join(conditions)}")
-            if allergies:
-                lines.append(f"알레르기: {', '.join(allergies)}")
         except Exception:
             logger.warning("사용자 건강정보 조회 실패 — 컨텍스트 없이 가이드 생성 진행", exc_info=True)
         return lines
@@ -393,7 +390,7 @@ class AiGuideService:
         sections = [f"[판정 결과] 전체 위험도: {_RISK_LABEL.get(check.risk_level, check.risk_level)}"]
         for title, lines in (
             ("함께 먹을 때의 문제", finding_lines),
-            ("알레르기 성분 충돌", _allergy_lines(check)),
+            ("건강 상태 금기", _condition_lines(check)),
             ("나이 관련 DUR 규칙", age_lines),
             ("임신 중 금기", pregnancy_lines),
             ("하루 최대 용량 초과", _dose_lines(check)),

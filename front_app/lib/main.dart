@@ -8,6 +8,7 @@ import 'core/notifications/medication_reminder_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  configureRouter();
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   try {
     await Firebase.initializeApp();
