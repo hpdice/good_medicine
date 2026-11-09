@@ -34,5 +34,39 @@
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>
+
+  <!-- QR·링크로 웹에 들어온 안드로이드 사용자에게 "앱(APK) 설치"를 안내한다. 웹(크롬에서 설치한 웹앱 포함)에는 알림 허용·카메라 권한
+       같은 안드로이드 앱 기능이 없어서, 이 기능들은 앱을 설치해야 쓸 수 있다. 크롬의 설치 신호(beforeinstallprompt)는 건드리지 않는다. -->
+  <style>
+    #apk-banner{position:fixed;left:12px;right:12px;bottom:12px;z-index:2147483000;display:none;
+      background:#0f766e;color:#fff;border-radius:14px;padding:12px 14px;box-shadow:0 8px 24px rgba(0,0,0,.28);
+      font:14px/1.45 -apple-system,"Noto Sans KR","Malgun Gothic",sans-serif}
+    #apk-banner b{font-weight:800}
+    #apk-banner .sub{opacity:.92;font-size:12.5px;margin-top:2px}
+    #apk-banner .row{display:flex;gap:8px;margin-top:10px;justify-content:flex-end}
+    #apk-banner button,#apk-banner a{border:0;border-radius:10px;padding:8px 14px;font:inherit;font-weight:700;cursor:pointer;text-decoration:none}
+    #apk-banner .go{background:#fff;color:#0f766e}
+    #apk-banner .no{background:rgba(255,255,255,.18);color:#fff}
+  </style>
+  <div id="apk-banner" role="dialog" aria-label="앱 설치 안내">
+    <div><b>굿메디슨 앱을 설치하세요</b></div>
+    <div class="sub">복용 알림·카메라 촬영 등 모든 기능은 앱에서 쓸 수 있어요. 받은 파일을 열 때 "출처를 알 수 없는 앱" 허용이 필요할 수 있어요.</div>
+    <div class="row">
+      <button class="no" id="apk-close" type="button">나중에</button>
+      <a class="go" id="apk-go" href="https://github.com/hpdice/good_medicine/releases/latest/download/app-release.apk">앱 설치(APK)</a>
+    </div>
+  </div>
+  <script>
+  (function () {
+    if (!/Android/i.test(navigator.userAgent || '')) return;
+    var KEY = 'apkBannerDismissed';
+    try { if (sessionStorage.getItem(KEY)) return; } catch (e) {}
+    var banner = document.getElementById('apk-banner');
+    function hide() { banner.style.display = 'none'; try { sessionStorage.setItem(KEY, '1'); } catch (e) {} }
+    document.getElementById('apk-close').addEventListener('click', hide);
+    document.getElementById('apk-go').addEventListener('click', function () { setTimeout(hide, 500); });
+    setTimeout(function () { banner.style.display = 'block'; }, 1200);
+  })();
+  </script>
 </body>
 </html>
