@@ -111,7 +111,7 @@ docker exec drugtest-backend-1 python validate_db.py          # 품질 검증
 ## 6. 공공데이터 월간 갱신
 
 **자동**: 작업 스케줄러 `GoodMedicine-Monthly-Sync` — 매월 1일 02:00(놓치면 부팅 후), 최대 12시간.
-`scripts/monthly-sync.ps1`: 헬스체크 → **백업(복원 검증)** → 동기화 11단계(e약은요 · 허가정보 · DUR 병용금기 · 효능군 · 연령 · 임부 · DUR 성분정보 · 이름 매칭 · 심평원 CSV · 심평원 성분 연결 · 1정당 함량) → 위험 태그 → **품질 게이트**.
+`scripts/monthly-sync.ps1`: 헬스체크 → **백업(복원 검증)** → 동기화 12단계(e약은요 · 허가정보 · DUR 병용금기 · 효능군 · 연령 · 임부 · DUR 성분정보 · 이름 매칭 · 심평원 CSV · 심평원 성분 연결 · 1정당 함량 · drugs_master 구축) → 위험 태그 → **품질 게이트**.
 한 단계라도 실패하면 멈추고 종료 코드 1. 로그: `D:\drugTest\sync-logs\sync-*.log`(최근 24개).
 
 ```powershell
@@ -133,6 +133,24 @@ docker exec drugtest-backend-1 python sync.py status
 - **원본 응답 보관·재생**: 동기화가 받은 API 응답을 `/var/lib/goodmedicine/raw/`(`sync_state` 볼륨)에 엔드포인트·날짜별 gz 파일로 남기고 최근 3개 날짜만 유지한다. 파싱 로직을 고친 뒤엔 `docker exec drugtest-backend-1 python sync.py <소스> --replay`로 API 호출 없이 재적재한다(날짜 지정은 `--replay=YYYYMMDD`). DB 백업에는 포함되지 않는다(API에서 재수집 가능한 캐시). 용량이 부담되면 `.env`의 `RAW_RESPONSE_SAVE=false` 또는 `RAW_KEEP_SNAPSHOTS`를 줄인다.
 - 원천이 금기 사유 문장을 고치면 반영되고, 그 규칙의 `risk_tags`는 비워져 다음 `extract_risk_tags`에서 다시 뽑힌다.
 - 동기화 중에도 서비스는 계속 동작한다(판정은 읽기만). 다만 공공 API 일일 할당량을 쓰므로 같은 날 수동 동기화는 피한다.
+
+### 허가정보 상세 적재 (효능·용법·주의사항 → DB)
+
+약 설명 텍스트는 식약처 허가정보 상세 API에서 받아 DB에 쌓는다. **일일 호출 한도는 10,000건**이라(응답 헤더 `x-ratelimit-limit`) 전체
+(약 3만 5천 개)를 받으려면 며칠이 걸린다. 한도가 풀리는 시각은 확인하지 못했다.
+
+```powershell
+docker exec -it drugtest-backend-1 python sync.py permit_detail --limit=1000 --reserve=1500   # 한 번 실행(이어 받기)
+# 반복 실행(멈추면 15분 뒤 이어서, 받을 약이 없으면 끝) — 컨테이너 안 프로세스라 컨테이너를 다시 만들면 멈춘다
+docker cp scripts/permit-detail-loop.sh drugtest-backend-1:/tmp/permit-detail-loop.sh
+docker exec -d drugtest-backend-1 sh /tmp/permit-detail-loop.sh                          # BURN_FIRST=1 이면 오늘 남은 호출부터 모두 사용
+docker exec drugtest-backend-1 tail -5 /var/lib/goodmedicine/permit_detail.log           # 진행·멈춤 이유
+```
+
+- 남은 일일 호출이 예약분(`--reserve`, 기본 1,500) 아래이면 멈춘다 — 앱이 약을 담을 때 실시간으로 보충할 호출을 남기기 위해서다.
+- 응답이 HTTP 429(`LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR`)이면 오늘 한도가 소진된 것이다. 연속 30번 실패하면 배치가 멈춘다.
+- 채움률: `select count(*) filter (where detail_fetched_at is not null), count(*) filter (where coalesce(efcy_qesitm,'') <> '') from drugs`.
+- 적재가 커져 DB 크기가 늘어난다(2026-11-09 밤 약 350MB, 전체를 받으면 1GB 안팎으로 추정). 백업 파일도 같이 커진다.
 
 ## 7. 외부 감시
 
