@@ -13,7 +13,7 @@ from app.models.dur_ingredient_rule import (
     DurIngredientEffectGroup,
     DurItemPregnancyTaboo,
 )
-from app.models.hira import HiraGenIngredient, HiraItemGenCode
+from app.models.hira import HiraGenCode, HiraGenIngredient, HiraItemGenCode
 from app.models.residual_interaction import ResidualInteraction
 
 
@@ -209,5 +209,7 @@ async def make_hira_form(session: AsyncSession, drug: Drug, form_name: str) -> N
     """약에 심평원 일반명코드·제형을 붙인다(용량주의 규칙의 제형 맞추기용)."""
     gen_code = f"T{uuid.uuid4().hex[:5].upper()}ATB"
     session.add(HiraItemGenCode(item_seq=drug.item_seq, gen_code=gen_code))
-    session.add(HiraGenIngredient(gen_code=gen_code, seq=1, ingr_name="test ingredient", form_name=form_name))
+    session.add(HiraGenCode(gen_code=gen_code, form_name=form_name))
+    await session.flush()  # 성분 행의 외래 키보다 일반명코드가 먼저 저장돼야 한다
+    session.add(HiraGenIngredient(gen_code=gen_code, seq=1, ingr_name="test ingredient"))
     await session.commit()

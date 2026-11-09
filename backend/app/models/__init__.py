@@ -10,7 +10,7 @@ from app.models.dur_ingredient_rule import (
     DurIngredientEffectGroup,
     DurItemPregnancyTaboo,
 )
-from app.models.hira import HiraGenIngredient, HiraItemGenCode
+from app.models.hira import HiraGenCode, HiraGenIngredient, HiraItemGenCode
 from app.models.medicine_box import MedicineBoxEntry
 from app.models.residual_interaction import ResidualInteraction
 from app.models.user import AuditLog, RefreshToken, User
@@ -29,6 +29,7 @@ __all__ = [
     "DurItemPregnancyTaboo",
     "DurIngredientMaster",
     "HiraItemGenCode",
+    "HiraGenCode",
     "HiraGenIngredient",
     "ResidualInteraction",
     "MedicineBoxEntry",

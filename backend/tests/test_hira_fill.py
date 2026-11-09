@@ -3,7 +3,7 @@ from sqlalchemy import select
 
 from app.models.drug_ingredient import DrugIngredient
 from app.models.dur_ingredient_master import DurIngredientMaster
-from app.models.hira import HiraGenIngredient, HiraItemGenCode
+from app.models.hira import HiraGenCode, HiraGenIngredient, HiraItemGenCode
 from app.services.public_data_service import PublicDataService
 from tests.factories import make_drug
 
@@ -20,8 +20,10 @@ async def _master(session):
 
 async def _hira(session, drug, gen_code, names):
     session.add(HiraItemGenCode(item_seq=drug.item_seq, gen_code=gen_code))
+    session.add(HiraGenCode(gen_code=gen_code, form_name="정제,저작정"))
+    await session.flush()  # 성분 행의 외래 키보다 일반명코드가 먼저 저장돼야 한다
     for seq, name in enumerate(names, 1):
-        session.add(HiraGenIngredient(gen_code=gen_code, seq=seq, ingr_name=name, form_name="정제,저작정"))
+        session.add(HiraGenIngredient(gen_code=gen_code, seq=seq, ingr_name=name))
     await session.commit()
 
 

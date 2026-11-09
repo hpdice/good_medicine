@@ -17,10 +17,14 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.config import settings
 from app.core.logging import logger
-from app.models.hira import HiraGenIngredient, HiraItemGenCode
+from app.models.hira import HiraGenCode, HiraGenIngredient, HiraItemGenCode
 
 from .base import _SyncBase
-from .helpers import hira_gen_ingredients_from_rows, hira_item_gen_codes_from_rows
+from .helpers import (
+    hira_gen_codes_from_rows,
+    hira_gen_ingredients_from_rows,
+    hira_item_gen_codes_from_rows,
+)
 
 _BATCH = 1000
 
@@ -34,12 +38,16 @@ def _state_path() -> str:
 
 
 class HiraMasterMixin(_SyncBase):
-    # 종류 -> (파일 이름에 들어간 말, 행 변환 함수, 모델, 유일 키 열, 유일 제약 이름)
+    # 종류 -> (파일 이름에 들어간 말, [(행 변환 함수, 모델, 유일 키 열, 유일 제약 이름), ...]) — 단계는 앞에서부터 적재한다
+    # (주성분 파일은 일반명코드 속성을 먼저 넣어야 성분 행의 외래 키가 맞는다)
     HIRA_FILES = {
-        "표준코드": ("의약품표준코드", hira_item_gen_codes_from_rows, HiraItemGenCode,
-                 ("item_seq", "gen_code"), "uq_hira_item_gen_code"),
-        "주성분": ("의약품주성분", hira_gen_ingredients_from_rows, HiraGenIngredient,
-                ("gen_code", "seq"), "uq_hira_gen_ingredient_seq"),
+        "표준코드": ("의약품표준코드", [
+            (hira_item_gen_codes_from_rows, HiraItemGenCode, ("item_seq", "gen_code"), "uq_hira_item_gen_code"),
+        ]),
+        "주성분": ("의약품주성분", [
+            (hira_gen_codes_from_rows, HiraGenCode, ("gen_code",), "hira_gen_codes_pkey"),
+            (hira_gen_ingredients_from_rows, HiraGenIngredient, ("gen_code", "seq"), "uq_hira_gen_ingredient_seq"),
+        ]),
     }
 
     async def load_hira_master(self) -> int:
@@ -51,7 +59,7 @@ class HiraMasterMixin(_SyncBase):
             state = {}
 
         written = 0
-        for kind, (pattern, to_rows, model, key_cols, constraint) in self.HIRA_FILES.items():
+        for kind, (pattern, steps) in self.HIRA_FILES.items():
             paths = sorted(glob.glob(os.path.join(_hira_dir(), f"*{pattern}*.csv")), key=os.path.getmtime)
             if not paths:
                 raise RuntimeError(f"심평원 {kind} 파일 없음: {_hira_dir()}/*{pattern}*.csv")
@@ -62,10 +70,13 @@ class HiraMasterMixin(_SyncBase):
                 logger.warning("심평원 %s: 지난번과 같은 파일이라 건너뜀 (%s)", kind, os.path.basename(path))
                 continue
 
-            values = to_rows(csv.DictReader(io.StringIO(raw.decode("cp949"))))
-            n = await self._upsert_changed(model, key_cols, constraint, values)
-            if model is HiraGenIngredient:
-                n += await self._drop_stale_ingredient_rows(set(values))
+            csv_rows = list(csv.DictReader(io.StringIO(raw.decode("cp949"))))
+            n = 0
+            for to_rows, model, key_cols, constraint in steps:
+                values = to_rows(csv_rows)
+                n += await self._upsert_changed(model, key_cols, constraint, values)
+                if model is HiraGenIngredient:
+                    n += await self._drop_stale_ingredient_rows(set(values))
             await self.db.commit()
             written += n
             state[kind] = {"file": os.path.basename(path), "sha256": digest, "rows": len(values)}

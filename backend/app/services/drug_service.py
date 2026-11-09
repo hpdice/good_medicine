@@ -18,7 +18,7 @@ from app.models.dur_ingredient_rule import (
     DurIngredientEffectGroup,
     DurItemPregnancyTaboo,
 )
-from app.models.hira import HiraGenIngredient, HiraItemGenCode
+from app.models.hira import HiraGenCode, HiraItemGenCode
 from app.models.residual_interaction import ResidualInteraction
 from app.services.public_data_service import _make_drug_key
 
@@ -344,8 +344,8 @@ class DrugService:
         if not item_seqs:
             return {}
         stmt = (
-            select(HiraItemGenCode.item_seq, HiraGenIngredient.form_name)
-            .join(HiraGenIngredient, HiraGenIngredient.gen_code == HiraItemGenCode.gen_code)
+            select(HiraItemGenCode.item_seq, HiraGenCode.form_name)
+            .join(HiraGenCode, HiraGenCode.gen_code == HiraItemGenCode.gen_code)
             .where(HiraItemGenCode.item_seq.in_(item_seqs))
         )
         forms: dict[str, set[str]] = {}

@@ -2,6 +2,7 @@
 from datetime import date
 
 from app.services.public_data_service.helpers import (
+    hira_gen_codes_from_rows,
     hira_gen_ingredients_from_rows,
     hira_item_gen_codes_from_rows,
     resolve_hira_components,
@@ -44,7 +45,20 @@ def test_gen_ingredients_number_components_in_file_order():
     ])
     assert sorted(out) == [("248100ATB", 1), ("248100ATB", 2), ("297400ATB", 1), ("297400ATB", 2)]
     assert out[("248100ATB", 2)]["ingr_name"] == "rilpivirine hydrochloride (as rilpivirine)"
-    assert (out[("297400ATB", 2)]["strength"], out[("297400ATB", 2)]["unit"], out[("297400ATB", 2)]["route"]) == ("2", "mg", "내복")
+    assert (out[("297400ATB", 2)]["strength"], out[("297400ATB", 2)]["unit"]) == ("2", "mg")
+    assert "route" not in out[("297400ATB", 2)]  # 제형·투여경로는 일반명코드의 속성 — hira_gen_codes에 있다
+
+
+def test_gen_codes_hold_one_row_per_code_with_first_non_empty_value():
+    rows = [
+        _ing("248100ATB", "emtricitabine", route=""),           # 첫 성분 행엔 투여경로가 비어 있어도
+        _ing("248100ATB", "rilpivirine", route="내복"),          # 다음 행 값을 쓴다
+        _ing("297400ATB", "estradiol", route="내복"),
+        _ing("", "빈 코드"),
+    ]
+    out = hira_gen_codes_from_rows(rows)
+    assert sorted(out) == [("248100ATB",), ("297400ATB",)]
+    assert out[("248100ATB",)] == {"form_code": "TB", "form_name": "정제", "route": "내복", "class_no": "214"}
 
 
 _BY_ENG = {

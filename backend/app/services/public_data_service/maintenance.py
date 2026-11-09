@@ -11,7 +11,7 @@ from app.core.logging import logger
 from app.models.drug import Drug
 from app.models.drug_ingredient import DrugIngredient
 from app.models.dur_ingredient_master import DurIngredientMaster
-from app.models.hira import HiraGenIngredient, HiraItemGenCode
+from app.models.hira import HiraGenCode, HiraGenIngredient, HiraItemGenCode
 from app.models.residual_interaction import ResidualInteraction
 
 from .base import _SyncBase
@@ -47,8 +47,9 @@ FROM (
         COALESCE((
             SELECT jsonb_agg(jsonb_build_object(
                        'gen_code', g.gen_code, 'eng', g.ingr_name, 'strength', g.strength, 'unit', g.unit,
-                       'form', g.form_name, 'route', g.route) ORDER BY g.gen_code, g.seq)
+                       'form', c.form_name, 'route', c.route) ORDER BY g.gen_code, g.seq)
               FROM hira_item_gen_codes h JOIN hira_gen_ingredients g ON g.gen_code = h.gen_code
+              JOIN hira_gen_codes c ON c.gen_code = g.gen_code
              WHERE h.item_seq = d.item_seq AND h.cancelled_on IS NULL
         ), '[]'::jsonb) AS hira_components,
         COALESCE((
@@ -61,12 +62,12 @@ FROM (
             SELECT DISTINCT di.ingr_code FROM drug_ingredients di
              WHERE di.drug_id = d.id AND di.ingr_code IS NOT NULL ORDER BY 1
         ), '{}'::varchar[]) AS dur_ingr_codes,
-        (SELECT string_agg(DISTINCT g.form_name, ', ') FROM hira_item_gen_codes h
-           JOIN hira_gen_ingredients g ON g.gen_code = h.gen_code
-          WHERE h.item_seq = d.item_seq AND h.cancelled_on IS NULL AND g.form_name IS NOT NULL) AS dosage_form,
-        (SELECT string_agg(DISTINCT g.route, ', ') FROM hira_item_gen_codes h
-           JOIN hira_gen_ingredients g ON g.gen_code = h.gen_code
-          WHERE h.item_seq = d.item_seq AND h.cancelled_on IS NULL AND g.route IS NOT NULL) AS route,
+        (SELECT string_agg(DISTINCT c.form_name, ', ') FROM hira_item_gen_codes h
+           JOIN hira_gen_codes c ON c.gen_code = h.gen_code
+          WHERE h.item_seq = d.item_seq AND h.cancelled_on IS NULL AND c.form_name IS NOT NULL) AS dosage_form,
+        (SELECT string_agg(DISTINCT c.route, ', ') FROM hira_item_gen_codes h
+           JOIN hira_gen_codes c ON c.gen_code = h.gen_code
+          WHERE h.item_seq = d.item_seq AND h.cancelled_on IS NULL AND c.route IS NOT NULL) AS route,
         COALESCE(d.efcy_qesitm, '') <> '' AS has_efficacy,
         COALESCE(d.use_method_qesitm, '') <> '' AS has_use_method,
         COALESCE(d.atpn_qesitm, '') <> '' AS has_precautions,
@@ -287,8 +288,8 @@ class MaintenanceMixin(_SyncBase):
         comps: dict[str, list[tuple[str, float | None]]] = {}
         for gen, name, strength, unit, form in (await self.db.execute(select(
             HiraGenIngredient.gen_code, HiraGenIngredient.ingr_name, HiraGenIngredient.strength,
-            HiraGenIngredient.unit, HiraGenIngredient.form_name,
-        ))).all():
+            HiraGenIngredient.unit, HiraGenCode.form_name,
+        ).join(HiraGenCode, HiraGenCode.gen_code == HiraGenIngredient.gen_code))).all():
             comps.setdefault(gen, []).append((name, hira_amount_mg(strength, unit, form)))
         gens_of = await self._hira_gen_codes_by_item()
 

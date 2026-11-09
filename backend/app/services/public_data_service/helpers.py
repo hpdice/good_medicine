@@ -338,6 +338,20 @@ def hira_item_gen_codes_from_rows(rows: Iterable[dict]) -> dict[tuple[str, str],
     return out
 
 
+def hira_gen_codes_from_rows(rows: Iterable[dict]) -> dict[tuple[str], dict]:
+    """심평원 의약품주성분 CSV 행 → {(일반명코드,): 제형·투여경로·분류}. 원본은 성분 행마다 같은 값을 되풀이하므로
+    일반명코드마다 비어 있지 않은 첫 값을 쓴다."""
+    out: dict[tuple[str], dict] = {}
+    for r in rows:
+        gen, name = _clean(r.get("일반명코드")), _clean(r.get("일반명"))
+        if not gen or not name:  # 성분 행과 같은 기준 — 성분이 하나도 없는 코드는 만들지 않는다
+            continue
+        cur = out.setdefault((gen,), {"form_code": None, "form_name": None, "route": None, "class_no": None})
+        for col, src in (("form_code", "제형구분코드"), ("form_name", "제형"), ("route", "투여"), ("class_no", "분류번호")):
+            cur[col] = cur[col] or _clean(r.get(src))
+    return out
+
+
 def hira_gen_ingredients_from_rows(rows: Iterable[dict]) -> dict[tuple[str, int], dict]:
     """심평원 의약품주성분 CSV 행 → {(일반명코드, 순번): 값}. 복합제는 성분별 행이 원본 순서대로 1, 2, …"""
     out: dict[tuple[str, int], dict] = {}
@@ -348,9 +362,7 @@ def hira_gen_ingredients_from_rows(rows: Iterable[dict]) -> dict[tuple[str, int]
             continue
         counts[gen] = counts.get(gen, 0) + 1
         out[(gen, counts[gen])] = {
-            "ingr_name": name, "form_code": _clean(r.get("제형구분코드")), "form_name": _clean(r.get("제형")),
-            "route": _clean(r.get("투여")), "strength": _clean(r.get("함량")), "unit": _clean(r.get("단위")),
-            "class_no": _clean(r.get("분류번호")),
+            "ingr_name": name, "strength": _clean(r.get("함량")), "unit": _clean(r.get("단위")),
         }
     return out
 
