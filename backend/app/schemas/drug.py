@@ -1,7 +1,14 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from app.services.precautions import trim_precautions_for_display
+
+
+def _trim_atpn(value: str | None) -> str | None:
+    """화면에 내려 주는 주의사항에서 임상시험 결과 등을 뺀다(DB 원문·판정·AI 근거는 전문 그대로)."""
+    return trim_precautions_for_display(value)
 
 
 class DrugResponse(BaseModel):
@@ -23,6 +30,8 @@ class DrugResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    _trim_atpn = field_validator("atpn_qesitm")(_trim_atpn)
+
 
 class DrugSearchResult(BaseModel):
     id: uuid.UUID
@@ -41,6 +50,8 @@ class DrugSearchResult(BaseModel):
     deposit_method_qesitm: str | None
 
     model_config = {"from_attributes": True}
+
+    _trim_atpn = field_validator("atpn_qesitm")(_trim_atpn)
 
 
 class DrugNameMatchRequest(BaseModel):
