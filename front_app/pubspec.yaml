@@ -27,3 +27,13 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # 한글 글꼴을 앱에 넣는다. 없으면 웹이 글자를 만날 때마다 구글 서버에서 대체 글꼴 조각을 받아
+  # 그동안 글자가 깨져 보인다(카드를 열 때 "지지직"). 쓰이는 글자만 남긴 부분집합이다 — assets/fonts/OFL.txt 참고.
+  fonts:
+    - family: NotoSansKR
+      fonts:
+        - asset: assets/fonts/NotoSansKR-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/NotoSansKR-Bold.ttf
+          weight: 700

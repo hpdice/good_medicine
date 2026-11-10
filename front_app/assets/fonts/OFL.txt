@@ -1,0 +1,14 @@
+Noto Sans KR (NotoSansKR-Regular.ttf, NotoSansKR-Bold.ttf)
+
+이 폴더의 글꼴은 Noto Sans KR 가변 글꼴(버전 2.04)에서 보통(400)·굵게(700) 두 굵기를 뽑고,
+이 앱에 쓰이는 글자(표준 한글 2,350자, 약 데이터·앱 문구에 쓰인 글자, 영문·기호)만 남긴 부분집합이다.
+
+Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is available with a FAQ at: https://openfontlicense.org
+Full text: http://scripts.sil.org/OFL
+
+This Font Software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
+either express or implied. See the SIL Open Font License for the specific language, permissions and
+limitations governing your use of this Font Software.

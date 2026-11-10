@@ -74,6 +74,13 @@ class MedicineCard extends StatelessWidget {
                                 fontSize: 12,
                                 color: scheme.onSurfaceVariant)),
                       ],
+                      // 아이콘만으로는 뜻을 알 수 없어서 판정하지 못한 이유를 한 줄로 적는다.
+                      if (risk == DrugRisk.unjudged) ...[
+                        const SizedBox(height: 2),
+                        Text('DUR 성분 정보가 없어 확인하지 못했어요',
+                            style: TextStyle(
+                                fontSize: 12, color: scheme.onSurfaceVariant)),
+                      ],
                       if (entry.doseLabel case final dose?) ...[
                         const SizedBox(height: 2),
                         Text(dose,

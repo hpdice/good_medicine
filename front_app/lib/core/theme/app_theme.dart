@@ -25,6 +25,9 @@ class AppTheme {
   AppTheme._();
 
   // 브랜드 — 선명한 에메랄드-틸(신뢰감 + 생기).
+  /// 번들 한글 글꼴(assets/fonts) — 웹에서 한글을 그릴 때 대체 글꼴을 네트워크로 받지 않게 한다.
+  static const _font = 'NotoSansKR';
+
   static const _brand = Color(0xFF0EA47A);
   static const _brandDark = Color(0xFF34D399);
 
@@ -46,7 +49,7 @@ class AppTheme {
     final fieldFill = isDark ? const Color(0xFF1E2126) : const Color(0xFFEFF1F4);
     final shadow = isDark ? Colors.black : const Color(0xFF0B1F3A);
 
-    final base = ThemeData(colorScheme: scheme, useMaterial3: true);
+    final base = ThemeData(colorScheme: scheme, useMaterial3: true, fontFamily: _font);
     final tt = base.textTheme;
 
     return base.copyWith(
@@ -69,6 +72,7 @@ class AppTheme {
         scrolledUnderElevation: 0,
         centerTitle: false,
         titleTextStyle: TextStyle(
+          fontFamily: _font,
           fontSize: 22,
           fontWeight: FontWeight.w800,
           letterSpacing: -0.4,
@@ -92,8 +96,8 @@ class AppTheme {
         fillColor: fieldFill,
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-        hintStyle: TextStyle(color: scheme.onSurfaceVariant),
-        floatingLabelStyle: TextStyle(color: scheme.primary),
+        hintStyle: TextStyle(fontFamily: _font, color: scheme.onSurfaceVariant),
+        floatingLabelStyle: TextStyle(fontFamily: _font, color: scheme.primary),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(kFieldRadius),
           borderSide: BorderSide.none,
@@ -116,6 +120,7 @@ class AppTheme {
           minimumSize: const Size.fromHeight(54),
           elevation: 0,
           textStyle: const TextStyle(
+            fontFamily: _font,
               fontSize: 15.5, fontWeight: FontWeight.w800, letterSpacing: -0.2),
           shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(kFieldRadius)),
@@ -126,7 +131,7 @@ class AppTheme {
           minimumSize: const Size.fromHeight(50),
           foregroundColor: scheme.onSurface,
           textStyle:
-              const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700),
+              const TextStyle(fontFamily: _font, fontSize: 14.5, fontWeight: FontWeight.w700),
           side: BorderSide(color: isDark ? border : const Color(0xFFDDE1E6)),
           shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(kFieldRadius)),
@@ -135,7 +140,7 @@ class AppTheme {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: scheme.primary,
-          textStyle: const TextStyle(fontWeight: FontWeight.w700),
+          textStyle: const TextStyle(fontFamily: _font, fontWeight: FontWeight.w700),
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
@@ -149,6 +154,7 @@ class AppTheme {
                 ? scheme.primary
                 : scheme.onSurfaceVariant)),
         labelTextStyle: WidgetStateProperty.resolveWith((s) => TextStyle(
+              fontFamily: _font,
               fontSize: 12,
               fontWeight: FontWeight.w700,
               color: s.contains(WidgetState.selected)
@@ -223,7 +229,8 @@ class RiskStyle {
           const Color(0xFF6B7684),
           dark ? const Color(0xFF2A2F36) : const Color(0xFFEEF1F4),
           const Color(0xFF4B5563),
-          Icons.help_outline_rounded,
+          // 물음표는 "이게 뭐지?"라는 질문을 부른다 — "확인하지 못함"은 중립적인 빼기 기호로 보여 준다.
+          Icons.remove_circle_outline_rounded,
           '판정 불가',
         );
     }
