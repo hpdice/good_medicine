@@ -19,11 +19,18 @@ from .helpers import (
     _make_simple_name,
     _parse_main_ingr,
     candidate_ingredient_names,
+    dedupe_ingr_items,
     hira_amount_mg,
     make_ingredient_resolver,
     resolve_hira_components,
     split_joined_ingr_names,
+    strip_markup,
 )
+
+_MARKUP_FIELDS = ("efcy_qesitm", "use_method_qesitm", "atpn_warn_qesitm", "atpn_qesitm", "intrc_qesitm", "se_qesitm",
+                  "deposit_method_qesitm")
+# helpers._MARKUP_TAG_RE 와 같은 태그 목록 (PostgreSQL 정규식)
+_MARKUP_SQL_RE = r"</?(table|thead|tbody|tfoot|tr|td|th|colgroup|col|caption|p|br|div|span|b|i|u|strong|em|sup|sub|font|ul|ol|li)(\s[^<>]*)?/?>"
 
 _BUILD_DRUGS_MASTER_SQL = """
 INSERT INTO drugs_master (
@@ -377,6 +384,48 @@ class MaintenanceMixin(_SyncBase):
             await refresh_drugs_master_row(self.db, drug.id)
         logger.info("복합제 성분 원문(`|` 구분) 바로잡음: %d개 약", len(broken))
         return len(broken)
+
+    async def repair_html_markup(self, batch_size: int = 300) -> int:
+        """e약은요·허가정보 텍스트 필드에 날것으로 저장된 HTML 서식 태그(`<tbody> <tr> <td style=…>`)를 걷어낸다(API 미사용).
+
+        태그가 든 약만 골라 필드마다 `strip_markup`을 적용하고 바뀐 필드만 쓴다. 태그가 없으면 그대로라 재실행해도 안전하다.
+        텍스트 본문만 바뀌므로 drugs_master(정보 유무 플래그)는 다시 만들 필요가 없다. 바로잡은 약 수를 돌려준다."""
+        has_markup = or_(*[getattr(Drug, f).op("~*")(_MARKUP_SQL_RE) for f in _MARKUP_FIELDS])
+        ids = list((await self.db.execute(select(Drug.id).where(has_markup))).scalars().all())
+        fixed = 0
+        for i in range(0, len(ids), batch_size):
+            rows = (await self.db.execute(
+                select(Drug).where(Drug.id.in_(ids[i:i + batch_size]))
+            )).scalars().all()
+            for drug in rows:
+                changed = False
+                for field in _MARKUP_FIELDS:
+                    old = getattr(drug, field)
+                    new = strip_markup(old) if old else old
+                    if new != old:
+                        setattr(drug, field, new or None)
+                        changed = True
+                fixed += changed
+            await self.db.commit()
+            self.db.expunge_all()  # 약 수백 개 × 수만 자 — 배치마다 메모리를 비운다
+        logger.info("HTML 서식 태그 제거: %d개 약", fixed)
+        return fixed
+
+    async def repair_duplicate_ingr_names(self) -> int:
+        """`ingr_name`에 같은 성분이 되풀이된 약을 하나씩만 남기도록 바로잡는다(API 미사용, 재실행 안전).
+        `drug_ingredients`(판정 경로)는 원래 성분당 한 행이라 바뀌지 않는다. 바로잡은 약 수를 돌려준다."""
+        # 본문 텍스트(수만 자)까지 읽지 않게 id·ingr_name 두 열만 본다
+        rows = (await self.db.execute(select(Drug.id, Drug.ingr_name).where(Drug.ingr_name.is_not(None)))).all()
+        fixed = 0
+        for drug_id, items in rows:
+            items = items or []
+            deduped = dedupe_ingr_items(items)
+            if len(deduped) != len(items):
+                await self.db.execute(update(Drug).where(Drug.id == drug_id).values(ingr_name=deduped))
+                fixed += 1
+        await self.db.commit()
+        logger.info("ingr_name 중복 성분 정리: %d개 약", fixed)
+        return fixed
 
     async def build_residual_from_seed(self) -> int:
         """`seed/residual_interactions.json`(item_seq 쌍 기준)에서 `residual_interactions`를

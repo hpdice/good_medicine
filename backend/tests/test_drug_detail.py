@@ -61,6 +61,40 @@ def test_permit_doc_to_text_unescapes_html_entities():
     assert "2) 고지단백혈증 & 당뇨병성 고지질혈증" in text
 
 
+def test_permit_doc_to_text_strips_html_table_markup():
+    """표가 `<td style=…>` 태그째 저장돼 앱 화면에 태그가 그대로 보이던 문제(테라펜정 4.1 임상시험 자료)."""
+    table = (
+        "1) 이상반응 <tbody> <tr> <td style=\"border-color:#0a0000; width:153.84pt\"> <p>신체/기관분류</p> </td>"
+        " <td style=\"width:297.22pt\"> <p>이상반응</p> </td> </tr>"
+        " <tr> <td> <p>대사 및 영양장애</p> </td> <td> <p>식욕감퇴</p> </td> </tr> </tbody>"
+    )
+    text = permit_doc_to_text(_nb(("4. 이상반응", table))) or ""
+    assert "<" not in text and "style=" not in text
+    assert text.splitlines() == [
+        "4. 이상반응",
+        "1) 이상반응",
+        "신체/기관분류 | 이상반응",
+        "대사 및 영양장애 | 식욕감퇴",
+    ]
+
+
+def test_strip_markup_keeps_plain_text_and_comparison_signs():
+    from app.services.public_data_service.helpers import strip_markup
+
+    plain = "혈소판 수 < 100 이거나 a<b 인 환자\n다음 줄"
+    assert strip_markup(plain) == plain
+    assert strip_markup("<p>가</p> <p>나</p>") == "가 나"
+    assert strip_markup(strip_markup("<tr><td>가</td><td>나</td></tr>")) == "가 | 나"  # 재적용해도 같다
+
+
+def test_parse_main_ingr_drops_repeated_ingredients():
+    """허가정보 원문이 성분을 되풀이해 주면 같은 성분이 ingr_name에 두 번 들어가던 문제(테라펜정)."""
+    from app.services.public_data_service.helpers import _parse_main_ingr
+
+    parsed = _parse_main_ingr("[M222893]트라마돌염산염/[M040353]아세트아미노펜/[M222893]트라마돌염산염/[M040353]아세트아미노펜")
+    assert [(p["dur_code"], p["kor"]) for p in parsed] == [("M222893", "트라마돌염산염"), ("M040353", "아세트아미노펜")]
+
+
 def test_permit_doc_to_text_handles_empty_and_broken_xml():
     assert permit_doc_to_text(None) is None
     assert permit_doc_to_text("   ") is None

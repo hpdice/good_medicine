@@ -88,7 +88,24 @@ def _parse_main_ingr(main_ingr: str) -> list[dict]:
         m = re.match(r'\[([^\]]+)\](.+)', part)
         if m:
             result.append({"kor": m.group(2).strip(), "eng": "", "amount": "", "dur_code": m.group(1)})
-    return result
+    return dedupe_ingr_items(result)
+
+
+def dedupe_ingr_items(items: Iterable[dict]) -> list[dict]:
+    """`ingr_name` 항목에서 같은 성분(코드+이름)이 되풀이된 것을 하나로 합친다. 허가정보 원문이 '[M222893]트라마돌/
+    [M040353]아세트아미노펜/[M222893]트라마돌/…'처럼 성분을 되풀이해 주는 약이 있다. 첫 항목을 남기되 함량이 비어 있으면 뒤 항목의 것으로 채운다."""
+    out: dict[tuple[str, str], dict] = {}
+    for item in items:
+        if not item:
+            continue
+        key = (item.get("dur_code") or "", (item.get("kor") or "").strip())
+        if key not in out:
+            out[key] = dict(item)
+        else:
+            for field in ("amount", "eng"):
+                if not out[key].get(field) and item.get(field):
+                    out[key][field] = item[field]
+    return list(out.values())
 
 
 def split_joined_ingr_names(ingr_name: list[dict] | None) -> list[dict]:
@@ -515,10 +532,44 @@ def make_ingredient_resolver(pairs: Iterable[Sequence[str | None]]) -> Callable[
 _FORM_REST_SUFFIXES = ("염", "수화물", "설폭시드", "에탄올레이트", "엑스")
 
 
+# 허가정보 원문(CDATA)에 날것으로 남는 서식 태그. `a<b` 같은 부등호 문장을 지우지 않게 알려진 태그 이름만 본다.
+_MARKUP_TAG_RE = re.compile(
+    r"</?(?:table|thead|tbody|tfoot|tr|td|th|colgroup|col|caption|p|br|div|span|b|i|u|strong|em|sup|sub|font|ul|ol|li)"
+    r"(?:\s[^<>]*)?/?>",
+    re.IGNORECASE,
+)
+# 표의 행·구획 경계와 줄바꿈 — 여기서 줄을 나눈다(표 앞 문장과 첫 행이 한 줄에 붙지 않게 여는 태그도 포함)
+_ROW_END_RE = re.compile(
+    r"</tr\s*>|<tr(?:\s[^<>]*)?>|</?(?:table|thead|tbody|tfoot)(?:\s[^<>]*)?>|<br\s*/?>", re.IGNORECASE
+)
+_CELL_END_RE = re.compile(r"</t[dh]\s*>", re.IGNORECASE)
+
+
+def strip_markup(text: str) -> str:
+    """텍스트에 섞인 HTML 서식 태그(`<tbody> <tr> <td style=…>` 등)를 걷어낸다. 표는 행마다 한 줄, 셀은 ` | `로 구분한다.
+    태그가 없으면 그대로 돌려준다(그래서 이미 정리된 글에 다시 써도 안전하다)."""
+    if not _MARKUP_TAG_RE.search(text):
+        return text
+    s = _CELL_END_RE.sub(" | ", text)
+    s = _ROW_END_RE.sub("\n", s)
+    s = _MARKUP_TAG_RE.sub(" ", s)
+    lines = []
+    for line in s.split("\n"):
+        line = " ".join(line.split())
+        line = re.sub(r"^(?:\|\s*)+|(?:\s*\|)+$", "", line).strip()  # 행 끝·처음의 빈 셀 구분자
+        if line:
+            lines.append(line)
+    return "\n".join(lines)
+
+
 def clean_html_text(value: str | None) -> str:
-    """CDATA 안에 날것으로 남은 HTML 엔티티(`&nbsp;`·`&amp;` 등)를 풀고 공백을 하나로 정리한다.
-    허가정보 원문에 '2)&nbsp;고지단백혈증'처럼 엔티티가 그대로 들어 있어 풀지 않으면 화면에 그대로 보인다."""
-    return " ".join(html.unescape(value or "").split())
+    """CDATA 안에 날것으로 남은 HTML 엔티티(`&nbsp;`·`&amp;` 등)를 풀고 서식 태그를 걷고 공백을 하나로 정리한다.
+    허가정보 원문에 '2)&nbsp;고지단백혈증'처럼 엔티티가 그대로 들어 있어 풀지 않으면 화면에 그대로 보이고,
+    표는 `<td style=…>` 태그째 저장돼 화면에 태그가 그대로 나왔다."""
+    s = html.unescape(value or "")
+    if _MARKUP_TAG_RE.search(s):
+        return strip_markup(s)
+    return " ".join(s.split())
 
 
 def permit_doc_to_text(doc_xml: str | None) -> str | None:
