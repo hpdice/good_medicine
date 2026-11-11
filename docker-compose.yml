@@ -17,7 +17,8 @@ services:
       - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports:
       # 로컬호스트에만 바인딩 — LAN/외부에서 직접 접근 불가.
-      - "127.0.0.1:5432:5432"
+      # 호스트 포트는 5432가 아니라 15432 — Windows가 재시작 때 5358~5457을 예약해 5432를 막은 적이 있다(2026-11-10).
+      - "127.0.0.1:15432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
