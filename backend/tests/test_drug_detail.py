@@ -257,14 +257,12 @@ async def test_drug_detail_endpoint_fills_missing_detail(client, session_factory
 
 
 async def test_fetched_detail_is_reflected_in_drugs_master_immediately(client, session_factory, monkeypatch):
-    """받은 상세가 전체 재구축을 기다리지 않고 통합 데이터셋에 바로 들어간다."""
+    """받은 상세가 통합 데이터셋(뷰)에 바로 보인다 — 갱신 단계 없이 원천을 읽는다."""
     from app.models.drug_master import DrugMaster
-    from app.services.public_data_service import PublicDataService
 
     _fake_fetch(monkeypatch, {"EE_DOC_DATA": _EE})
     async with session_factory() as session:
         drug = await make_drug(session, "레이본정")
-        await PublicDataService(session).build_drugs_master()
         assert (await session.get(DrugMaster, drug.id)).has_efficacy is False
     token = await register_and_login(client)
     res = await client.post(

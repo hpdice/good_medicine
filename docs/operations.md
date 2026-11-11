@@ -112,7 +112,7 @@ docker exec drugtest-backend-1 python validate_db.py          # 품질 검증
 ## 6. 공공데이터 월간 갱신
 
 **자동**: 작업 스케줄러 `GoodMedicine-Monthly-Sync` — 매월 1일 02:00(놓치면 부팅 후), 최대 12시간.
-`scripts/monthly-sync.ps1`: 헬스체크 → **백업(복원 검증)** → 동기화 12단계(e약은요 · 허가정보 · DUR 병용금기 · 효능군 · 연령 · 임부 · DUR 성분정보 · 이름 매칭 · 심평원 CSV · 심평원 성분 연결 · 1정당 함량 · drugs_master 구축) → 위험 태그 → **품질 게이트**.
+`scripts/monthly-sync.ps1`: 헬스체크 → **백업(복원 검증)** → 동기화 11단계(e약은요 · 허가정보 · DUR 병용금기 · 효능군 · 연령 · 임부 · DUR 성분정보 · 이름 매칭 · 심평원 CSV · 심평원 성분 연결 · 1정당 함량) → 위험 태그 → **품질 게이트**.
 한 단계라도 실패하면 멈추고 종료 코드 1. 로그: `D:\drugTest\sync-logs\sync-*.log`(최근 24개).
 
 ```powershell

@@ -12,10 +12,9 @@
     approval                의약품 허가정보 동기화
     build_drug_ingredients  drug_ingredients 로컬 보강 (API 미사용, item_name·ingr_name → 성분코드)
     build_drug_ingredients_hira  drug_ingredients 심평원 경로 보강 (hira_master 적재 후, 미해소 약 + 일부만 맺힌 약의 빠진 성분, source='hira_eng')
-    repair_pipe_ingr        허가정보 상세의 `|` 구분 복합제 성분이 한 이름으로 묶인 약을 바로잡는다(API 미사용, 끝난 뒤 build_drugs_master 불필요)
+    repair_pipe_ingr        허가정보 상세의 `|` 구분 복합제 성분이 한 이름으로 묶인 약을 바로잡는다(API 미사용)
     repair_html_markup      e약은요·허가정보 텍스트에 날것으로 남은 HTML 서식 태그(`<td style=…>` 등)를 걷어낸다(API 미사용, 재실행 안전)
     repair_dup_ingr         `ingr_name`에 같은 성분이 되풀이된 약을 하나씩만 남기도록 바로잡는다(API 미사용, 재실행 안전)
-    build_drugs_master      drugs_master — 약 1행으로 모은 통합 데이터셋(이름·업체·분류·성분·함량·제형·정보 유무·판정 가능 여부)
     build_drug_amounts      drug_ingredients.amount_mg — 정·캡슐 1개당 성분 함량(심평원 주성분, 용량주의 판정용)
     build_residual          residual_interactions 시드 복원 (DB 완전 초기화 후 재구축 시)
     extract_risk_tags       prohibit_content → 로컬 LLM 위험/증상 태그 1회 추출 (GPU 필요)
@@ -26,7 +25,7 @@
                             같은 파일이면 건너뛰고, 새 파일이면 바뀐 행만 쓴다 (API 미사용)
     permit_detail           허가정보 상세 API로 효능·용법·주의사항·성분을 우리 DB에 적재(배치). 아직 안 받은 약만, 우선순위
                             (텍스트 없는 약 → 판정 가능 약 → 일반의약품)대로 --limit(기본 9000, 일일 한도 추정 10,000 아래)건,
-                            --concurrency(기본 8)개씩. 실패한 약은 다음 실행이 이어 받는다. 끝나면 drugs_master를 다시 만든다.
+                            --concurrency(기본 8)개씩. 실패한 약은 다음 실행이 이어 받는다.
                             앱 요청 경로는 이 API를 부르지 않는다.
     box_detail              복약함에 이미 담긴 약을 허가정보 상세 API로 보강 (효능·용법·주의·성분, 1회성)
     all                     overview·dur_contraindications·efcy_dplct·approval 순 (기본값)
@@ -116,7 +115,6 @@ LOCAL_JOBS = {
     "fill_simple_names": ("item_name → simple_name 일괄 채우기", "fill_simple_names", "{n:,}건 업데이트", True),
     "build_drug_ingredients_hira": ("drug_ingredients 심평원 경로 보강 (품목→일반명코드→영문 일반명→성분코드)", "build_drug_ingredients_from_hira", "{n:,}개 약 해소·보강 (source='hira_eng')", True),
     "build_drug_amounts": ("drug_ingredients.amount_mg 채우기 (심평원 주성분 함량, 내복 정·캡슐)", "build_drug_amounts", "{n:,}개 약 함량 채움", False),
-    "build_drugs_master": ("drugs_master 통합 데이터셋 구축 (drugs + 심평원 + DUR 성분 연결, 매번 전부 다시)", "build_drugs_master", "{n:,}개 약 통합", False),
     "repair_pipe_ingr": ("복합제 성분 원문(`|` 구분) 바로잡기 — 한 이름으로 묶인 성분을 쪼개 성분코드 다시 맺기", "repair_pipe_main_ingr", "{n:,}개 약 바로잡음", False),
     "repair_html_markup": ("e약은요·허가정보 텍스트의 HTML 서식 태그(<td style=…> 등) 걷어내기", "repair_html_markup", "{n:,}개 약 바로잡음", False),
     "repair_dup_ingr": ("ingr_name 중복 성분 정리 — 같은 성분이 되풀이된 약을 하나씩만", "repair_duplicate_ingr_names", "{n:,}개 약 바로잡음", False),
@@ -314,19 +312,15 @@ def _int_flag(name: str, default: int) -> int:
 
 
 async def cmd_permit_detail(limit: int, concurrency: int, reserve: int) -> bool:
-    """허가정보 상세를 DB에 적재하고(이어 받기), 끝나면 drugs_master를 다시 만든다."""
+    """허가정보 상세를 DB에 적재한다(이어 받기)."""
     from app.db.session import AsyncSessionLocal
     from app.services.drug_detail_service import backfill_details
-    from app.services.public_data_service import PublicDataService
 
     print(f"[시작] 허가정보 상세 적재 (최대 {limit:,}건, 동시 {concurrency}개)")
     res = await backfill_details(AsyncSessionLocal, limit, concurrency, reserve=reserve)
     print(f"[결과] 대상 {res['candidates']:,} / 성공 {res['done']:,} / 실패 {res['failed']:,}"
           + (" — 남은 일일 호출이 예약분 아래라 중단(앱 실시간 보충용으로 남김, 한도가 풀리면 이어 받음)" if res["quota_low"]
              else " — 연속 실패로 중단(한도 초과·장애 추정, 다음 실행이 이어 받음)" if res["stopped"] else ""))
-    async with AsyncSessionLocal() as db:
-        n = await PublicDataService(db).build_drugs_master()
-    print(f"[완료] drugs_master {n:,}행 갱신")
     # 받을 게 없거나 하나라도 성공했으면 정상. 아무것도 못 받고 멈췄을 때만 실패로 본다.
     return res["candidates"] == 0 or res["done"] > 0 or res["quota_low"]
 

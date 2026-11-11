@@ -4,7 +4,7 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
-from sqlalchemy import String, cast, delete, or_, select, text, update
+from sqlalchemy import String, cast, delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import logger
@@ -31,77 +31,6 @@ _MARKUP_FIELDS = ("efcy_qesitm", "use_method_qesitm", "atpn_warn_qesitm", "atpn_
                   "deposit_method_qesitm")
 # helpers._MARKUP_TAG_RE 와 같은 태그 목록 (PostgreSQL 정규식)
 _MARKUP_SQL_RE = r"</?(table|thead|tbody|tfoot|tr|td|th|colgroup|col|caption|p|br|div|span|b|i|u|strong|em|sup|sub|font|ul|ol|li)(\s[^<>]*)?/?>"
-
-_BUILD_DRUGS_MASTER_SQL = """
-INSERT INTO drugs_master (
-    drug_id, item_seq, item_name, simple_name, entp_name, etc_otc_name, class_name, atc_code,
-    hira_components, dur_ingredients, dur_ingr_codes, dosage_form, route,
-    ingredient_status, judgeable, has_efficacy, has_use_method, has_precautions, has_interaction_text
-)
-SELECT
-    b.id, b.item_seq, b.item_name, b.simple_name, b.entp_name, b.etc_otc_name, b.class_name, b.atc_code,
-    b.hira_components, b.dur_ingredients, b.dur_ingr_codes, b.dosage_form, b.route,
-    CASE WHEN cardinality(b.dur_ingr_codes) > 0 THEN 'dur_resolved'
-         WHEN jsonb_array_length(b.hira_components) > 0 THEN 'hira_only'
-         ELSE 'none' END,
-    cardinality(b.dur_ingr_codes) > 0,
-    b.has_efficacy, b.has_use_method, b.has_precautions, b.has_interaction_text
-FROM (
-    SELECT
-        d.id, d.item_seq, d.item_name, d.simple_name, d.entp_name, d.etc_otc_name, d.class_name,
-        (SELECT min(h.atc_code) FROM hira_item_gen_codes h
-          WHERE h.item_seq = d.item_seq AND h.cancelled_on IS NULL) AS atc_code,
-        COALESCE((
-            SELECT jsonb_agg(jsonb_build_object(
-                       'gen_code', g.gen_code, 'eng', g.ingr_name, 'strength', g.strength, 'unit', g.unit,
-                       'form', c.form_name, 'route', c.route) ORDER BY g.gen_code, g.seq)
-              FROM hira_item_gen_codes h JOIN hira_gen_ingredients g ON g.gen_code = h.gen_code
-              JOIN hira_gen_codes c ON c.gen_code = g.gen_code
-             WHERE h.item_seq = d.item_seq AND h.cancelled_on IS NULL
-        ), '[]'::jsonb) AS hira_components,
-        COALESCE((
-            SELECT jsonb_agg(jsonb_build_object(
-                       'code', di.ingr_code, 'kor', di.ingr_kor, 'source', di.source, 'amount_mg', di.amount_mg)
-                       ORDER BY di.ingr_code)
-              FROM drug_ingredients di WHERE di.drug_id = d.id AND di.ingr_code IS NOT NULL
-        ), '[]'::jsonb) AS dur_ingredients,
-        COALESCE(ARRAY(
-            SELECT DISTINCT di.ingr_code FROM drug_ingredients di
-             WHERE di.drug_id = d.id AND di.ingr_code IS NOT NULL ORDER BY 1
-        ), '{}'::varchar[]) AS dur_ingr_codes,
-        (SELECT string_agg(DISTINCT c.form_name, ', ') FROM hira_item_gen_codes h
-           JOIN hira_gen_codes c ON c.gen_code = h.gen_code
-          WHERE h.item_seq = d.item_seq AND h.cancelled_on IS NULL AND c.form_name IS NOT NULL) AS dosage_form,
-        (SELECT string_agg(DISTINCT c.route, ', ') FROM hira_item_gen_codes h
-           JOIN hira_gen_codes c ON c.gen_code = h.gen_code
-          WHERE h.item_seq = d.item_seq AND h.cancelled_on IS NULL AND c.route IS NOT NULL) AS route,
-        COALESCE(d.efcy_qesitm, '') <> '' AS has_efficacy,
-        COALESCE(d.use_method_qesitm, '') <> '' AS has_use_method,
-        COALESCE(d.atpn_qesitm, '') <> '' AS has_precautions,
-        COALESCE(d.intrc_qesitm, '') <> '' AS has_interaction_text
-    FROM drugs d /*WHERE*/
-) b
-"""
-
-
-_MASTER_UPDATE_COLS = (
-    "item_seq", "item_name", "simple_name", "entp_name", "etc_otc_name", "class_name", "atc_code",
-    "hira_components", "dur_ingredients", "dur_ingr_codes", "dosage_form", "route",
-    "ingredient_status", "judgeable", "has_efficacy", "has_use_method", "has_precautions", "has_interaction_text",
-)
-
-
-async def refresh_drugs_master_row(db: AsyncSession, drug_id) -> None:
-    """한 약의 `drugs_master` 행만 다시 만든다(없으면 만든다).
-
-    허가정보 상세를 받아 `drugs`·`drug_ingredients`가 바뀐 직후 부른다 — 통합 데이터셋이 전체 재구축을 기다리지 않고
-    DB와 같은 상태를 유지한다. 전체 구축과 같은 SQL을 `WHERE d.id = :drug_id`로 좁혀 쓴다."""
-    update = ", ".join(f"{c} = EXCLUDED.{c}" for c in _MASTER_UPDATE_COLS)
-    sql = _BUILD_DRUGS_MASTER_SQL.replace("/*WHERE*/", "WHERE d.id = :drug_id") + (
-        f"ON CONFLICT (drug_id) DO UPDATE SET {update}, built_at = now()"
-    )
-    await db.execute(text(sql), {"drug_id": drug_id})
-    await db.commit()
 
 
 async def dur_ingredient_name_pairs(db: AsyncSession) -> list[tuple[str | None, str | None]]:
@@ -339,28 +268,12 @@ class MaintenanceMixin(_SyncBase):
 
     SEED_RESIDUAL_PATH = Path(__file__).resolve().parents[3] / "seed" / "residual_interactions.json"
 
-    async def build_drugs_master(self) -> int:
-        """약 1행으로 모은 통합 데이터셋 `drugs_master`를 매번 전부 다시 만든다(API 미사용).
-
-        `drugs`(식약처 허가·e약은요) + 심평원 약가마스터(품목기준코드 → 일반명코드 → 영문 성분·함량·제형·경로·ATC) +
-        `drug_ingredients`(DUR 성분코드 연결)를 조인한다. 판정 규칙은 건드리지 않는다. 심평원은 취소되지 않은
-        (`cancelled_on` NULL) 품목만 쓴다. 만든 행 수(= 약 수)를 돌려준다."""
-        await self.db.execute(text("DELETE FROM drugs_master"))
-        await self.db.execute(text(_BUILD_DRUGS_MASTER_SQL.replace("/*WHERE*/", "")))
-        await self.db.commit()
-        n = (await self.db.execute(text("SELECT count(*) FROM drugs_master"))).scalar_one()
-        stats = (await self.db.execute(text(
-            "SELECT ingredient_status, count(*) FROM drugs_master GROUP BY 1 ORDER BY 1"
-        ))).all()
-        logger.info("drugs_master 구축: %d행 (%s)", n, ", ".join(f"{k}={v}" for k, v in stats))
-        return n
-
     async def repair_pipe_main_ingr(self) -> int:
         """허가정보 상세의 `|` 구분 성분 원문이 한 이름으로 묶여 저장된 약을 바로잡는다(API 미사용).
 
         `ingr_name`에 `|`가 든 이름이 있는 약만 원문(`main_item_ingr`, 없으면 저장된 이름)을 다시 쪼개고, 그 약의 잘못된 이름으로 맺힌
         `permit_detail` 성분 행을 지운 뒤 성분코드를 다시 맺는다(없는 코드만 더하므로 다른 경로의 연결은 그대로).
-        바로잡은 약은 `drugs_master` 행도 다시 만든다. 바로잡은 약 수를 돌려준다."""
+        바로잡은 약 수를 돌려준다."""
         from app.services.drug_detail_service import DrugDetailService  # 순환 import 방지
 
         drugs = (await self.db.execute(
@@ -380,8 +293,6 @@ class MaintenanceMixin(_SyncBase):
             ))
             await service._resolve_ingredients(drug)
         await self.db.commit()
-        for drug in broken:
-            await refresh_drugs_master_row(self.db, drug.id)
         logger.info("복합제 성분 원문(`|` 구분) 바로잡음: %d개 약", len(broken))
         return len(broken)
 
@@ -389,7 +300,7 @@ class MaintenanceMixin(_SyncBase):
         """e약은요·허가정보 텍스트 필드에 날것으로 저장된 HTML 서식 태그(`<tbody> <tr> <td style=…>`)를 걷어낸다(API 미사용).
 
         태그가 든 약만 골라 필드마다 `strip_markup`을 적용하고 바뀐 필드만 쓴다. 태그가 없으면 그대로라 재실행해도 안전하다.
-        텍스트 본문만 바뀌므로 drugs_master(정보 유무 플래그)는 다시 만들 필요가 없다. 바로잡은 약 수를 돌려준다."""
+        바로잡은 약 수를 돌려준다."""
         has_markup = or_(*[getattr(Drug, f).op("~*")(_MARKUP_SQL_RE) for f in _MARKUP_FIELDS])
         ids = list((await self.db.execute(select(Drug.id).where(has_markup))).scalars().all())
         fixed = 0

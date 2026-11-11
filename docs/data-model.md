@@ -1,6 +1,6 @@
 # 데이터 모델 — 테이블마다 담는 것과 쓰임
 
-> 테이블 19개. 모든 테이블에 `id`(UUID, `drugs_master`는 `drug_id`)가 있고 `created_at`/`updated_at`은 생략했다.
+> 테이블 18개 + 뷰 1개(`drugs_master`). 테이블에는 `id`(UUID)가 있고 `created_at`/`updated_at`은 생략했다.
 > 행 수는 2026-11-09 DB 실측이다. "채우는 곳"은 `sync.py` 명령·서비스 함수, "읽는 곳"은 그 테이블을 읽는 서비스 함수다.
 > 코드 구조·판정 흐름은 [CLAUDE.md](../CLAUDE.md)를 본다.
 
@@ -13,7 +13,7 @@
 원천 테이블   drugs · drug_ingredients · dur_ingredient_* · dur_item_pregnancy_taboo · hira_* · dur_ingredient_master
    │  build_* (API 미사용, 로컬 가공)
    ▼
-가공 테이블   drug_ingredients(해소·함량) · drugs_master(통합) · residual_interactions(시드)
+가공 테이블   drug_ingredients(해소·함량) · residual_interactions(시드)   ·   뷰 drugs_master(통합, 저장 없음)
    │
    ▼  POST /analysis/quick-check  →  AnalysisService.quick_check
 판정          복약함 약 → 성분코드 → 규칙 테이블 조회 → critical / caution / safe
@@ -21,7 +21,7 @@
 AI 설명       판정 결과 + drugs 본문 → 로컬 LLM → analysis_results에 암호화 저장
 ```
 
-판정에 AI는 관여하지 않는다. `drugs_master`도 판정이 읽지 않는다(성분 판정은 `drug_ingredients` 경로 그대로).
+판정에 AI는 관여하지 않는다. 판정은 정규화된 `drug_ingredients`를 직접 읽고, `drugs_master`(뷰)는 같은 원천을 한 행으로 합쳐 보여 줄 뿐이라 판정과 갈라질 수 없다.
 
 ## 2. 약과 성분
 
@@ -76,7 +76,7 @@ AI 설명       판정 결과 + drugs 본문 → 로컬 LLM → analysis_results
 
 | 테이블 | 담는 것 | 쓰임 |
 |---|---|---|
-| `hira_item_gen_codes` (52,995) | 품목 → 일반명코드. `item_seq`, `gen_code`(9자리, 7번째 글자가 투여경로 A내복·B주사·C외용), `etc_otc`, `atc_code`, `cancelled_on` | 약 → 일반명코드 연결. `build_drug_ingredients_hira`·`build_drugs_master`·`get_hira_form_names` |
+| `hira_item_gen_codes` (52,995) | 품목 → 일반명코드. `item_seq`, `gen_code`(9자리, 7번째 글자가 투여경로 A내복·B주사·C외용), `etc_otc`, `atc_code`, `cancelled_on` | 약 → 일반명코드 연결. `build_drug_ingredients_hira`·`drugs_master` 뷰·`get_hira_form_names` |
 | `hira_gen_codes` (20,114) | **일반명코드 1행**. `gen_code`(PK), `form_code`, `form_name`(제형), `route`(내복\|주사\|외용\|기타), `class_no` | 제형·투여경로·분류는 성분이 아니라 일반명코드에만 종속(2NF)이라 분리. 하루 용량의 제형 맞추기(`get_hira_form_names`), 함량 계산, `drugs_master` |
 | `hira_gen_ingredients` (59,631) | 일반명코드의 성분 구성. `gen_code`→`hira_gen_codes`, `seq`(복합제 성분 순번), `ingr_name`(대부분 영문), `strength`, `unit` | 영문명을 DUR 성분정보와 완전 일치로 맞춰 성분코드 해소(`hira_eng`), 함량(`build_drug_amounts`) |
 
@@ -84,11 +84,11 @@ AI 설명       판정 결과 + drugs 본문 → 로컬 LLM → analysis_results
 
 ## 5. 통합 데이터셋
 
-### `drugs_master` — 약 1행으로 합친 파생 테이블 (35,869행)
+### `drugs_master` — 약 1행으로 합친 뷰 (35,869행, 저장된 사본 없음)
 
-`drug_id`(PK→`drugs`) · `item_seq`(유일) · 이름·업체·분류·`etc_otc_name`·`atc_code` · `hira_components`(JSONB 심평원 성분·함량·제형·경로) · `dur_ingredients`(JSONB) · `dur_ingr_codes`(배열, 검색용 GIN) · `dosage_form` · `route` · `ingredient_status`(`dur_resolved`\|`hira_only`\|`none`) · `judgeable` · `has_efficacy`/`has_use_method`/`has_precautions`/`has_interaction_text` · `built_at`.
-- **채우는 곳**: `build_drugs_master`(매번 전부 다시, 취소된 심평원 품목 제외), 허가정보 상세를 받을 때 그 약의 행만 `refresh_drugs_master_row`.
-- **읽는 곳**: 판정·API는 **아직 읽지 않는다**. 정제된 통합 DB로서 직접 조회·분석용이다(주 목적이 통합 DB).
+`drug_id`(PK→`drugs`) · `item_seq`(유일) · 이름·업체·분류·`etc_otc_name`·`atc_code` · `hira_components`(JSONB 심평원 성분·함량·제형·경로) · `dur_ingredients`(JSONB) · `dur_ingr_codes`(배열) · `dosage_form` · `route` · `ingredient_status`(`dur_resolved`\|`hira_only`\|`none`) · `judgeable` · `has_efficacy`/`has_use_method`/`has_precautions`/`has_interaction_text`.
+- **정의**: 마이그레이션 0021의 뷰(`drugs` + 심평원 `hira_*`(취소되지 않은 품목만) + `drug_ingredients`). 원천이 유일한 저장소라 갱신 단계가 없고 낡을 일이 없다. 테스트 DB는 같은 정의를 conftest가 만든다.
+- **읽는 곳**: 판정·API는 읽지 않는다. 한 행에 모아 봐야 하는 곳(성분 해소 상태 구분, 통계, 내보내기)용이다. 코드로 약을 거꾸로 찾을 땐 `drug_ingredients.ingr_code`를 쓴다.
 
 ## 6. 사용자
 

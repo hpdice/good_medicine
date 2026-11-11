@@ -48,6 +48,19 @@ async def _ensure_test_database() -> None:
     await admin_engine.dispose()
 
 
+def _drugs_master_view_sql() -> str:
+    """`drugs_master` 뷰 정의 — 마이그레이션 0021이 가진 문자열을 그대로 쓴다(정의가 한 곳에만 있도록)."""
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[1] / "alembic" / "versions" / "0021_drugs_master_view.py"
+    spec = importlib.util.spec_from_file_location("migration_0021_drugs_master_view", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.DRUGS_MASTER_VIEW_SQL
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _prepare_schema():
     """세션당 1회: 테스트 DB 생성 + 확장 + 스키마(create_all).
@@ -62,8 +75,15 @@ def _prepare_schema():
         async with engine.begin() as conn:
             await conn.execute(text('CREATE EXTENSION IF NOT EXISTS "pg_trgm"'))
             await conn.execute(text('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"'))
+            # 원천 테이블을 지우려면 뷰부터. 예전 테스트 DB에는 같은 이름의 테이블이 남아 있을 수 있어 종류를 보고 지운다.
+            await conn.execute(text(
+                "DO $$ DECLARE k char; BEGIN "
+                "SELECT relkind INTO k FROM pg_class WHERE relname = 'drugs_master' AND relnamespace = 'public'::regnamespace; "
+                "IF k = 'v' THEN DROP VIEW drugs_master; ELSIF k = 'r' THEN DROP TABLE drugs_master; END IF; END $$"
+            ))
             await conn.run_sync(Base.metadata.drop_all)
             await conn.run_sync(Base.metadata.create_all)
+            await conn.execute(text(_drugs_master_view_sql()))  # 뷰는 create_all 대상이 아니다 — 마이그레이션과 같은 정의
         await engine.dispose()
 
     asyncio.run(_setup())

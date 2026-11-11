@@ -34,10 +34,7 @@ from app.services.public_data_service.helpers import (
     make_ingredient_resolver,
     permit_doc_to_text,
 )
-from app.services.public_data_service.maintenance import (
-    dur_ingredient_name_pairs,
-    refresh_drugs_master_row,
-)
+from app.services.public_data_service.maintenance import dur_ingredient_name_pairs
 
 DETAIL_TIMEOUT_SECONDS = 8.0
 REALTIME_TIMEOUT_SECONDS = 4.0  # 요청 중 보충용 — 늦으면 기다리지 않고 DB 값만으로 진행한다
@@ -70,12 +67,6 @@ class DrugDetailService:
         await self._apply(drug, item)
         drug.detail_fetched_at = datetime.now(timezone.utc)
         await self.db.commit()
-        # 통합 데이터셋도 바로 맞춘다. 실패해도 약 정보 적재는 이미 끝났으니 막지 않는다(다음 전체 구축 때 맞춰진다).
-        try:
-            await refresh_drugs_master_row(self.db, drug.id)
-        except Exception:  # noqa: BLE001
-            await self.db.rollback()
-            logger.exception("drugs_master 행 갱신 실패 drug_id=%s", drug.id)
         return True
 
     async def _fetch(self, item_seq: str) -> dict | None:
@@ -134,7 +125,7 @@ class DrugDetailService:
 
 
 # 우선순위: 설명 텍스트가 없는 약 → DUR 성분이 맺힌(판정 가능) 약 → 일반의약품 → 이름순. 한도(--limit)가 있어
-# 앞쪽부터 받는다. (`drugs_master`가 아직 없는 DB에서도 돌도록 `drug_ingredients`로 판정 가능 여부를 본다.)
+# 앞쪽부터 받는다. (판정 가능 여부는 원천인 `drug_ingredients`로 본다.)
 _BACKFILL_ORDER_SQL = """
 SELECT d.id FROM drugs d
 WHERE d.detail_fetched_at IS NULL AND d.item_seq IS NOT NULL
