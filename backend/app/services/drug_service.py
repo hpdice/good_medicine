@@ -451,15 +451,37 @@ class DrugService:
         return rules
 
     async def get_ingredient_kor_for_codes(self, codes: set[str]) -> dict[str, str]:
-        """성분코드 → 성분 한글명."""
+        """성분코드(대표 코드) → 성분 한글명.
+
+        이름은 DUR 성분 마스터(`dur_ingredient_master`)가 정한다 — 코드 하나에 약마다 다른 이름이 붙어 있어도
+        (모르핀염산염수화물·모르핀황산염수화물 → 모르핀) 항상 같은 이름이 나오도록. 대표 코드 자신의 이름을 먼저 쓰고, 마스터에
+        없는 코드만 약에 맺힌 이름 중 가장 짧은 것(같으면 가나다순)으로 채운다. DB가 돌려주는 순서에 기대지 않는다."""
         if not codes:
             return {}
         lookup, aliases = await self._with_aliases(codes)
-        stmt = select(DrugIngredient.ingr_code, DrugIngredient.ingr_kor).where(
-            DrugIngredient.ingr_code.in_(lookup), DrugIngredient.ingr_kor.isnot(None)
+        master = select(DurIngredientMaster.ingr_code, DurIngredientMaster.ingr_kor).where(
+            DurIngredientMaster.ingr_code.in_(lookup), DurIngredientMaster.ingr_kor.isnot(None)
         )
-        result = await self.db.execute(stmt)
-        return {aliases.get(code, code): kor for code, kor in result.all()}
+        # 후보 키: (대표 코드 자신의 이름이 먼저, 짧은 이름, 가나다순)
+        best: dict[str, tuple[tuple[bool, int, str], str]] = {}
+        for code, kor in (await self.db.execute(master)).all():
+            rep = aliases.get(code, code)
+            key = (code != rep, len(kor), kor)
+            if rep not in best or key < best[rep][0]:
+                best[rep] = (key, kor)
+        missing = {aliases.get(c, c) for c in lookup} - best.keys()
+        if missing:
+            fallback = select(DrugIngredient.ingr_code, DrugIngredient.ingr_kor).where(
+                DrugIngredient.ingr_code.in_(lookup), DrugIngredient.ingr_kor.isnot(None)
+            )
+            for code, kor in (await self.db.execute(fallback)).all():
+                rep = aliases.get(code, code)
+                if rep not in missing:
+                    continue
+                key = (False, len(kor), kor)
+                if rep not in best or key < best[rep][0]:
+                    best[rep] = (key, kor)
+        return {rep: kor for rep, (_, kor) in best.items()}
 
     async def get_ingr_contraindications_for_codes(
         self, codes: set[str]

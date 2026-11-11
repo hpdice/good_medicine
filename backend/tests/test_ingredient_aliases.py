@@ -89,3 +89,39 @@ async def test_codes_without_shared_name_stay_separate(client, session_factory):
 
     body = await _check(client, {"Authorization": f"Bearer {await register_and_login(client)}"}, keto, ibu)
     assert body["risk_level"] == "safe"
+
+
+async def _names(session, *codes):
+    from app.services.drug_service import DrugService
+
+    return await DrugService(session).get_ingredient_kor_for_codes(set(codes))
+
+
+async def test_ingredient_name_comes_from_master_not_from_row_order(session_factory):
+    """약마다 같은 코드에 다른 이름(염·수화물 표기)이 붙어 있어도 마스터 이름이 항상 나온다(모르핀염산염수화물 → 모르핀)."""
+    async with session_factory() as session:
+        await _master(session, ("D900006", "모르핀"))
+        await make_drug(session, "모르핀염산염주", ingredients=[("D900006", "모르핀염산염수화물")])
+        await make_drug(session, "모르핀황산염정", ingredients=[("D900006", "모르핀황산염수화물")])
+    for _ in range(5):  # 되풀이해도 같다
+        async with session_factory() as session:
+            assert await _names(session, "D900006") == {"D900006": "모르핀"}
+
+
+async def test_ingredient_name_for_alias_group_uses_representative_code(session_factory):
+    async with session_factory() as session:
+        await _master(session, (KETO_A, "케토롤락"), (KETO_B, "케토롤락"))
+        await make_drug(session, "케톨민주", ingredients=[(KETO_B, "케토롤락트로메타민")])
+    async with session_factory() as session:
+        assert await _names(session, KETO_A) == {KETO_A: "케토롤락"}
+
+
+async def test_ingredient_name_falls_back_to_shortest_attached_name(session_factory):
+    """마스터에 없는 코드는 약에 맺힌 이름 중 가장 짧은 것 — 순서와 무관하게 같은 이름."""
+    async with session_factory() as session:
+        await make_drug(session, "가정", ingredients=[("D900777", "베타성분염수화물")])
+        await make_drug(session, "나정", ingredients=[("D900777", "베타성분")])
+        await make_drug(session, "다정", ingredients=[("D900777", "베타성분수화물")])
+    for _ in range(5):
+        async with session_factory() as session:
+            assert await _names(session, "D900777") == {"D900777": "베타성분"}
