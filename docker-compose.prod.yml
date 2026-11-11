@@ -3,7 +3,7 @@
 #
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 #
-# → https://goodmedicine.tail9f1768.ts.net/api/v1/  (재부팅해도 restart 정책으로 자동 복구)
+# → https://goodmedicine.<tailnet>.ts.net/api/v1/  (재부팅해도 restart 정책으로 자동 복구)
 #
 # 프론트 웹은 이 스택이 아니라 Vercel(goodmedicine-hpdice.vercel.app)이 호스팅한다.
 services:

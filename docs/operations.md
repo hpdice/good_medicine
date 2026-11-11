@@ -159,7 +159,7 @@ docker exec drugtest-backend-1 tail -5 /var/lib/goodmedicine/permit_detail.log  
 **PC 밖의 무료 감시 서비스**(예: UptimeRobot, Better Stack 등)에 아래 주소를 5분 간격으로 등록하고 알림(메일·앱)을 켠다.
 
 ```
-https://goodmedicine.tail9f1768.ts.net/health      → 200 {"status":"ok","db":"ok"} 이 정상
+https://goodmedicine.<tailnet>.ts.net/health      → 200 {"status":"ok","db":"ok"} 이 정상
 ```
 
 > 감시 서비스에는 URL만 알려주며 개인정보는 오가지 않는다.

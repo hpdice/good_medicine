@@ -154,7 +154,7 @@ front_app/lib/
 ### 백엔드 연결
 - 에뮬레이터: `http://10.0.2.2:8001/api/v1/`
 - 실제 기기(같은 네트워크): `http://<PC IP>:8001/api/v1/`
-- 릴리스 APK·웹: `https://goodmedicine.tail9f1768.ts.net/api/v1/` (Tailscale Funnel)
+- 릴리스 APK·웹: `https://goodmedicine.<tailnet>.ts.net/api/v1/` (Tailscale Funnel)
 - `BASE_URL`은 `/api/v1/` 접두사와 끝 슬래시를 포함해야 한다.
 
 ### 약품 설명 표시
@@ -224,10 +224,10 @@ front_app/lib/
   - 배포: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build` — override 배제 + `tailscale`
     컨테이너 추가.
   - 외부 노출: `tailscale` 컨테이너(노드명 `goodmedicine`, `infrastructure/tailscale/serve.json`으로 `/`→`backend:8000`
-    프록시) → `https://goodmedicine.tail9f1768.ts.net/api/v1/` (고정 HTTPS).
+    프록시) → `https://goodmedicine.<tailnet>.ts.net/api/v1/` (고정 HTTPS).
 - **프론트(웹)**: `front_app/**` push → GitHub Actions(`deploy-web.yml`) → `flutter build web` → `vercel deploy --prebuilt --prod`
   → `https://goodmedicine-hpdice.vercel.app`. 프론트와 API 오리진이 달라 백엔드 `.env`에 `CORS_ORIGINS` + `CORS_ORIGIN_REGEX`가 필요하다.
-- **APK**: `flutter build apk --release --dart-define=BASE_URL=https://goodmedicine.tail9f1768.ts.net/api/v1/` — 로컬에서 서명하려면 `android/key.properties`(저장소 밖 키 파일을 가리킴)가 있어야 하고, CI는 Secrets에서 키를 복원한다.
+- **APK**: `flutter build apk --release --dart-define=BASE_URL=https://goodmedicine.<tailnet>.ts.net/api/v1/` — 로컬에서 서명하려면 `android/key.properties`(저장소 밖 키 파일을 가리킴)가 있어야 하고, CI는 Secrets에서 키를 복원한다.
 - **웹 설치 안내**: 안드로이드 크롬으로 열면 앱(APK) 설치 배너를 보여 주고, 웹앱(PWA) 설치는 끈다(`--pwa-strategy=none`).
 
 ## 남은 작업

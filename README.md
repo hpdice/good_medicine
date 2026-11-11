@@ -223,13 +223,24 @@ GPU가 없는 환경에서는 `/analysis/guide`가 안내 문구로만 응답한
 
 ---
 
+## 면책 · 데이터 출처
+
+- **의료 면책**: 이 앱의 판정과 AI 설명은 참고용이며 의학적 진단·처방이 아니다. 약 복용을 바꾸기 전에는 의사·약사와 상의해야 한다.
+  앱 화면에도 같은 문구를 표시한다.
+- **데이터 출처**: 공공데이터포털(data.go.kr)의 식약처 의약품개요정보(e약은요)·의약품 제품 허가정보·DUR 품목정보·DUR 성분정보,
+  건강보험심사평가원 의약품표준코드·의약품주성분. 각 데이터셋의 이용 조건은 공공데이터포털의 해당 데이터셋 페이지를 따른다.
+  원본 데이터 파일과 API 응답은 저장소에 포함하지 않는다(DUR에서 파생한 소형 시드 `backend/seed/residual_interactions.json` 217건 제외).
+- **개인정보**: 건강정보·복약정보는 암호화해 저장하며(AES-256-GCM), 저장소에는 실제 사용자 데이터가 없다.
+
+---
+
 ## 배포
 
 | 구성 | 위치 |
 |---|---|
-| 백엔드 API + LLM | `docker compose` + Tailscale Funnel (`goodmedicine.tail9f1768.ts.net`) |
+| 백엔드 API + LLM | `docker compose` + Tailscale Funnel (`goodmedicine.<tailnet>.ts.net`) |
 | 프론트 웹 | Vercel (`goodmedicine-hpdice.vercel.app`) |
-| 모바일 APK | GitHub Actions 빌드 (`--dart-define=BASE_URL=…tail9f1768.ts.net/api/v1/`) |
+| 모바일 APK | GitHub Actions 빌드 (`--dart-define=BASE_URL=…<tailnet>.ts.net/api/v1/`) |
 
 배포 모드 실행: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build` —
 운영 절차는 [docs/operations.md](docs/operations.md).
