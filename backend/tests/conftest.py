@@ -18,6 +18,11 @@ os.environ["LOGIN_RATE_LIMIT"] = "1000/minute"
 # 테스트는 거의 매번 회원가입+로그인(=bcrypt 해시+검증)을 한다. 운영 코스트(12)면
 # 테스트 1개당 수백 ms 씩 붙으므로 4 로 낮춘다 (보안 무관, 속도만).
 os.environ["BCRYPT_ROUNDS"] = "4"
+# 테스트는 공공데이터 API를 부르면 안 된다. 약을 담을 때 뒤에서 상세를 마저 받는 작업(schedule_detail_completion)이 테스트가 끝난 뒤
+# 정리 단계에서 돌면 그 시점엔 `_fetch` 가짜 패치가 이미 풀려 있어, 개발 `.env`의 실제 키로 일일 한도(10,000건)를 쓰고
+# 응답 헤더의 남은 호출 수(`_quota`)가 다른 테스트로 새어 나갔다(스위트 한 번에 10건). 키를 비워 두면 호출 자체가 일어나지 않고,
+# 키가 필요한 테스트는 스스로 monkeypatch로 넣는다.
+os.environ["PUBLIC_DATA_API_KEY"] = ""
 
 import asyncio
 
@@ -94,12 +99,13 @@ def _prepare_schema():
 def _no_permit_detail_network(monkeypatch):
     """복약함 추가·약 상세 조회가 허가정보 상세 API(공공데이터)를 실제로 부르지 않게 막는다.
     상세 보강을 검증하는 테스트는 이 패치를 자기 가짜 `_fetch`로 다시 덮어쓴다."""
-    from app.services.drug_detail_service import DrugDetailService
+    from app.services.drug_detail_service import DrugDetailService, _quota
 
     async def _offline(self, item_seq):
         return None
 
     monkeypatch.setattr(DrugDetailService, "_fetch", _offline)
+    monkeypatch.setitem(_quota, "remaining", None)  # 전역 남은 호출 수가 테스트 사이에 새지 않게
 
 
 @pytest_asyncio.fixture(autouse=True)
